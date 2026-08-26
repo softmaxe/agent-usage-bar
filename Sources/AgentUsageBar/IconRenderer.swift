@@ -125,9 +125,13 @@ enum IconRenderer {
             let trackStrokeAlpha: CGFloat = stale ? 0.28 : 0.44
             let fillColor = baseFill.withAlphaComponent(stale ? 0.55 : 1.0)
 
-            // 15pt wide: uses the menu bar slot without touching its edges.
-            let barWidthPx = 30
-            let barXPx = (Self.canvasPx - barWidthPx) / 2
+            // Every lane of every provider spans the same 18pt, so switching providers does not
+            // resize the icon. The crab reaches that span with its arms, so its bar is narrower by
+            // exactly what the arms add; the Codex capsule is simply that wide.
+            let decoration: Decoration = provider == .codex ? .face : .crab
+            let spanPx = Self.canvasPx
+            let barWidthPx = spanPx - (decoration == .crab ? Self.crabArmWidthPx * 2 : 0)
+            let barXPx = (spanPx - barWidthPx) / 2
 
             func drawBar(rectPx: RectPx, remaining: Double?, alpha: CGFloat = 1.0, decoration: Decoration = .none) {
                 let rect = rectPx.rect()
@@ -184,9 +188,9 @@ enum IconRenderer {
                 }
             }
 
-            let decoration: Decoration = provider == .codex ? .face : .crab
+            // The weekly lane carries no decoration, so it takes the full span itself.
             let topRectPx = RectPx(x: barXPx, y: 19, w: barWidthPx, h: 12)
-            let bottomRectPx = RectPx(x: barXPx, y: 5, w: barWidthPx, h: 8)
+            let bottomRectPx = RectPx(x: 0, y: 5, w: spanPx, h: 8)
             // One meaningful quota should read as one meter: reserving an unusable second lane
             // would make 46% remaining look like roughly 23% of the icon.
             let singleRectPx = RectPx(x: barXPx, y: 14, w: barWidthPx, h: 16)
@@ -202,6 +206,9 @@ enum IconRenderer {
             }
         }
     }
+
+    /// How far the crab's arms extend past its bar on each side, in device pixels.
+    private static let crabArmWidthPx = 3
 
     private enum Decoration: Equatable {
         case none
@@ -254,7 +261,7 @@ enum IconRenderer {
         fillColor.withAlphaComponent(alpha).setFill()
 
         // Arms: barX is 3px, so 3px arms reach the canvas edge without clipping.
-        let armWidthPx = 3
+        let armWidthPx = Self.crabArmWidthPx
         let armHeightPx = max(0, rectPx.h - 6)
         let armYPx = rectPx.y + 3
         NSBezierPath(rect: Self.grid.rect(
