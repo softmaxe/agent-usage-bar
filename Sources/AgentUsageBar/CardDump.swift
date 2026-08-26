@@ -75,16 +75,18 @@ enum CardDump {
         let cases: [(String, Provider, UsageSnapshot?)] = [
             ("codex-loaded", .codex, (UsageSnapshot(
                 provider: .codex,
-                session: UsageWindow(usedPercent: 0, resetsAt: Date().addingTimeInterval(5 * 3600), windowSeconds: 18_000),
-                weekly: UsageWindow(usedPercent: 14, resetsAt: Date().addingTimeInterval(6 * 86_400 + 6 * 3600), windowSeconds: 604_800),
+                session: UsageWindow(usedPercent: 12, resetsAt: Date().addingTimeInterval(3 * 3600), windowSeconds: 18_000),
+                // Two days into the week with 14% gone is a reserve; the tip renders green.
+                weekly: UsageWindow(usedPercent: 14, resetsAt: Date().addingTimeInterval(5 * 86_400), windowSeconds: 604_800),
                 planLabel: "Plus",
                 credits: CreditsSnapshot(hasCredits: false, unlimited: false, balance: 0),
                 fetchedAt: now
             ))),
             ("claude-loaded", .claude, (UsageSnapshot(
                 provider: .claude,
-                session: UsageWindow(usedPercent: 29, resetsAt: Date().addingTimeInterval(4 * 3600 + 19 * 60), windowSeconds: nil),
-                weekly: UsageWindow(usedPercent: 3, resetsAt: Date().addingTimeInterval(6 * 86_400 + 10 * 3600), windowSeconds: nil),
+                // Most of the session window spent with a third of it left: a deficit, tip in red.
+                session: UsageWindow(usedPercent: 71, resetsAt: Date().addingTimeInterval(1 * 3600), windowSeconds: nil),
+                weekly: UsageWindow(usedPercent: 55, resetsAt: Date().addingTimeInterval(2 * 86_400), windowSeconds: nil),
                 planLabel: "Pro",
                 credits: nil,
                 fetchedAt: now

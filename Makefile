@@ -4,7 +4,7 @@ CONFIG ?= debug
 BIN := $(BUILD_DIR)/$(CONFIG)/$(APP_NAME)
 LOG_SUBSYSTEM := com.agentusagebar.app
 
-.PHONY: build run probe logs kill test clean
+.PHONY: build run probe logs kill test app clean
 
 build:
 	swift build -c $(CONFIG)
@@ -26,6 +26,10 @@ logs:
 kill:
 	@pkill -x $(APP_NAME) 2>/dev/null || true
 
+## Assemble a double-clickable AgentUsageBar.app under build/.
+app:
+	Scripts/package_app.sh
+
 ## No XCTest without Xcode, so the suite is a plain executable of assertions.
 test:
 	swift build -c $(CONFIG) --product $(APP_NAME)Tests
@@ -33,4 +37,4 @@ test:
 
 clean:
 	swift package clean
-	rm -rf $(BUILD_DIR)
+	rm -rf $(BUILD_DIR) build

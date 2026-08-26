@@ -11,17 +11,31 @@ struct UsageProgressBar: View {
     let tint: Color
     /// Positions of the notches that segment the bar, in percent.
     let markerPercents: [Double]
+    /// Where the fill would sit if the budget were being spent evenly, in remaining percent.
+    let pacePercent: Double?
+    /// Red marks burning faster than the clock; green marks a reserve.
+    let paceIsDeficit: Bool
 
     @Environment(\.displayScale) private var displayScale
 
     private static let markerPunchWidth: CGFloat = 5
     private static let markerStripeWidth: CGFloat = 1
+    private static let pacePunchWidth: CGFloat = 4
+    private static let paceStripeWidth: CGFloat = 2
     private static let punchOpacity: Double = 0.9
 
-    init(percent: Double, tint: Color, markerPercents: [Double] = []) {
+    init(
+        percent: Double,
+        tint: Color,
+        markerPercents: [Double] = [],
+        pacePercent: Double? = nil,
+        paceIsDeficit: Bool = false
+    ) {
         self.percent = percent
         self.tint = tint
         self.markerPercents = markerPercents
+        self.pacePercent = pacePercent
+        self.paceIsDeficit = paceIsDeficit
     }
 
     private var clamped: Double { min(100, max(0, self.percent)) }
@@ -65,6 +79,28 @@ struct UsageProgressBar: View {
                 )
                 context.blendMode = .normal
                 context.fill(Path(Self.extended(stripeRect, size: size)), with: .color(Theme.markerStripe))
+            }
+
+            // Pace tip, drawn last so it reads on top of both the track and the fill.
+            if let pacePercent = self.pacePercent {
+                let x = size.width * min(100, max(0, pacePercent)) / 100
+                let punchRect = Self.markerRect(x: x, size: size, width: Self.pacePunchWidth, scale: scale)
+                let stripeRect = Self.markerRect(
+                    x: x,
+                    size: size,
+                    width: max(1 / scale, Self.paceStripeWidth),
+                    scale: scale
+                )
+                context.blendMode = .destinationOut
+                context.fill(
+                    Path(Self.extended(punchRect, size: size)),
+                    with: .color(.white.opacity(Self.punchOpacity))
+                )
+                context.blendMode = .normal
+                context.fill(
+                    Path(Self.extended(stripeRect, size: size)),
+                    with: .color(self.paceIsDeficit ? .red : .green)
+                )
             }
         }
         .frame(height: 6)

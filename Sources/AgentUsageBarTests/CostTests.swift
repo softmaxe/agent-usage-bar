@@ -283,3 +283,140 @@ enum SettingsTests {
         Harness.expect(reloaded.isEnabled(.claude), "the other provider is untouched")
     }
 }
+
+/// Pace projection: expected usage is linear in elapsed window time, and the delta against
+/// actual usage becomes the deficit/reserve line under each bar.
+enum PaceTests {
+    private static let week: TimeInterval = 7 * 24 * 3600
+    private static let weekMinutes = 10_080
+
+    private static func window(used: Double, secondsUntilReset: TimeInterval, now: Date) -> UsageWindow {
+        UsageWindow(
+            usedPercent: used,
+            resetsAt: now.addingTimeInterval(secondsUntilReset),
+            windowSeconds: Self.weekMinutes * 60
+        )
+    }
+
+    /// Plain "1d 12h" rendering so the label assertions do not depend on the UI formatter.
+    private static func duration(_ seconds: TimeInterval) -> String {
+        let total = Int(max(0, seconds))
+        let days = total / 86_400
+        let hours = (total % 86_400) / 3_600
+        return days > 0 ? "\(days)d \(hours)h" : "\(hours)h"
+    }
+
+    static func run() {
+        let now = Date()
+
+        // Halfway through the window with half the budget spent is exactly on pace.
+        let onPace = UsagePace.evaluate(
+            window: Self.window(used: 50, secondsUntilReset: Self.week / 2, now: now),
+            context: .weekly,
+            now: now
+        )
+        Harness.expectEqual(onPace?.stage, .onTrack, "half spent at halfway is on track")
+        Harness.expectEqual(onPace?.deltaLabel, "On pace", "on-track label")
+
+        // Spending faster than the clock is a deficit, and the budget empties before the reset.
+        let deficit = UsagePace.evaluate(
+            window: Self.window(used: 70, secondsUntilReset: Self.week / 2, now: now),
+            context: .weekly,
+            now: now
+        )
+        Harness.expectEqual(deficit?.stage, .farAhead, "20 points over expected is far ahead")
+        Harness.expectEqual(deficit?.deltaLabel, "20% in deficit", "deficit label")
+        Harness.expect(deficit?.willLastToReset == false, "a deficit does not last to the reset")
+        Harness.expectEqual(
+            deficit?.etaLabel(context: .weekly, durationText: Self.duration),
+            "Runs out in 1d 12h",
+            "weekly ETA wording"
+        )
+        // The session window says "projected empty" rather than "runs out".
+        Harness.expectEqual(
+            deficit?.etaLabel(context: .session, durationText: Self.duration),
+            "Projected empty in 1d 12h",
+            "session ETA wording"
+        )
+
+        // Spending slower banks a reserve, and the headroom hint appears past 15 points.
+        let reserve = UsagePace.evaluate(
+            window: Self.window(used: 30, secondsUntilReset: Self.week / 2, now: now),
+            context: .weekly,
+            now: now
+        )
+        Harness.expectEqual(reserve?.stage, .farBehind, "20 points under expected is far behind")
+        Harness.expectEqual(reserve?.deltaLabel, "20% in reserve", "reserve label")
+        Harness.expect(reserve?.willLastToReset == true, "a reserve lasts to the reset")
+        Harness.expectEqual(
+            reserve?.etaLabel(context: .weekly, durationText: Self.duration),
+            "Lasts until reset · 1.5× headroom",
+            "headroom hint at a large reserve"
+        )
+
+        // A small reserve gets the plain label, with no headroom claim.
+        let smallReserve = UsagePace.evaluate(
+            window: Self.window(used: 45, secondsUntilReset: Self.week / 2, now: now),
+            context: .weekly,
+            now: now
+        )
+        Harness.expectEqual(smallReserve?.stage, .slightlyBehind, "5 points under is slightly behind")
+        Harness.expectEqual(
+            smallReserve?.etaLabel(context: .weekly, durationText: Self.duration),
+            "Lasts until reset",
+            "no headroom hint for a small reserve"
+        )
+
+        // The bar shows what is left, so the tip is placed on the remaining side.
+        Harness.expectEqual(onPace?.expectedRemainingPercent, 50, "pace tip position mirrors expected use")
+
+        // Guards: each of these would produce a misleading reading.
+        Harness.expect(
+            UsagePace.evaluate(
+                window: UsageWindow(usedPercent: 50, resetsAt: nil, windowSeconds: nil),
+                context: .weekly,
+                now: now
+            ) == nil,
+            "no reset time means no pace"
+        )
+        Harness.expect(
+            UsagePace.evaluate(
+                window: Self.window(used: 100, secondsUntilReset: Self.week / 2, now: now),
+                context: .weekly,
+                now: now
+            ) == nil,
+            "an exhausted window has no pace to report"
+        )
+        Harness.expect(
+            UsagePace.evaluate(
+                window: Self.window(used: 50, secondsUntilReset: -60, now: now),
+                context: .weekly,
+                now: now
+            ) == nil,
+            "a reset in the past is rejected"
+        )
+        Harness.expect(
+            UsagePace.evaluate(
+                window: Self.window(used: 50, secondsUntilReset: Self.week * 2, now: now),
+                context: .weekly,
+                now: now
+            ) == nil,
+            "a reset further out than one window is rejected"
+        )
+        // Just after a reset the expected figure is rounding noise, so nothing is shown.
+        Harness.expect(
+            UsagePace.evaluate(
+                window: Self.window(used: 1, secondsUntilReset: Self.week * 0.99, now: now),
+                context: .weekly,
+                now: now
+            ) == nil,
+            "under 3% elapsed is too early to judge"
+        )
+
+        // Stage boundaries, straight from CodexBar's thresholds.
+        Harness.expectEqual(UsagePace.stage(for: 2), .onTrack, "2 points is still on track")
+        Harness.expectEqual(UsagePace.stage(for: 6), .slightlyAhead, "6 points is slightly ahead")
+        Harness.expectEqual(UsagePace.stage(for: -12), .behind, "12 points under is behind")
+        Harness.expectEqual(UsagePace.stage(for: 12.1), .farAhead, "past 12 points is far ahead")
+    }
+}

@@ -57,6 +57,13 @@ struct MenuCardView: View {
         self.display.snapshot?.planLabel
     }
 
+    private static func paceLine(for pace: UsagePace, context: UsagePace.Context) -> String {
+        guard let eta = pace.etaLabel(context: context, durationText: Formatters.compactDuration) else {
+            return pace.deltaLabel
+        }
+        return "\(pace.deltaLabel) · \(eta)"
+    }
+
     // MARK: - Body
 
     @ViewBuilder
@@ -64,10 +71,10 @@ struct MenuCardView: View {
         VStack(alignment: .leading, spacing: 12) {
             if let snapshot = self.display.snapshot {
                 if let session = snapshot.session {
-                    self.window(title: "Session", window: session)
+                    self.window(title: "Session", window: session, context: .session)
                 }
                 if let weekly = snapshot.weekly {
-                    self.window(title: "Weekly", window: weekly)
+                    self.window(title: "Weekly", window: weekly, context: .weekly)
                 }
                 if snapshot.session == nil, snapshot.weekly == nil {
                     Text("No quota windows reported.")
@@ -99,8 +106,13 @@ struct MenuCardView: View {
         .padding(.bottom, 6)
     }
 
-    private func window(title: String, window: UsageWindow) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+    private func window(
+        title: String,
+        window: UsageWindow,
+        context: UsagePace.Context
+    ) -> some View {
+        let pace = UsagePace.evaluate(window: window, context: context)
+        return VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text("\(title) \(Formatters.percent(window.remainingPercent)) left")
                     .font(.system(size: 14, weight: .semibold))
@@ -114,8 +126,18 @@ struct MenuCardView: View {
             UsageProgressBar(
                 percent: window.remainingPercent,
                 tint: Theme.accent(for: self.provider),
-                markerPercents: Self.markerPercents
+                markerPercents: Self.markerPercents,
+                // The bar shows what is left, so the pace tip marks the remaining side too.
+                pacePercent: pace?.expectedRemainingPercent,
+                paceIsDeficit: pace?.stage.isAhead ?? false
             )
+            if let pace {
+                // One Text, not an HStack: split across views the line wraps mid-phrase.
+                Text(Self.paceLine(for: pace, context: context))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 }
