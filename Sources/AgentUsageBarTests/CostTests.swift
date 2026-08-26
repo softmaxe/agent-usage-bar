@@ -216,7 +216,7 @@ enum CostTests {
         // by rereading the turn_context lines it already skipped past.
         let appended = solTurn + "\n"
         if let handle = try? FileHandle(forWritingTo: codexFile) {
-            try? handle.seekToEnd()
+            _ = try? handle.seekToEnd()
             try? handle.write(contentsOf: Data(appended.utf8))
             try? handle.close()
         }

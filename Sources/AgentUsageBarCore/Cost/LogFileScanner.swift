@@ -22,17 +22,30 @@ enum LogFileScanner {
         }
         if size == 0 { return nil }
 
-        let digest = try self.prefixDigest(of: url)
-
-        guard let previous,
-              previous.inode == inode,
-              previous.prefixDigest == digest,
-              size >= previous.size else {
+        guard let previous else {
+            let digest = try self.prefixDigest(of: url, byteCount: min(Int64(Self.prefixDigestBytes), size))
             return ScanPlan(
                 cursor: FileCursor(inode: inode, size: size, offset: 0, prefixDigest: digest),
                 requiresFullReparse: true
             )
         }
+
+        // For files smaller than 64KB, hash only the bytes that existed during the previous scan.
+        // Hashing the newly appended bytes would make every append look like an in-place rewrite.
+        let priorPrefixBytes = min(Int64(Self.prefixDigestBytes), previous.size)
+        let priorPrefixDigest = try self.prefixDigest(of: url, byteCount: priorPrefixBytes)
+        guard previous.inode == inode,
+              previous.prefixDigest == priorPrefixDigest,
+              size >= previous.size else {
+            let digest = try self.prefixDigest(of: url, byteCount: min(Int64(Self.prefixDigestBytes), size))
+            return ScanPlan(
+                cursor: FileCursor(inode: inode, size: size, offset: 0, prefixDigest: digest),
+                requiresFullReparse: true
+            )
+        }
+
+        // Refresh the stored digest when a small file grows, especially when it crosses 64KB.
+        let digest = try self.prefixDigest(of: url, byteCount: min(Int64(Self.prefixDigestBytes), size))
 
         return ScanPlan(
             cursor: FileCursor(inode: inode, size: size, offset: previous.offset, prefixDigest: digest),
@@ -73,10 +86,10 @@ enum LogFileScanner {
         return consumed
     }
 
-    private static func prefixDigest(of url: URL) throws -> String {
+    private static func prefixDigest(of url: URL, byteCount: Int64) throws -> String {
         let file = try FileHandle(forReadingFrom: url)
         defer { try? file.close() }
-        let head = try file.read(upToCount: Self.prefixDigestBytes) ?? Data()
+        let head = try file.read(upToCount: max(0, Int(byteCount))) ?? Data()
         return SHA256.hash(data: head).map { String(format: "%02x", $0) }.joined()
     }
 
