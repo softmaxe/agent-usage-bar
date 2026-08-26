@@ -1,0 +1,158 @@
+# AgentUsageBar
+
+AgentUsageBar is a lightweight macOS menu bar app for tracking Codex and Claude usage. It shows one independently controlled status item per provider, with quota windows, reset times, usage pace, local token and cost estimates, and recent model activity.
+
+The project is a focused reimplementation of selected [CodexBar](https://github.com/steipete/CodexBar) behavior for Codex and Claude.
+
+## Features
+
+- Separate Codex and Claude menu bar items
+- Session and weekly quota remaining, reset times, and pace indicators
+- Today's and rolling 30-day token and estimated cost totals
+- Recent daily usage chart, per-model breakdown, and top-model summary
+- Codex credits when the usage endpoint reports them
+- Configurable manual or 1, 2, 5, 15, and 30-minute refresh intervals
+- Editable per-model pricing overrides
+- Last-known data retained and dimmed when a refresh fails
+
+## Requirements
+
+- macOS 14 or later
+- Swift 6 toolchain (Xcode Command Line Tools or Xcode)
+- Codex CLI and/or Claude Code signed in locally
+
+AgentUsageBar can show either provider by itself. You do not need to use both.
+
+## Build the app
+
+Clone the repository and package a release build:
+
+```bash
+git clone git@github.com:softmaxe/agent-usage-bar.git
+cd agent-usage-bar
+make app
+open build/AgentUsageBar.app
+```
+
+`make app` builds the current Mac architecture, assembles `build/AgentUsageBar.app`, and applies an ad-hoc code signature. To install the local build:
+
+```bash
+ditto build/AgentUsageBar.app /Applications/AgentUsageBar.app
+open /Applications/AgentUsageBar.app
+```
+
+The current packaging script is intended for local builds. Public distribution still requires a Developer ID Application signature, hardened runtime, Apple notarization, and a distributable archive such as a signed ZIP or DMG.
+
+## Sign in
+
+AgentUsageBar reuses credentials created by the official CLIs. It does not provide its own login flow.
+
+For Codex:
+
+```bash
+codex login
+```
+
+Codex credentials are read from `$CODEX_HOME/auth.json`, or `~/.codex/auth.json` when `CODEX_HOME` is unset.
+
+For Claude Code, run the CLI and complete its login flow:
+
+```bash
+claude
+```
+
+Claude credentials are read from the macOS Keychain entry used by Claude Code.
+
+## Use the menu bar app
+
+Open either provider icon to view its current quota and local cost summary. The menu provides:
+
+- `Refresh` (`⌘R`) to request fresh provider data
+- `Settings…` (`⌘,`) to change refresh frequency, menu bar visibility, and pricing
+- `Quit` (`⌘Q`) to stop the app
+
+The Codex and Claude switches under **Settings → General → Show in menu bar** are independent. An enabled item remains visible while its provider is signed out or waiting for its first refresh, so the menu can report the current state instead of silently disappearing.
+
+Opening a provider menu also requests a refresh, limited to once every 30 seconds. The default scheduled refresh interval is five minutes to reduce quota-endpoint rate limiting.
+
+## Cost estimates and pricing
+
+Cost and token totals are estimated from local CLI session logs:
+
+- Codex: `~/.codex/sessions` and `~/.codex/archived_sessions`
+- Claude: `~/.claude/projects` and `~/.config/claude/projects`
+
+The first scan can take longer on a large history. Later scans are incremental and use a cache at:
+
+```text
+~/Library/Caches/AgentUsageBar/cost-usage/cost-usage.sqlite
+```
+
+Built-in rates are supplemented by the public [models.dev](https://models.dev) catalog, cached for 24 hours. Rates can be reviewed or overridden under **Settings → Pricing**. User overrides are stored at:
+
+```text
+~/Library/Application Support/AgentUsageBar/pricing-overrides.json
+```
+
+All displayed costs are estimates. Cache-token accounting, provider billing rules, and changing model prices can make them differ from an invoice.
+
+## Privacy and network access
+
+AgentUsageBar reads local CLI credentials and usage logs. It writes only its settings, incremental cost cache, usage history, pricing cache, and optional pricing overrides.
+
+The app makes requests to:
+
+- OpenAI's Codex usage endpoint for Codex quota data
+- Anthropic's OAuth usage endpoint for Claude quota data
+- `models.dev` for the optional pricing catalog
+
+Credentials are not written back to Codex or Claude storage. Claude Keychain access is performed through Apple's `/usr/bin/security` tool and may trigger a macOS access prompt.
+
+## Development
+
+The project uses Swift Package Manager and does not require an Xcode project.
+
+```bash
+make build   # Build a debug binary
+make run     # Stop an existing instance, build, and run in the foreground
+make test    # Run the assertion-based test suite
+make probe   # Check both provider integrations from the terminal
+make logs    # Stream app logs
+make app     # Build the release .app bundle
+make clean   # Remove SwiftPM and app build output
+```
+
+`make probe` can expose account and usage metadata in the terminal. Review its output before sharing logs.
+
+## Troubleshooting
+
+### A provider reports that it is not signed in
+
+Run the corresponding CLI login flow, then choose `Refresh`. Use `make probe` from the repository to see the credential or endpoint error directly.
+
+### Data is stale or refreshes return HTTP 429
+
+AgentUsageBar keeps the last good data and dims the menu bar icon. Wait for the provider's rate-limit window, use a longer refresh interval, and avoid repeatedly forcing refreshes.
+
+### Cost totals are missing or incomplete
+
+Confirm that the CLI has local JSONL session logs and that the app can read the paths listed above. Unknown models appear without a price until the catalog or a manual pricing override supplies one.
+
+### Inspect app logs
+
+```bash
+make logs
+```
+
+The logging subsystem is `com.agentusagebar.app`.
+
+## Current limitations
+
+- The package script produces a host-architecture, ad-hoc-signed local build; universal release packaging and notarization are not automated.
+- Claude credentials are not refreshed or written back by AgentUsageBar. Re-authenticate with Claude Code when needed.
+- Provider-specific spend controls, additional per-model limits, workspace resolution, and web fallbacks are outside the current scope.
+- Cost figures are reconstructed from local logs and are not billing statements.
+
+## Acknowledgements
+
+AgentUsageBar adapts selected ideas and implementation details from CodexBar, Copyright © 2026 Peter Steinberger, under the MIT License. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for attribution and license text.
