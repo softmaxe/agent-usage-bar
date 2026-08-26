@@ -131,9 +131,9 @@ struct CostSectionView: View {
             selectedDayKey: selectedDayKey,
             valueRatio: ratio
         )
-        let labelCost = CostChartHighlightPolicy.hoverLabelCost(
+        let labelCost = CostChartHighlightPolicy.labelCost(
             dayKey: day.dayKey,
-            hoveredDayKey: self.hoveredDayKey,
+            selectedDayKey: selectedDayKey,
             costUSD: day.costUSD
         )
         return RoundedRectangle(cornerRadius: 2)
