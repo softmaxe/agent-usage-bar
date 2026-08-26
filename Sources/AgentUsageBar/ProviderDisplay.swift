@@ -9,7 +9,7 @@ struct ProviderDisplay: Equatable {
     var error: String?
     /// Completed past windows, once enough have been recorded to model a pace from them.
     var history: UsageHistoryDataset?
-    /// No credentials on this machine: the status item is hidden entirely.
+    /// No credentials on this machine: the enabled status item explains how to sign in.
     var isSignedOut = false
 
     /// Dim the menu bar icon when the newest attempt failed.

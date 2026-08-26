@@ -3,8 +3,7 @@ import AppKit
 import Combine
 import SwiftUI
 
-/// One `NSStatusItem` per provider. A provider with no credentials on this machine gets no
-/// status item at all — an empty icon would be pure noise.
+/// One independently controlled `NSStatusItem` per provider.
 @MainActor
 final class StatusItemController: NSObject, NSMenuDelegate {
     private let store: UsageStore
@@ -22,13 +21,14 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
         pricing.onSaved = { [weak store] in store?.refresh() }
 
+        // SettingsStore is MainActor-isolated. Consume the emitted set synchronously so rapid
+        // toggles cannot leave status-item work queued behind a newer SwiftUI switch state.
         self.settings.$enabledProviders
             .removeDuplicates()
             .dropFirst()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
+            .sink { [weak self] enabledProviders in
                 guard let self else { return }
-                self.apply(displays: self.store.displays)
+                self.apply(enabledProviders: enabledProviders, displays: self.store.displays)
             }
             .store(in: &self.cancellables)
 
@@ -46,16 +46,22 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     // MARK: - Status items
 
-    private func apply(displays: [Provider: ProviderDisplay]) {
+    private func apply(
+        enabledProviders: Set<Provider>? = nil,
+        displays: [Provider: ProviderDisplay]
+    ) {
+        let visibleProviders = MenuBarVisibilityPolicy.visibleProviders(
+            enabledProviders: enabledProviders ?? self.settings.enabledProviders
+        )
+
         // Keep a stable left-to-right order by rebuilding in declaration order.
         for provider in Provider.allCases {
-            guard self.settings.isEnabled(provider),
-                  let display = displays[provider],
-                  !display.isSignedOut else {
+            guard visibleProviders.contains(provider) else {
                 self.removeStatusItem(for: provider)
                 continue
             }
 
+            let display = displays[provider] ?? ProviderDisplay()
             let item = self.statusItem(for: provider)
             item.button?.image = Self.icon(for: provider, display: display)
             item.button?.toolTip = Self.toolTip(for: provider, display: display)
@@ -67,9 +73,14 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         if let existing = self.statusItems[provider] { return existing }
 
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        item.autosaveName = Self.autosaveName(for: provider)
         item.menu = self.makeMenu(for: provider)
         self.statusItems[provider] = item
         return item
+    }
+
+    private static func autosaveName(for provider: Provider) -> String {
+        "agentusagebar-\(provider.rawValue)"
     }
 
     private func removeStatusItem(for provider: Provider) {
@@ -77,6 +88,20 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         NSStatusBar.system.removeStatusItem(item)
         self.hostingViews.removeValue(forKey: provider)
     }
+
+#if DEBUG
+    func debugStatusItemState(
+        for provider: Provider
+    ) -> (exists: Bool, visible: Bool, attached: Bool, stableIdentity: Bool) {
+        guard let item = self.statusItems[provider] else { return (false, false, false, false) }
+        return (
+            true,
+            item.isVisible,
+            item.button?.window != nil,
+            item.autosaveName == Self.autosaveName(for: provider)
+        )
+    }
+#endif
 
     /// A failed refresh keeps the last good percentages but dims them, so the icon still carries
     /// information instead of collapsing to an empty track.

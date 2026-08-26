@@ -36,7 +36,7 @@ struct SettingsView: View {
                         set: { self.settings.setEnabled($0, for: provider) }
                     ))
                 }
-                Text("A provider you are not signed in to stays hidden regardless.")
+                Text("Each provider has its own menu bar item. Sign-in status does not change this setting.")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }

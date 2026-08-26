@@ -86,10 +86,13 @@ public final class SettingsStore: ObservableObject {
     }
 
     public func setEnabled(_ enabled: Bool, for provider: Provider) {
+        var updated = self.enabledProviders
         if enabled {
-            self.enabledProviders.insert(provider)
+            updated.insert(provider)
         } else {
-            self.enabledProviders.remove(provider)
+            updated.remove(provider)
         }
+        guard updated != self.enabledProviders else { return }
+        self.enabledProviders = updated
     }
 }

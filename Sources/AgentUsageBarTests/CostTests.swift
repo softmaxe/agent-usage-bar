@@ -1,4 +1,5 @@
 import AgentUsageBarCore
+import Combine
 import Foundation
 
 /// Cost-layer checks. The scan tests build synthetic transcripts in a temp directory and drive
@@ -297,13 +298,52 @@ enum SettingsTests {
         Harness.expectEqual(RefreshFrequency.thirtyMinutes.seconds, 1800, "thirty minutes in seconds")
         Harness.expectEqual(RefreshFrequency.allCases.count, 6, "six cadence options")
 
+        var visibilityChanges: [Set<Provider>] = []
+        let observer = store.$enabledProviders
+            .dropFirst()
+            .sink { visibilityChanges.append($0) }
+
         store.refreshFrequency = .fifteenMinutes
+        store.setEnabled(false, for: .codex)
+        store.setEnabled(false, for: .claude)
+        store.setEnabled(true, for: .codex)
+        store.setEnabled(true, for: .claude)
+        Harness.expectEqual(
+            visibilityChanges,
+            [Set([.claude]), [], Set([.codex]), Set(Provider.allCases)],
+            "each toggle publishes its complete independent state"
+        )
+        _ = observer
+
         store.setEnabled(false, for: .codex)
 
         let reloaded = SettingsStore(defaults: defaults)
         Harness.expectEqual(reloaded.refreshFrequency, .fifteenMinutes, "cadence survives a reload")
         Harness.expect(!reloaded.isEnabled(.codex), "a disabled provider survives a reload")
         Harness.expect(reloaded.isEnabled(.claude), "the other provider is untouched")
+    }
+}
+
+/// A menu bar toggle owns visibility independently of provider refresh state.
+enum MenuBarVisibilityTests {
+    static func run() {
+        let onlyCodex: Set<Provider> = [.codex]
+
+        Harness.expectEqual(
+            MenuBarVisibilityPolicy.visibleProviders(enabledProviders: onlyCodex),
+            onlyCodex,
+            "an enabled provider is visible before its first refresh"
+        )
+        Harness.expectEqual(
+            MenuBarVisibilityPolicy.visibleProviders(enabledProviders: [.claude]),
+            Set([.claude]),
+            "each provider can be enabled independently"
+        )
+        Harness.expectEqual(
+            MenuBarVisibilityPolicy.visibleProviders(enabledProviders: []),
+            Set<Provider>(),
+            "disabling every provider removes every item"
+        )
     }
 }
 

@@ -29,6 +29,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 enum AgentUsageBarApp {
     @MainActor
     static func main() {
+#if DEBUG
+        if CommandLine.arguments.contains("--verify-menu-toggles") {
+            StatusItemToggleVerifier.run()
+        }
+#endif
         if let index = CommandLine.arguments.firstIndex(of: "--dump-icons"),
            index + 1 < CommandLine.arguments.count {
             IconDump.run(directory: CommandLine.arguments[index + 1])
