@@ -17,4 +17,24 @@ enum CostChartHighlightPolicy {
     static func opacity(dayKey: String, selectedDayKey: String?, valueRatio _: Double) -> Double {
         dayKey == selectedDayKey ? 1.0 : 0.55
     }
+
+    /// A chart price belongs to the bar directly under the pointer. The default today selection
+    /// still drives the detail rows, but it must not create a floating price label by itself.
+    static func hoverLabelCost(dayKey: String, hoveredDayKey: String?, costUSD: Double?) -> Double? {
+        dayKey == hoveredDayKey ? costUSD : nil
+    }
+
+    /// Mirrors the HStack's equal-width bars and explicit spacing. Pointer movement through a gap
+    /// clears the hover instead of borrowing the bar on either side.
+    static func barIndex(atX x: Double, width: Double, barCount: Int, spacing: Double) -> Int? {
+        guard barCount > 0, width > 0, spacing >= 0, x >= 0, x <= width else { return nil }
+        let totalSpacing = spacing * Double(barCount - 1)
+        let barWidth = (width - totalSpacing) / Double(barCount)
+        guard barWidth > 0 else { return nil }
+
+        let slotWidth = barWidth + spacing
+        let index = min(barCount - 1, Int(x / slotWidth))
+        let offset = x - Double(index) * slotWidth
+        return offset <= barWidth ? index : nil
+    }
 }

@@ -100,21 +100,17 @@ struct CostSectionView: View {
     }
 
     private var chart: some View {
-        VStack(alignment: .trailing, spacing: 4) {
-            Text(Formatters.compactCost(self.maxValue))
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary)
-            HStack(alignment: .bottom, spacing: Self.barSpacing) {
-                ForEach(self.bars, id: \.dayKey) { day in
-                    self.bar(for: day)
-                }
+        HStack(alignment: .bottom, spacing: Self.barSpacing) {
+            ForEach(self.bars, id: \.dayKey) { day in
+                self.bar(for: day)
             }
-            .frame(height: Self.chartHeight)
-            .overlay {
-                GeometryReader { geometry in
-                    MouseLocationReader { location in
-                        self.updateHover(at: location, width: geometry.size.width)
-                    }
+        }
+        .frame(height: Self.chartHeight)
+        .padding(.top, 14)
+        .overlay {
+            GeometryReader { geometry in
+                MouseLocationReader { location in
+                    self.updateHover(at: location, width: geometry.size.width)
                 }
             }
         }
@@ -135,11 +131,25 @@ struct CostSectionView: View {
             selectedDayKey: selectedDayKey,
             valueRatio: ratio
         )
+        let labelCost = CostChartHighlightPolicy.hoverLabelCost(
+            dayKey: day.dayKey,
+            hoveredDayKey: self.hoveredDayKey,
+            costUSD: day.costUSD
+        )
         return RoundedRectangle(cornerRadius: 2)
             .fill(Theme.accent(for: self.provider).opacity(opacity))
             // A day with a trace of spend still deserves a visible sliver.
             .frame(height: max(4, Self.chartHeight * ratio))
             .frame(maxWidth: .infinity)
+            .overlay(alignment: .top) {
+                if let labelCost {
+                    Text(Formatters.compactCost(labelCost))
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.primary)
+                        .fixedSize()
+                        .offset(y: -14)
+                }
+            }
     }
 
     // MARK: - Hover
@@ -237,11 +247,13 @@ struct CostSectionView: View {
             )
             return
         }
-        let count = CGFloat(self.bars.count)
-        let slot = (width - Self.barSpacing * (count - 1)) / count + Self.barSpacing
-        guard slot > 0 else { return }
-        let index = min(self.bars.count - 1, max(0, Int(location.x / slot)))
-        let key = self.bars[index].dayKey
+        let index = CostChartHighlightPolicy.barIndex(
+            atX: location.x,
+            width: width,
+            barCount: self.bars.count,
+            spacing: Self.barSpacing
+        )
+        let key = index.map { self.bars[$0].dayKey }
         let nextKey = CostChartHighlightPolicy.hoveredDayKey(
             afterMovingTo: key,
             currentDayKey: self.hoveredDayKey
