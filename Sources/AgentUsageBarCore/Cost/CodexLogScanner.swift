@@ -44,9 +44,11 @@ enum CodexLogScanner {
 
             if plan.requiresFullReparse { try cache.forget(path: url.path) }
 
-            // A resumed file starts after the turn_context that named the model, so recover the
-            // model by rereading just the turn_context lines from the top.
-            var currentModel = plan.cursor.offset > 0 ? Self.lastModel(in: url, before: plan.cursor.offset) : nil
+            // A resumed file starts after the turn_context that named the model and after the
+            // token_count that a re-emission would repeat, so replay the prefix to recover both.
+            var state = plan.cursor.offset > 0
+                ? Self.resumeState(in: url, before: plan.cursor.offset)
+                : ResumeState()
 
             try cache.beginTransaction()
             do {
@@ -62,7 +64,7 @@ enum CodexLogScanner {
                             path: url.path,
                             cache: cache,
                             overlay: overlay,
-                            currentModel: &currentModel
+                            state: &state
                         )
                     } catch {
                         parseError = error
@@ -89,12 +91,20 @@ enum CodexLogScanner {
         return touched
     }
 
+    /// What a resumed scan has to know about the bytes it is skipping past.
+    struct ResumeState {
+        /// Model announced by the most recent turn_context.
+        var model: String?
+        /// The most recent `total_token_usage`, which is how a re-emitted event is recognised.
+        var lastTotalUsage: [String: Int]?
+    }
+
     private static func ingest(
         line: UnsafeRawBufferPointer,
         path: String,
         cache: CostCache,
         overlay: PricingOverlay?,
-        currentModel: inout String?
+        state: inout ResumeState
     ) throws {
         let data = Data(line)
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
@@ -104,7 +114,7 @@ enum CodexLogScanner {
                let model = (payload["model"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
                !model.isEmpty {
                 // Normalize on the way in so dated aliases aggregate as one model.
-                currentModel = CostPricing.normalizeCodexModel(model)
+                state.model = CostPricing.normalizeCodexModel(model)
             }
             return
         }
@@ -114,6 +124,13 @@ enum CodexLogScanner {
               payload["type"] as? String == "token_count",
               let info = payload["info"] as? [String: Any],
               let usage = info["last_token_usage"] as? [String: Any] else { return }
+
+        // Codex re-emits a token_count when the rate-limit block refreshes without a new turn.
+        // Those events repeat the previous last_token_usage while the running total stands still,
+        // so the running total is what tells a real turn from a replay.
+        let runningTotal = Self.totals(info["total_token_usage"])
+        defer { if let runningTotal { state.lastTotalUsage = runningTotal } }
+        if let runningTotal, runningTotal == state.lastTotalUsage { return }
 
         // Codex reports input_tokens as the whole prompt, with the cached reads and the cache
         // writes both carved out of it. Peel them off in turn so each bucket is priced once.
@@ -133,7 +150,7 @@ enum CodexLogScanner {
               let date = ClaudeLogScanner.parseTimestamp(timestamp) else { return }
 
         // Older rollouts predate turn_context; count their tokens but leave them unpriced.
-        let model = currentModel ?? CostPricing.unknownModel
+        let model = state.model ?? CostPricing.unknownModel
         // The long-context tier and price belong to the individual turn, not to the day's total.
         let longContext = CostPricing.isLongContext(
             totals: totals,
@@ -157,19 +174,38 @@ enum CodexLogScanner {
         )
     }
 
-    /// Scans only the turn_context lines up to `offset` to recover the model in effect there.
-    private static func lastModel(in url: URL, before offset: Int64) -> String? {
-        var model: String?
-        _ = try? LogFileScanner.readLines(of: url, from: 0) { buffer in
-            guard buffer.contains(ascii: Self.turnContextMarker) else { return }
+    /// Replays the bytes before `offset` to recover the state a resumed scan would otherwise
+    /// have lost. Bounded by `offset`: reading past it would pick up a model announced in the
+    /// appended region and attribute the turns before it to the wrong model.
+    private static func resumeState(in url: URL, before offset: Int64) -> ResumeState {
+        var state = ResumeState()
+        _ = try? LogFileScanner.readLines(of: url, from: 0, upTo: offset) { buffer in
+            let isTurnContext = buffer.contains(ascii: Self.turnContextMarker)
+            let isTokenCount = buffer.contains(ascii: Self.tokenCountMarker)
+            guard isTurnContext || isTokenCount else { return }
             guard let root = try? JSONSerialization.jsonObject(with: Data(buffer)) as? [String: Any],
-                  root["type"] as? String == "turn_context",
-                  let payload = root["payload"] as? [String: Any],
-                  let value = (payload["model"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !value.isEmpty else { return }
-            model = CostPricing.normalizeCodexModel(value)
+                  let payload = root["payload"] as? [String: Any] else { return }
+
+            if root["type"] as? String == "turn_context" {
+                guard let value = (payload["model"] as? String)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return }
+                state.model = CostPricing.normalizeCodexModel(value)
+                return
+            }
+
+            guard root["type"] as? String == "event_msg",
+                  payload["type"] as? String == "token_count",
+                  let info = payload["info"] as? [String: Any],
+                  let total = Self.totals(info["total_token_usage"]) else { return }
+            state.lastTotalUsage = total
         }
-        return model
+        return state
+    }
+
+    /// The integer fields of a `*_token_usage` object, which is what makes two events comparable.
+    private static func totals(_ value: Any?) -> [String: Int]? {
+        guard let usage = value as? [String: Any] else { return nil }
+        return usage.compactMapValues { ($0 as? NSNumber)?.intValue }
     }
 
     private static func int(_ value: Any?) -> Int {

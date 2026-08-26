@@ -231,8 +231,61 @@ enum CostTests {
         Harness.expectEqual(modelUsage.first?.model, "gpt-5.6-luna", "pricing models sort by token usage")
         Harness.expectEqual(modelUsage.first?.tokens, 400_000, "pricing model usage carries token totals")
 
+        await Self.codexSkipsReEmittedTokenCounts(root: root)
         await Self.codexCacheBucketsAreCarvedOutOfInput(root: root)
         await Self.pricingChangesOnlyAffectNewUsage(root: root)
+    }
+
+    /// Codex re-emits a token_count when its rate-limit block refreshes. The replay repeats the
+    /// previous last_token_usage while total_token_usage stands still, and must not be counted.
+    private static func codexSkipsReEmittedTokenCounts(root: URL) async {
+        let home = root.appendingPathComponent("replay-codex")
+        let file = home.appendingPathComponent("sessions/2026/08/26/rollout-replay.jsonl")
+        try? FileManager.default.createDirectory(
+            at: file.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+
+        func event(_ time: String, last: Int, total: Int) -> String {
+            #"{"type":"event_msg","timestamp":"\#(time)","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":\#(last),"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":0},"total_token_usage":{"input_tokens":\#(total),"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":0}}}}"#
+        }
+        let context = #"{"type":"turn_context","timestamp":"2026-08-26T13:00:00.000Z","payload":{"model":"replay-model"}}"#
+        let lines = [
+            context,
+            event("2026-08-26T13:00:01.000Z", last: 1_000_000, total: 1_000_000),
+            event("2026-08-26T13:00:02.000Z", last: 1_000_000, total: 2_000_000),
+            // Same running total as the line above: a re-emission, not a third turn.
+            event("2026-08-26T13:00:03.000Z", last: 1_000_000, total: 2_000_000),
+        ]
+        try? (lines.joined(separator: "\n") + "\n").write(to: file, atomically: true, encoding: .utf8)
+
+        let database = root.appendingPathComponent("replay-cache.sqlite")
+        let env = ["CODEX_HOME": home.path]
+        let overlay = PricingOverlay(userOverrides: [
+            "replay-model": ModelPricing(input: 1, output: 1),
+        ])
+        let snapshot = await CostService(databaseURL: database, env: env, pricingOverlay: overlay)
+            .refresh(.codex)
+        Harness.expectClose(
+            snapshot?.windowCostUSD,
+            2,
+            "a re-emitted token_count is not counted as another turn"
+        )
+
+        // The replay is the last line, so a resumed scan has to recognise it across the boundary.
+        let appended = event("2026-08-26T13:00:04.000Z", last: 1_000_000, total: 2_000_000)
+        if let handle = try? FileHandle(forWritingTo: file) {
+            _ = try? handle.seekToEnd()
+            try? handle.write(contentsOf: Data((appended + "\n").utf8))
+            try? handle.close()
+        }
+        let resumed = await CostService(databaseURL: database, env: env, pricingOverlay: overlay)
+            .refresh(.codex)
+        Harness.expectClose(
+            resumed?.windowCostUSD,
+            2,
+            "a resumed scan still recognises a replay of the turn it stopped on"
+        )
     }
 
     /// Codex counts cached reads and cache writes inside input_tokens, so a turn that reports all

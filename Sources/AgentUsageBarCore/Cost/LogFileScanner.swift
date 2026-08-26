@@ -58,6 +58,7 @@ enum LogFileScanner {
     static func readLines(
         of url: URL,
         from offset: Int64,
+        upTo limit: Int64? = nil,
         handle: (UnsafeRawBufferPointer) -> Void
     ) throws -> Int64 {
         let file = try FileHandle(forReadingFrom: url)
@@ -81,6 +82,8 @@ enum LogFileScanner {
                 searchStart = carry.index(after: newline)
             }
             carry = Data(carry[searchStart...])
+            // A caller replaying a prefix stops here; a full scan passes no limit.
+            if let limit, consumed >= limit { break }
         }
 
         return consumed
