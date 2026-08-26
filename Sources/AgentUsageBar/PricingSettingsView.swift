@@ -9,6 +9,8 @@ struct PricingSettingsView: View {
     @State private var expandedGroups = Set(PricingGroup.allCases)
 
     private static let rateColumnWidth: CGFloat = 68
+    /// Click target for the per-row disclosure chevron, sized to the row rather than the glyph.
+    private static let disclosureHitSize = CGSize(width: 22, height: 28)
     private static let detailLabelWidth: CGFloat = 138
     private static let claudePricingURL = URL(string: "https://platform.claude.com/docs/en/about-claude/pricing")!
     private static let openAIPricingURL = URL(string: "https://developers.openai.com/api/docs/pricing")!
@@ -119,7 +121,7 @@ struct PricingSettingsView: View {
 
     private var columnHeader: some View {
         HStack(spacing: 8) {
-            Color.clear.frame(width: 18)
+            Color.clear.frame(width: Self.disclosureHitSize.width)
             Text("Model").frame(maxWidth: .infinity, alignment: .leading)
             Text("Input").frame(width: Self.rateColumnWidth, alignment: .trailing)
             Text("Output").frame(width: Self.rateColumnWidth, alignment: .trailing)
@@ -142,9 +144,13 @@ struct PricingSettingsView: View {
                 Image(systemName: self.model.isExpanded(row.id) ? "chevron.down" : "chevron.right")
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(.secondary)
+                    // A 9pt chevron is a hard target to hit; the hit area covers the whole
+                    // column instead of just the glyph.
+                    .frame(width: Self.disclosureHitSize.width, height: Self.disclosureHitSize.height)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
-            .frame(width: 18)
+            .frame(width: Self.disclosureHitSize.width)
             .help("One-hour cache write and long-context rates")
 
             VStack(alignment: .leading, spacing: 1) {
