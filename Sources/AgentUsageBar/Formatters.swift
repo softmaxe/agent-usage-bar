@@ -26,4 +26,25 @@ enum Formatters {
     static func percent(_ value: Double) -> String {
         "\(Int(value.rounded()))%"
     }
+
+    /// "$0.00", "$507.13". Cents matter here because a day can be genuinely tiny.
+    static func cost(_ value: Double) -> String {
+        String(format: "$%.2f", value)
+    }
+
+    /// Compact axis label: "$90", "$1.2K".
+    static func compactCost(_ value: Double) -> String {
+        if value >= 1_000 { return String(format: "$%.1fK", value / 1_000) }
+        if value >= 10 { return String(format: "$%.0f", value) }
+        return String(format: "$%.2f", value)
+    }
+
+    /// "67M", "637M", "1.2B" — token counts are large enough that digits stop being readable.
+    static func tokens(_ count: Int) -> String {
+        let value = Double(count)
+        if value >= 1_000_000_000 { return String(format: "%.1fB", value / 1_000_000_000) }
+        if value >= 1_000_000 { return String(format: "%.0fM", value / 1_000_000) }
+        if value >= 1_000 { return String(format: "%.0fK", value / 1_000) }
+        return "\(count)"
+    }
 }

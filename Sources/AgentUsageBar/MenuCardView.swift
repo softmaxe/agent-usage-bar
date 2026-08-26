@@ -6,6 +6,7 @@ import SwiftUI
 struct MenuCardView: View {
     let provider: Provider
     let state: ProviderState
+    let cost: CostSnapshot?
     let isRefreshing: Bool
 
     /// Notches segmenting each bar into thirds, matching CodexBar's default quota markers.
@@ -83,6 +84,17 @@ struct MenuCardView: View {
                     Text("No quota windows reported.")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
+                }
+
+                if let cost = self.cost {
+                    CostSectionView(provider: self.provider, snapshot: cost)
+                }
+
+                // Only Codex reports credits at all. A zero balance still shows, matching
+                // CodexBar: an empty credit bar is information, not an empty state.
+                if let credits = snapshot.credits {
+                    Divider().padding(.top, 2)
+                    CreditsSectionView(credits: credits)
                 }
             }
             .padding(.bottom, 6)

@@ -114,4 +114,6 @@ do {
     Harness.expect(false, "claude usage decode threw: \(error)")
 }
 
+await CostTests.run()
+
 Harness.finish()

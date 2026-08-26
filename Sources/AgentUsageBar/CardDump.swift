@@ -11,6 +11,34 @@ enum CardDump {
         try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
 
         let now = Date().addingTimeInterval(-5 * 60)
+
+        func sampleCost(_ provider: Provider, peak: Double, values: [Double], top: String) -> CostSnapshot {
+            let days = values.enumerated().map { index, value in
+                CostDay(
+                    dayKey: String(format: "2026-08-%02d", 17 + index),
+                    byModel: [top: TokenTotals(input: Int(value * 1_000_000), output: 0)],
+                    costUSD: value,
+                    unpricedTokens: 0
+                )
+            }
+            return CostSnapshot(
+                provider: provider,
+                days: days,
+                todayCostUSD: 0,
+                windowCostUSD: values.reduce(0, +),
+                latestTokens: 67_000_000,
+                windowTokens: 637_000_000,
+                topModel: top,
+                hasUnpricedTokens: false,
+                scannedAt: now
+            )
+        }
+
+        let costs: [Provider: CostSnapshot] = [
+            .claude: sampleCost(.claude, peak: 90, values: [62, 90, 48, 71, 9, 88, 41, 37], top: "claude-opus-5"),
+            .codex: sampleCost(.codex, peak: 176, values: [18, 22, 12, 20, 24, 176], top: "gpt-5.6-sol"),
+        ]
+
         let cases: [(String, Provider, ProviderState)] = [
             ("codex-loaded", .codex, .loaded(UsageSnapshot(
                 provider: .codex,
@@ -32,7 +60,12 @@ enum CardDump {
         ]
 
         for (name, provider, state) in cases {
-            let view = MenuCardView(provider: provider, state: state, isRefreshing: false)
+            let view = MenuCardView(
+                provider: provider,
+                state: state,
+                cost: name.hasSuffix("loaded") ? costs[provider] : nil,
+                isRefreshing: false
+            )
             let hosting = NSHostingView(rootView: view)
             hosting.frame = NSRect(origin: .zero, size: hosting.fittingSize)
             // A layer-backed offscreen host still needs a window to lay out correctly.
@@ -58,7 +91,7 @@ enum CardDump {
                 continue
             }
             ground.cacheDisplay(in: ground.bounds, to: rep)
-            guard let data = rep.representation(using: .png, properties: [:]) else {
+            guard let data = rep.representation(using: NSBitmapImageRep.FileType.png, properties: [:]) else {
                 print("failed to encode \(name)")
                 continue
             }

@@ -34,8 +34,25 @@ func report(_ provider: Provider, _ state: ProviderState) {
     print("")
 }
 
+func reportCost(_ provider: Provider, _ snapshot: CostSnapshot?) {
+    guard let snapshot else {
+        print("  cost: unavailable")
+        return
+    }
+    let tokens = { (count: Int) in String(format: "%.0fM", Double(count) / 1_000_000) }
+    print("  today $\(String(format: "%.2f", snapshot.todayCostUSD))  30d $\(String(format: "%.2f", snapshot.windowCostUSD))")
+    print("  latest tokens \(tokens(snapshot.latestTokens))  30d tokens \(tokens(snapshot.windowTokens))")
+    print("  days with data: \(snapshot.days.count)  top model: \(snapshot.topModel ?? "(none)")")
+    if snapshot.hasUnpricedTokens { print("  NOTE: some tokens had no price entry") }
+}
+
+let costService = CostService()
+
 let codex = await CodexProvider.fetch()
 report(.codex, codex)
+reportCost(.codex, await costService.refresh(.codex))
+print("")
 
 let claude = await ClaudeProvider.fetch()
 report(.claude, claude)
+reportCost(.claude, await costService.refresh(.claude))

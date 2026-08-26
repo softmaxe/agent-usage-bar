@@ -25,6 +25,12 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.refreshOpenCards() }
             .store(in: &self.cancellables)
+
+        // Cost scanning finishes after the quota fetch, so the card has to redraw again.
+        self.store.$costs
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.refreshOpenCards() }
+            .store(in: &self.cancellables)
     }
 
     // MARK: - Status items
@@ -112,6 +118,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         let hosting = NSHostingView(rootView: MenuCardView(
             provider: provider,
             state: .signedOut(""),
+            cost: nil,
             isRefreshing: false
         ))
         hosting.frame = NSRect(x: 0, y: 0, width: 280, height: 200)
@@ -152,6 +159,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         hosting.rootView = MenuCardView(
             provider: provider,
             state: state,
+            cost: self.store.costs[provider],
             isRefreshing: self.store.isRefreshing
         )
         // The card's height depends on how many windows the provider reported, so resize to fit.
