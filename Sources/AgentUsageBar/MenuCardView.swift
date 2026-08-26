@@ -8,9 +8,6 @@ struct MenuCardView: View {
     let display: ProviderDisplay
     let isRefreshing: Bool
 
-    /// Notches segmenting each bar into thirds, matching CodexBar's default quota markers.
-    private static let markerPercents: [Double] = [33, 66]
-
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             self.header
@@ -131,7 +128,6 @@ struct MenuCardView: View {
             UsageProgressBar(
                 percent: window.remainingPercent,
                 tint: Theme.accent(for: self.provider),
-                markerPercents: Self.markerPercents,
                 // The bar shows what is left, so the pace tip marks the remaining side too.
                 pacePercent: pace?.expectedRemainingPercent,
                 paceIsDeficit: pace?.stage.isAhead ?? false

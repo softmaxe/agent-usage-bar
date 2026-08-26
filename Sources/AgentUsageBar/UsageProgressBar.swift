@@ -1,6 +1,6 @@
 // Adapted from CodexBar (MIT, © 2026 Peter Steinberger): Sources/CodexBar/UsageProgressBar.swift
-// Kept: the single-Canvas track + fill + punched quota markers.
-// Dropped: workday boundary ticks, the pace stripe (M3), highlight-state theming, accessibility values.
+// Kept: the single-Canvas track, fill, and pace marker.
+// Dropped: quota/workday markers, highlight-state theming, and accessibility values.
 
 import SwiftUI
 
@@ -9,8 +9,6 @@ struct UsageProgressBar: View {
     /// Percentage *remaining*, 0...100 — the bar fills from the left with what is left.
     let percent: Double
     let tint: Color
-    /// Positions of the notches that segment the bar, in percent.
-    let markerPercents: [Double]
     /// Where the fill would sit if the budget were being spent evenly, in remaining percent.
     let pacePercent: Double?
     /// Red marks burning faster than the clock; green marks a reserve.
@@ -18,8 +16,6 @@ struct UsageProgressBar: View {
 
     @Environment(\.displayScale) private var displayScale
 
-    private static let markerPunchWidth: CGFloat = 5
-    private static let markerStripeWidth: CGFloat = 1
     private static let pacePunchWidth: CGFloat = 4
     private static let paceStripeWidth: CGFloat = 2
     private static let punchOpacity: Double = 0.9
@@ -27,13 +23,11 @@ struct UsageProgressBar: View {
     init(
         percent: Double,
         tint: Color,
-        markerPercents: [Double] = [],
         pacePercent: Double? = nil,
         paceIsDeficit: Bool = false
     ) {
         self.percent = percent
         self.tint = tint
-        self.markerPercents = markerPercents
         self.pacePercent = pacePercent
         self.paceIsDeficit = paceIsDeficit
     }
@@ -59,26 +53,6 @@ struct UsageProgressBar: View {
                 let fillRect = CGRect(x: 0, y: 0, width: min(fillWidth, size.width), height: size.height)
                 let fillPath = Path { $0.addRoundedRect(in: fillRect, cornerSize: cornerSize) }
                 context.fill(fillPath, with: .color(self.tint))
-            }
-
-            for markerPercent in self.markerPercents {
-                let x = size.width * min(100, max(0, markerPercent)) / 100
-                let punchRect = Self.markerRect(x: x, size: size, width: Self.markerPunchWidth, scale: scale)
-                let stripeRect = Self.markerRect(
-                    x: x,
-                    size: size,
-                    width: max(1 / scale, Self.markerStripeWidth),
-                    scale: scale
-                )
-
-                // Punch a gap through track and fill alike, then lay a thinner neutral stripe in it.
-                context.blendMode = .destinationOut
-                context.fill(
-                    Path(Self.extended(punchRect, size: size)),
-                    with: .color(.white.opacity(Self.punchOpacity))
-                )
-                context.blendMode = .normal
-                context.fill(Path(Self.extended(stripeRect, size: size)), with: .color(Theme.markerStripe))
             }
 
             // Pace tip, drawn last so it reads on top of both the track and the fill.

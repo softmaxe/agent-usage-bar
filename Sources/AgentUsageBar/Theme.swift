@@ -12,6 +12,4 @@ enum Theme {
     }
 
     static let progressTrack = Color(nsColor: .tertiaryLabelColor).opacity(0.22)
-    /// Neutral stripe drawn inside the punched-out quota marker gap.
-    static let markerStripe = Color.primary.opacity(0.35)
 }
