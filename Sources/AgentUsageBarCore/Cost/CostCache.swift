@@ -32,7 +32,13 @@ final class CostCache {
         try self.exec("PRAGMA journal_mode=WAL")
         try self.exec("PRAGMA synchronous=NORMAL")
         try self.createSchema()
+        try self.rebuildIfScanSemanticsChanged()
     }
+
+    /// Bumped whenever a scan would write different numbers for the same bytes — a parser change,
+    /// a different token split, a change in what a stored cost means. The rows are a derivative of
+    /// the scanner, and costs are frozen at scan time, so neither can be corrected in place.
+    private static let scanSemanticsVersion = 1
 
     deinit {
         if let db = self.db { sqlite3_close(db) }
@@ -90,6 +96,28 @@ final class CostCache {
         try self.addColumnIfMissing(table: "codex_day", name: "unpriced_tokens", definition: "INTEGER")
         try self.addColumnIfMissing(table: "claude_message", name: "cost_usd", definition: "REAL")
         try self.addColumnIfMissing(table: "claude_message", name: "unpriced_tokens", definition: "INTEGER")
+    }
+
+    /// Throws away the parsed rows and every cursor when the scanner's semantics have moved on,
+    /// so the next refresh re-reads the logs under the current rules. The logs are the source of
+    /// truth; this cache only ever holds a re-derivable view of them.
+    private func rebuildIfScanSemanticsChanged() throws {
+        guard try self.userVersion() != Self.scanSemanticsVersion else { return }
+        try self.exec("DELETE FROM claude_message")
+        try self.exec("DELETE FROM codex_day")
+        try self.exec("DELETE FROM file_cursor")
+        try self.exec("PRAGMA user_version = \(Self.scanSemanticsVersion)")
+        Log.ui.info("cost cache rebuilt for scan semantics v\(Self.scanSemanticsVersion, privacy: .public)")
+    }
+
+    private func userVersion() throws -> Int {
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(self.db, "PRAGMA user_version", -1, &stmt, nil) == SQLITE_OK else {
+            throw CostCacheError.statementFailed(self.lastErrorMessage)
+        }
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return 0 }
+        return Int(sqlite3_column_int64(stmt, 0))
     }
 
     // MARK: - Cursors
