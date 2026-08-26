@@ -188,12 +188,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             keyEquivalent: ""
         )
         switchProvider.target = self
-        switchProvider.image = Self.menuIcon("arrow.left.arrow.right")
-        // A text-presentation mouse glyph sits in the same trailing column as the keyboard
-        // shortcuts below, without the detached tooltip that used to appear beside the menu.
-        switchProvider.keyEquivalent = "\u{1F5B1}"
-        switchProvider.keyEquivalentModifierMask = []
-        switchProvider.allowsAutomaticKeyEquivalentLocalization = false
+        switchProvider.image = MenuIconRenderer.rightClick()
         menu.addItem(switchProvider)
 
         let refresh = NSMenuItem(

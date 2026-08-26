@@ -39,6 +39,9 @@ enum AgentUsageBarApp {
         if CommandLine.arguments.contains("--verify-usage-bar-fill") {
             UsageBarFillVerifier.run()
         }
+        if CommandLine.arguments.contains("--verify-icon-rendering") {
+            IconRenderingVerifier.run()
+        }
 #endif
         if let index = CommandLine.arguments.firstIndex(of: "--dump-icons"),
            index + 1 < CommandLine.arguments.count {

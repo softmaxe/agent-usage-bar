@@ -1,6 +1,6 @@
 // Adapted from CodexBar (MIT, © 2026 Peter Steinberger): Sources/CodexBar/IconRenderer.swift
 // Kept: the 18pt @2x pixel grid, the capsule track/fill/stroke bar, the dual- and single-lane
-// layouts, and the Codex "face" and Claude "crab" decorations.
+// layouts and the Claude "crab" decoration.
 // Dropped: the Gemini/Antigravity/Factory/Warp decorations, blink/wiggle/tilt animation,
 // status overlays, and the morph cache.
 
@@ -177,14 +177,12 @@ enum IconRenderer {
                 switch decoration {
                 case .none:
                     break
-                case .face:
-                    self.drawFace(rectPx: rectPx, fillColor: fillColor, alpha: alpha)
                 case .crab:
                     self.drawCrab(rectPx: rectPx, fillColor: fillColor, alpha: alpha)
                 }
             }
 
-            let decoration: Decoration = provider == .codex ? .face : .crab
+            let decoration: Decoration = provider == .claude ? .crab : .none
             let topRectPx = RectPx(x: barXPx, y: 19, w: barWidthPx, h: 12)
             let bottomRectPx = RectPx(x: barXPx, y: 5, w: barWidthPx, h: 8)
             // One meaningful quota should read as one meter: reserving an unusable second lane
@@ -205,49 +203,11 @@ enum IconRenderer {
 
     private enum Decoration: Equatable {
         case none
-        /// Codex: square eye cutouts plus a small cap.
-        case face
         /// Claude: side arms, four legs, tall vertical eye cutouts.
         case crab
     }
 
     // MARK: - Decorations
-
-    private static func drawFace(rectPx: RectPx, fillColor: NSColor, alpha: CGFloat) {
-        let ctx = NSGraphicsContext.current?.cgContext
-        let eyeSizePx = 4
-        let eyeOffsetPx = 7
-        let eyeCenterYPx = rectPx.y + rectPx.h / 2
-        let centerXPx = rectPx.midXPx
-
-        // Punch the eyes out of the bar rather than painting over it, so they read on
-        // both a filled and an empty track.
-        ctx?.saveGState()
-        ctx?.setShouldAntialias(false)
-        ctx?.clear(Self.grid.rect(
-            x: centerXPx - eyeOffsetPx - eyeSizePx / 2,
-            y: eyeCenterYPx - eyeSizePx / 2,
-            w: eyeSizePx,
-            h: eyeSizePx
-        ))
-        ctx?.clear(Self.grid.rect(
-            x: centerXPx + eyeOffsetPx - eyeSizePx / 2,
-            y: eyeCenterYPx - eyeSizePx / 2,
-            w: eyeSizePx,
-            h: eyeSizePx
-        ))
-        ctx?.restoreGState()
-
-        let hatWidthPx = 18
-        let hatHeightPx = 4
-        fillColor.withAlphaComponent(alpha).setFill()
-        NSBezierPath(rect: Self.grid.rect(
-            x: centerXPx - hatWidthPx / 2,
-            y: rectPx.y + rectPx.h - hatHeightPx,
-            w: hatWidthPx,
-            h: hatHeightPx
-        )).fill()
-    }
 
     private static func drawCrab(rectPx: RectPx, fillColor: NSColor, alpha: CGFloat) {
         let ctx = NSGraphicsContext.current?.cgContext
