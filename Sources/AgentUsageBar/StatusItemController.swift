@@ -325,9 +325,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     // MARK: - NSMenuDelegate
 
     func menuWillOpen(_: NSMenu) {
-        // Opening the menu is an explicit "show me now", but it is debounced to the configured
-        // cadence: the quota endpoints rate-limit, and a menu can be opened many times a minute.
-        self.store.refreshIfStale()
+        // Each click is an explicit manual refresh. The store coalesces it with an in-flight
+        // request, and its independent timer keeps the configured background cadence unchanged.
+        self.store.refresh()
         self.presentationToken += 1
         self.isMenuOpen = true
         // A celebration belongs to one viewing of the card. Whatever the last one played is over.
