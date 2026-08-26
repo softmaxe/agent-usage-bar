@@ -26,6 +26,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     /// One autosave name for the one item, so switching providers leaves it where the user
     /// dragged it instead of moving the icon around.
     private static let autosaveName = "agentusagebar"
+    /// The card and the action rows below it are one column.
+    private static let cardWidth: CGFloat = 280
 
     init(store: UsageStore, settings: SettingsStore, pricing: PricingEditorModel) {
         self.store = store
@@ -175,32 +177,32 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             isRefreshing: false,
             presentationToken: 0
         ))
-        hosting.frame = NSRect(x: 0, y: 0, width: 280, height: 200)
+        hosting.frame = NSRect(x: 0, y: 0, width: Self.cardWidth, height: 200)
         cardItem.view = hosting
         self.hostingView = hosting
         menu.addItem(cardItem)
 
         menu.addItem(.separator())
 
-        let switchProvider = NSMenuItem(
+        // Switch provider and Refresh act on the card the user is already looking at, so they are
+        // custom rows: AppKit dismisses a menu the moment a standard item is picked, and putting
+        // it back afterwards blinks. The cost is that a custom row cannot carry a key equivalent —
+        // while a menu tracks, AppKit matches ⌘-something against the items itself, and skips any
+        // item that has a view — so these two rows show no shortcut.
+        menu.addItem(self.actionRow(
             title: "Switch provider",
-            action: #selector(self.switchProviderClicked),
-            keyEquivalent: ""
-        )
-        switchProvider.target = self
-        switchProvider.image = Self.menuIcon("computermouse")
-        menu.addItem(switchProvider)
+            icon: MenuIcons.rightButtonMouse(),
+            handler: { [weak self] in self?.settings.advanceMenuBarProvider() }
+        ))
 
-        let refresh = NSMenuItem(
+        menu.addItem(self.actionRow(
             title: "Refresh",
-            action: #selector(self.refreshClicked),
-            keyEquivalent: "r"
-        )
-        refresh.keyEquivalentModifierMask = [.command]
-        refresh.target = self
-        refresh.image = Self.menuIcon("arrow.clockwise")
-        menu.addItem(refresh)
+            icon: MenuIcons.symbol("arrow.clockwise"),
+            handler: { [weak self] in self?.store.refresh() }
+        ))
 
+        // These two leave the card behind anyway, so they stay standard items and keep working
+        // key equivalents.
         let settings = NSMenuItem(
             title: "Settings…",
             action: #selector(self.settingsClicked),
@@ -208,7 +210,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         )
         settings.keyEquivalentModifierMask = [.command]
         settings.target = self
-        settings.image = Self.menuIcon("gearshape")
+        settings.image = MenuIcons.symbol("gearshape")
         menu.addItem(settings)
 
         let quit = NSMenuItem(
@@ -217,20 +219,25 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             keyEquivalent: "q"
         )
         quit.keyEquivalentModifierMask = [.command]
-        quit.image = Self.menuIcon("xmark.rectangle")
+        quit.image = MenuIcons.symbol("xmark.rectangle")
         menu.addItem(quit)
 
         return menu
     }
 
-    /// Symbol names match CodexBar's menu actions so the rows read the same way.
-    private static func menuIcon(_ symbolName: String) -> NSImage? {
-        guard let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil) else {
-            return nil
-        }
-        image.isTemplate = true
-        image.size = NSSize(width: 16, height: 16)
-        return image
+    private func actionRow(
+        title: String,
+        icon: NSImage?,
+        handler: @escaping () -> Void
+    ) -> NSMenuItem {
+        let item = NSMenuItem()
+        item.view = MenuActionRowView(
+            width: Self.cardWidth,
+            title: title,
+            icon: icon,
+            handler: handler
+        )
+        return item
     }
 
     private func updateCard(provider: Provider, display: ProviderDisplay) {
@@ -243,20 +250,12 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         )
         // The card's height depends on how many windows the provider reported, so resize to fit.
         let height = hosting.fittingSize.height
-        hosting.frame = NSRect(x: 0, y: 0, width: 280, height: height)
+        hosting.frame = NSRect(x: 0, y: 0, width: Self.cardWidth, height: height)
     }
 
     private func refreshOpenCard() {
         let provider = self.settings.menuBarProvider
         self.updateCard(provider: provider, display: self.store.displays[provider] ?? ProviderDisplay())
-    }
-
-    @objc private func switchProviderClicked() {
-        self.settings.advanceMenuBarProvider()
-    }
-
-    @objc private func refreshClicked() {
-        self.store.refresh()
     }
 
     @objc private func settingsClicked() {
