@@ -44,6 +44,7 @@ test:
 	$(BUILD_DIR)/debug/$(APP_NAME) --verify-cost-chart-highlighting
 	$(BUILD_DIR)/debug/$(APP_NAME) --verify-usage-bar-fill
 	$(BUILD_DIR)/debug/$(APP_NAME) --verify-icon-rendering
+	$(BUILD_DIR)/debug/$(APP_NAME) --verify-menu-pointer-follow
 
 clean:
 	swift package clean

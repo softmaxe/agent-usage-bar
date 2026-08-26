@@ -242,6 +242,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     private func updateCard(provider: Provider, display: ProviderDisplay) {
         guard let hosting = self.hostingView else { return }
+        let before = Self.openMenuGeometry(hosting)
         hosting.rootView = MenuCardView(
             provider: provider,
             display: display,
@@ -251,6 +252,42 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         // The card's height depends on how many windows the provider reported, so resize to fit.
         let height = hosting.fittingSize.height
         hosting.frame = NSRect(x: 0, y: 0, width: Self.cardWidth, height: height)
+        Self.movePointerWithRows(from: before, hosting: hosting)
+    }
+
+    /// The card's bottom edge and the menu's frame, both in screen coordinates. nil when no menu
+    /// is on screen, which is every update the user is not looking at.
+    private static func openMenuGeometry(
+        _ hosting: NSHostingView<MenuCardView>
+    ) -> (cardBottom: CGFloat, menuFrame: CGRect)? {
+        guard let window = hosting.window else { return nil }
+        let inWindow = hosting.convert(hosting.bounds, to: nil)
+        let bottom = window.convertPoint(toScreen: NSPoint(x: inWindow.minX, y: inWindow.minY))
+        return (bottom.y, window.frame)
+    }
+
+    /// Keeps the pointer on the row it is pointing at across a card resize. AppKit re-lays an open
+    /// menu out as soon as the card's frame changes, so the rows below it have already moved.
+    private static func movePointerWithRows(
+        from before: (cardBottom: CGFloat, menuFrame: CGRect)?,
+        hosting: NSHostingView<MenuCardView>
+    ) {
+        guard let before else { return }
+        hosting.window?.contentView?.layoutSubtreeIfNeeded()
+        guard let after = Self.openMenuGeometry(hosting),
+              let destination = MenuPointerFollowPolicy.pointerDestination(
+                  pointer: NSEvent.mouseLocation,
+                  menuFrameBefore: before.menuFrame,
+                  cardBottomBefore: before.cardBottom,
+                  cardBottomAfter: after.cardBottom
+              ),
+              // Core Graphics measures from the top of the primary display, AppKit from its bottom.
+              let primary = NSScreen.screens.first
+        else { return }
+        CGWarpMouseCursorPosition(CGPoint(
+            x: destination.x,
+            y: primary.frame.maxY - destination.y
+        ))
     }
 
     private func refreshOpenCard() {

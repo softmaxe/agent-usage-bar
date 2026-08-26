@@ -42,6 +42,9 @@ enum AgentUsageBarApp {
         if CommandLine.arguments.contains("--verify-icon-rendering") {
             IconRenderingVerifier.run()
         }
+        if CommandLine.arguments.contains("--verify-menu-pointer-follow") {
+            MenuPointerFollowVerifier.run()
+        }
 #endif
         if let index = CommandLine.arguments.firstIndex(of: "--dump-icons"),
            index + 1 < CommandLine.arguments.count {
