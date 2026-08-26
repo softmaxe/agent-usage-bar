@@ -10,6 +10,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private let store: UsageStore
     private let settings: SettingsStore
     private let settingsWindow: SettingsWindowController
+    private let now: () -> Date
+    private let openMenuClockInterval: TimeInterval
     private var statusItem: NSStatusItem?
     private var hostingView: NSHostingView<MenuCardView>?
     /// Attached to the item only while a left-click is being handled, so a right-click can mean
@@ -29,17 +31,24 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     /// "Updated 2m ago" and "Resets in 4h 53m" are strings built at render time, so an open menu
     /// needs its own clock; nothing else publishes between two scheduled refreshes.
     private var openMenuClock: Timer?
-    private static let openMenuClockInterval: TimeInterval = 15
     /// One autosave name for the one item, so switching providers leaves it where the user
     /// dragged it instead of moving the icon around.
     private static let autosaveName = "agentusagebar"
     /// The card and the action rows below it are one column.
     private static let cardWidth: CGFloat = 280
 
-    init(store: UsageStore, settings: SettingsStore, pricing: PricingEditorModel) {
+    init(
+        store: UsageStore,
+        settings: SettingsStore,
+        pricing: PricingEditorModel,
+        now: @escaping () -> Date = { Date() },
+        openMenuClockInterval: TimeInterval = 15
+    ) {
         self.store = store
         self.settings = settings
         self.settingsWindow = SettingsWindowController(settings: settings, pricing: pricing)
+        self.now = now
+        self.openMenuClockInterval = openMenuClockInterval
         super.init()
 
         pricing.onSaved = { [weak store] in store?.refresh() }
@@ -119,6 +128,22 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     func debugSecondaryClick() {
         self.settings.advanceMenuBarProvider()
     }
+
+    func debugRefreshOpenCard() {
+        self.refreshOpenCard()
+    }
+
+    func debugStartOpenMenuClock() {
+        self.startOpenMenuClock()
+    }
+
+    func debugStopOpenMenuClock() {
+        self.stopOpenMenuClock()
+    }
+
+    func debugStatusLine() -> String? {
+        self.hostingView?.rootView.debugStatusLine
+    }
 #endif
 
     /// A failed refresh keeps the last good percentages but dims them, so the icon still carries
@@ -182,7 +207,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             provider: self.settings.menuBarProvider,
             display: ProviderDisplay(),
             isRefreshing: false,
-            presentationToken: 0
+            presentationToken: 0,
+            now: self.now()
         ))
         hosting.frame = NSRect(x: 0, y: 0, width: Self.cardWidth, height: 200)
         cardItem.view = hosting
@@ -259,7 +285,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             isRefreshing: self.store.isRefreshing,
             presentationToken: self.presentationToken,
             recoveries: self.recoveries[provider] ?? [:],
-            celebrationTokens: self.celebrationTokens[provider] ?? [:]
+            celebrationTokens: self.celebrationTokens[provider] ?? [:],
+            now: self.now()
         )
         // The card's height depends on how many windows the provider reported, so resize to fit.
         let height = hosting.fittingSize.height
@@ -327,9 +354,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     // MARK: - NSMenuDelegate
 
     func menuWillOpen(_: NSMenu) {
-        // Opening the menu is an explicit "show me now", but it is debounced to the configured
-        // cadence: the quota endpoints rate-limit, and a menu can be opened many times a minute.
-        self.store.refreshIfStale()
+        // Each click is an explicit manual refresh. The store coalesces it with an in-flight
+        // request, and its independent timer keeps the configured background cadence unchanged.
+        self.store.refresh()
         self.presentationToken += 1
         self.isMenuOpen = true
         // A celebration belongs to one viewing of the card. Whatever the last one played is over.
@@ -345,7 +372,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     private func startOpenMenuClock() {
         self.stopOpenMenuClock()
-        let timer = Timer(timeInterval: Self.openMenuClockInterval, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: self.openMenuClockInterval, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refreshOpenCard() }
         }
         // Menu tracking runs the run loop in its own mode, so the default mode would never fire.

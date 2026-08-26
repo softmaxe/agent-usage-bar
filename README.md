@@ -76,7 +76,7 @@ The menu bar carries one item. **Right-clicking** (or control-clicking) it switc
 
 Whenever the five-hour or weekly window resets, the card plays a one-off animation the next time it is opened. Each window resumes from its last observed pre-reset position and continuously slows into the new full reading while charging particles follow the head; the 100% landing synchronizes the pop, ring, flash, and only firework burst. Five-hour and weekly resets are tracked independently, ordinary spending never triggers it, and both the last reading and a pending reset survive an app restart. Turning on **System Settings → Accessibility → Display → Reduce motion** replaces it with the ordinary fill. `make demo` replays the shared production animation on demand.
 
-Opening the menu also requests a refresh, limited to once every 30 seconds. The default scheduled refresh interval is five minutes to reduce quota-endpoint rate limiting.
+Opening the menu requests one immediate manual refresh without resetting the scheduled timer. Without clicks, the app keeps the configured background cadence; its default interval is five minutes to reduce quota-endpoint rate limiting.
 
 ## Cost estimates and pricing
 
