@@ -2,17 +2,12 @@ import AgentUsageBarCore
 import Combine
 import Foundation
 
-/// Owns provider state and the refresh schedule. Fixed-interval polling plus a forced
-/// refresh whenever a menu opens.
+/// Owns provider state and the refresh schedule. Fixed-interval polling plus a manual
+/// refresh whenever the status-item menu opens.
 @MainActor
 final class UsageStore: ObservableObject {
     @Published private(set) var displays: [Provider: ProviderDisplay] = [:]
     @Published private(set) var isRefreshing = false
-
-
-    /// Manual mode has no cadence of its own, so a menu opening falls back to this.
-    private static let manualRefreshDebounce: TimeInterval = 30
-    private var lastRefreshStartedAt: Date?
 
     private var timer: Timer?
     private var refreshTask: Task<Void, Never>?
@@ -61,22 +56,11 @@ final class UsageStore: ObservableObject {
         self.settingsObserver = nil
     }
 
-    /// Called when a menu opens. Honours the configured cadence, so a five-minute setting means
-    /// five minutes whether the refresh comes from the timer or from opening the menu.
-    func refreshIfStale() {
-        let debounce = self.settings.refreshFrequency.seconds ?? Self.manualRefreshDebounce
-        if let last = self.lastRefreshStartedAt,
-           Date().timeIntervalSince(last) < debounce {
-            return
-        }
-        self.refresh()
-    }
-
     func refresh() {
-        // Coalesce: a menu opening during a poll should not start a second round of requests.
+        // Coalesce: clicking the status item during a poll should not start a second round of
+        // requests. Manual refreshes do not reschedule the independent polling timer.
         guard self.refreshTask == nil else { return }
         self.isRefreshing = true
-        self.lastRefreshStartedAt = Date()
 
         self.refreshTask = Task { [weak self, historyStore] in
             async let codex = CodexProvider.fetch()

@@ -76,7 +76,7 @@ The menu bar carries one item. **Right-clicking** (or control-clicking) it switc
 
 When a five-hour or weekly window that had run to 0% comes back full, the card plays a one-off recovery animation the next time it is opened: the bar sweeps in to 100%, pops, and three shells of sparks go off across it. It plays once per recovery, only for the window that actually ran dry, and never for ordinary spending. Quitting the app while a window sits at 0% does not lose it, spending the window back down before the card is opened retires it, and turning on **System Settings → Accessibility → Display → Reduce motion** replaces it with the ordinary fill. `make demo` replays it on demand without waiting for a real reset.
 
-Opening the menu also requests a refresh, limited to once every 30 seconds. The default scheduled refresh interval is five minutes to reduce quota-endpoint rate limiting.
+Opening the menu requests one immediate manual refresh without resetting the scheduled timer. Without clicks, the app keeps the configured background cadence; its default interval is five minutes to reduce quota-endpoint rate limiting.
 
 ## Cost estimates and pricing
 
