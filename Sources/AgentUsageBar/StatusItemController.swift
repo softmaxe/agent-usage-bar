@@ -14,11 +14,13 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private var hostingViews: [Provider: NSHostingView<MenuCardView>] = [:]
     private var cancellables: Set<AnyCancellable> = []
 
-    init(store: UsageStore, settings: SettingsStore) {
+    init(store: UsageStore, settings: SettingsStore, pricing: PricingEditorModel) {
         self.store = store
         self.settings = settings
-        self.settingsWindow = SettingsWindowController(settings: settings)
+        self.settingsWindow = SettingsWindowController(settings: settings, pricing: pricing)
         super.init()
+
+        pricing.onSaved = { [weak store] in store?.refresh() }
 
         self.settings.$enabledProviders
             .removeDuplicates()
@@ -128,6 +130,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         )
         refresh.keyEquivalentModifierMask = [.command]
         refresh.target = self
+        refresh.image = Self.menuIcon("arrow.clockwise")
         menu.addItem(refresh)
 
         let settings = NSMenuItem(
@@ -137,6 +140,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         )
         settings.keyEquivalentModifierMask = [.command]
         settings.target = self
+        settings.image = Self.menuIcon("gearshape")
         menu.addItem(settings)
 
         let quit = NSMenuItem(
@@ -145,9 +149,20 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             keyEquivalent: "q"
         )
         quit.keyEquivalentModifierMask = [.command]
+        quit.image = Self.menuIcon("xmark.rectangle")
         menu.addItem(quit)
 
         return menu
+    }
+
+    /// Symbol names match CodexBar's menu actions so the three rows read the same way.
+    private static func menuIcon(_ symbolName: String) -> NSImage? {
+        guard let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil) else {
+            return nil
+        }
+        image.isTemplate = true
+        image.size = NSSize(width: 16, height: 16)
+        return image
     }
 
     private func updateCard(for provider: Provider, display: ProviderDisplay) {

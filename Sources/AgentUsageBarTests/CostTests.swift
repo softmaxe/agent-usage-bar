@@ -630,3 +630,67 @@ enum HistoricalPaceTests {
         Harness.expect(withRisk.etaSeconds != nil, "a projected run-out carries an ETA")
     }
 }
+
+/// The hand-edited price layer: round-trips through disk and outranks the other layers.
+enum PricingOverrideTests {
+    static func run() {
+        let url = PricingOverlayStore.userOverridesURL
+        // Never clobber a real override file while testing.
+        let backup = try? Data(contentsOf: url)
+        defer {
+            if let backup {
+                try? backup.write(to: url)
+            } else {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
+
+        let overrides: [String: ModelPricing] = [
+            "ox-alpha": ModelPricing(input: 1.5, output: 6, cacheWrite: 1.875, cacheRead: 0.15),
+            "claude-opus-5": ModelPricing(input: 99, output: 99),
+        ]
+        do {
+            try PricingOverlayStore.saveUserOverrides(overrides)
+        } catch {
+            Harness.expect(false, "saving overrides threw: \(error)")
+            return
+        }
+
+        let loaded = PricingOverlayStore.loadUserOverrides()
+        Harness.expectEqual(loaded["ox-alpha"]?.input, 1.5, "override input rate round-trips")
+        Harness.expectEqual(loaded["ox-alpha"]?.cacheRead, 0.15, "override cache rate round-trips")
+        Harness.expectEqual(loaded.count, 2, "both overrides round-trip")
+
+        // A model with no built-in price becomes priceable through the override alone.
+        let overlay = PricingOverlay(userOverrides: loaded, modelsDev: [:])
+        Harness.expectEqual(
+            CostPricing.cost(
+                totals: TokenTotals(input: 1_000_000),
+                model: "ox-alpha",
+                provider: .claude,
+                longContext: false,
+                overlay: overlay
+            ),
+            1.5,
+            "an override prices a model the built-in table does not know"
+        )
+        // And it outranks a built-in rate for a model that does have one.
+        Harness.expectEqual(
+            CostPricing.pricing(for: "claude-opus-5", provider: .claude, overlay: overlay)?.input,
+            99,
+            "an override outranks the built-in table"
+        )
+
+        // Saving nothing removes the file, handing control back to the lower layers.
+        try? PricingOverlayStore.saveUserOverrides([:])
+        Harness.expect(
+            !FileManager.default.fileExists(atPath: url.path),
+            "an empty override set deletes the file"
+        )
+        Harness.expectEqual(
+            CostPricing.pricing(for: "claude-opus-5", provider: .claude)?.input,
+            5,
+            "the built-in rate returns once the override is gone"
+        )
+    }
+}

@@ -17,13 +17,14 @@ final class UsageStore: ObservableObject {
     private var timer: Timer?
     private var refreshTask: Task<Void, Never>?
     private var costTask: Task<Void, Never>?
-    private let costService = CostService()
+    private let costService: CostService
     private let historyStore = UsageHistoryStore()
     private let settings: SettingsStore
     private var settingsObserver: AnyCancellable?
 
-    init(settings: SettingsStore) {
+    init(settings: SettingsStore, costService: CostService) {
         self.settings = settings
+        self.costService = costService
     }
 
     func start() {

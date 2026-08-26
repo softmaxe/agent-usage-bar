@@ -8,8 +8,8 @@ import Foundation
 
 /// Snapshot of both override layers. Resolution order is user file, then models.dev.
 public struct PricingOverlay: Sendable {
-    let userOverrides: [String: ModelPricing]
-    let modelsDev: [String: ModelPricing]
+    public let userOverrides: [String: ModelPricing]
+    public let modelsDev: [String: ModelPricing]
 
     public init(userOverrides: [String: ModelPricing] = [:], modelsDev: [String: ModelPricing] = [:]) {
         self.userOverrides = userOverrides
@@ -65,7 +65,7 @@ public enum PricingOverlayStore {
 
     // MARK: - User overrides
 
-    static func loadUserOverrides() -> [String: ModelPricing] {
+    public static func loadUserOverrides() -> [String: ModelPricing] {
         guard let data = try? Data(contentsOf: Self.userOverridesURL) else { return [:] }
         return Self.parseUserOverrides(data)
     }
@@ -90,6 +90,39 @@ public enum PricingOverlayStore {
             )
         }
         return result
+    }
+
+    /// Writes the hand-edited layer. An empty dictionary removes the file entirely, so the
+    /// built-in and models.dev layers take over again.
+    public static func saveUserOverrides(_ overrides: [String: ModelPricing]) throws {
+        let url = Self.userOverridesURL
+        guard !overrides.isEmpty else {
+            try? FileManager.default.removeItem(at: url)
+            return
+        }
+
+        var root: [String: Any] = [:]
+        for (model, pricing) in overrides {
+            var entry: [String: Any] = ["input": pricing.input, "output": pricing.output]
+            if let cacheWrite = pricing.cacheWrite { entry["cacheWrite"] = cacheWrite }
+            if let cacheRead = pricing.cacheRead { entry["cacheRead"] = cacheRead }
+            if let threshold = pricing.thresholdTokens { entry["thresholdTokens"] = threshold }
+            if let value = pricing.inputAbove { entry["inputAbove"] = value }
+            if let value = pricing.outputAbove { entry["outputAbove"] = value }
+            if let value = pricing.cacheWriteAbove { entry["cacheWriteAbove"] = value }
+            if let value = pricing.cacheReadAbove { entry["cacheReadAbove"] = value }
+            root[model] = entry
+        }
+
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let data = try JSONSerialization.data(
+            withJSONObject: root,
+            options: [.prettyPrinted, .sortedKeys]
+        )
+        try data.write(to: url, options: .atomic)
     }
 
     // MARK: - models.dev catalog

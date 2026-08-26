@@ -3,8 +3,19 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject var settings: SettingsStore
+    @ObservedObject var pricing: PricingEditorModel
 
     var body: some View {
+        TabView {
+            self.general
+                .tabItem { Label("General", systemImage: "gearshape") }
+            PricingSettingsView(model: self.pricing)
+                .tabItem { Label("Pricing", systemImage: "dollarsign.circle") }
+        }
+        .frame(width: 620)
+    }
+
+    private var general: some View {
         Form {
             Section {
                 Picker("Refresh", selection: self.$settings.refreshFrequency) {
@@ -31,8 +42,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 380)
-        .fixedSize(horizontal: false, vertical: true)
+        .frame(height: 460)
     }
 
     private var refreshHint: String {

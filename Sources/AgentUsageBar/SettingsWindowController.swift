@@ -6,10 +6,12 @@ import SwiftUI
 @MainActor
 final class SettingsWindowController {
     private let settings: SettingsStore
+    private let pricing: PricingEditorModel
     private var window: NSWindow?
 
-    init(settings: SettingsStore) {
+    init(settings: SettingsStore, pricing: PricingEditorModel) {
         self.settings = settings
+        self.pricing = pricing
     }
 
     func show() {
@@ -19,7 +21,9 @@ final class SettingsWindowController {
             return
         }
 
-        let hosting = NSHostingController(rootView: SettingsView(settings: self.settings))
+        let hosting = NSHostingController(
+            rootView: SettingsView(settings: self.settings, pricing: self.pricing)
+        )
         let window = NSWindow(contentViewController: hosting)
         window.title = "AgentUsageBar Settings"
         window.styleMask = [.titled, .closable]

@@ -296,6 +296,31 @@ final class CostCache {
         return result
     }
 
+    /// Distinct model names recorded for a provider, most-used first.
+    func distinctModels(provider: Provider) throws -> [String] {
+        let table = provider == .codex ? "codex_day" : "claude_message"
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(
+            self.db,
+            """
+            SELECT model, SUM(input + output + cache_write + cache_read) AS tokens
+            FROM \(table)
+            GROUP BY model
+            ORDER BY tokens DESC
+            """,
+            -1,
+            &stmt,
+            nil
+        ) == SQLITE_OK else { throw CostCacheError.statementFailed(self.lastErrorMessage) }
+
+        var models: [String] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            models.append(String(cString: sqlite3_column_text(stmt, 0)))
+        }
+        return models
+    }
+
     // MARK: - Helpers
 
     private func exec(_ sql: String) throws {

@@ -9,6 +9,12 @@ struct CostSectionView: View {
 
     /// The chart stays readable at card width; older days fall off the left.
     private static let maxBars = 10
+    private static let chartHeight: CGFloat = 56
+    private static let barSpacing: CGFloat = 4
+
+    /// Which day the pointer is over. It sticks after the pointer leaves, matching CodexBar,
+    /// so the reading stays put while you move toward it.
+    @State private var hoveredDayKey: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -16,6 +22,13 @@ struct CostSectionView: View {
             if !self.bars.isEmpty {
                 self.chart
             }
+            // Reserves a line so the card does not resize as the pointer moves across bars.
+            Text(self.hoverLine)
+                .font(.system(size: 11))
+                .foregroundStyle(self.hoveredDay == nil ? .secondary : .primary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+
             if let topModel = self.snapshot.topModel {
                 Text("Top model: \(topModel)")
                     .font(.system(size: 11))
@@ -77,12 +90,19 @@ struct CostSectionView: View {
             Text(Formatters.compactCost(self.maxValue))
                 .font(.system(size: 10))
                 .foregroundStyle(.secondary)
-            HStack(alignment: .bottom, spacing: 4) {
+            HStack(alignment: .bottom, spacing: Self.barSpacing) {
                 ForEach(self.bars, id: \.dayKey) { day in
                     self.bar(for: day)
                 }
             }
-            .frame(height: 56)
+            .frame(height: Self.chartHeight)
+            .overlay {
+                GeometryReader { geometry in
+                    MouseLocationReader { location in
+                        self.updateHover(at: location, width: geometry.size.width)
+                    }
+                }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
@@ -90,14 +110,59 @@ struct CostSectionView: View {
     private func bar(for day: CostDay) -> some View {
         let value = day.costUSD ?? 0
         let ratio = self.maxValue > 0 ? value / self.maxValue : 0
-        // Taller bars read as more saturated, so the shape and the tone agree.
-        let opacity = 0.55 + 0.45 * ratio
+        let isHovered = day.dayKey == self.hoveredDayKey
+        // Taller bars read as more saturated, so the shape and the tone agree. The hovered bar
+        // goes fully opaque instead of gaining a border, which would shift the layout.
+        let opacity = isHovered ? 1.0 : 0.55 + 0.45 * ratio
         return RoundedRectangle(cornerRadius: 2)
             .fill(Theme.accent(for: self.provider).opacity(opacity))
             // A day with a trace of spend still deserves a visible sliver.
-            .frame(height: max(4, 56 * ratio))
+            .frame(height: max(4, Self.chartHeight * ratio))
             .frame(maxWidth: .infinity)
-            .help("\(day.dayKey) · \(Formatters.cost(value))")
+    }
+
+    // MARK: - Hover
+
+    private var hoveredDay: CostDay? {
+        guard let key = self.hoveredDayKey else { return nil }
+        return self.bars.first { $0.dayKey == key }
+    }
+
+    /// The day's own numbers when hovering, otherwise the window summary.
+    private var hoverLine: String {
+        guard let day = self.hoveredDay else {
+            return "\(self.bars.count) days with activity · hover a bar for a day"
+        }
+        var parts = [Self.dayLabel(day.dayKey), Formatters.cost(day.costUSD ?? 0)]
+        let tokens = day.tokens.total
+        if tokens > 0 { parts.append("\(Formatters.tokens(tokens)) tokens") }
+        if let model = Self.dominantModel(of: day) { parts.append(model) }
+        return parts.joined(separator: " · ")
+    }
+
+    private func updateHover(at location: CGPoint?, width: CGFloat) {
+        // Keep the last day selected when the pointer leaves, so the reading does not vanish
+        // as you move toward it.
+        guard let location, !self.bars.isEmpty, width > 0 else { return }
+        let count = CGFloat(self.bars.count)
+        let slot = (width - Self.barSpacing * (count - 1)) / count + Self.barSpacing
+        guard slot > 0 else { return }
+        let index = min(self.bars.count - 1, max(0, Int(location.x / slot)))
+        let key = self.bars[index].dayKey
+        if self.hoveredDayKey != key { self.hoveredDayKey = key }
+    }
+
+    /// "2026-08-24" -> "Aug 24".
+    private static func dayLabel(_ dayKey: String) -> String {
+        let parts = dayKey.split(separator: "-")
+        guard parts.count == 3, let month = Int(parts[1]), let day = Int(parts[2]),
+              (1...12).contains(month) else { return dayKey }
+        let names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+        return "\(names[month - 1]) \(day)"
+    }
+
+    private static func dominantModel(of day: CostDay) -> String? {
+        day.byModel.max { $0.value.total < $1.value.total }?.key
     }
 
     // MARK: - Disclaimer

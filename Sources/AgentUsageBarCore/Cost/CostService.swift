@@ -57,6 +57,19 @@ public actor CostService {
         }
     }
 
+    /// Models seen in the local logs, most-used first. These are the rows a pricing editor
+    /// actually needs, including the ones with no built-in rate.
+    public func knownModels(provider: Provider) -> [String] {
+        guard let cache = try? self.openCache(),
+              let models = try? cache.distinctModels(provider: provider) else { return [] }
+        return models.filter { $0 != CostPricing.unknownModel }
+    }
+
+    /// Drops the cached price layers so the next refresh picks up an edited override file.
+    public func invalidatePricing() {
+        self.overlay = nil
+    }
+
     private func openCache() throws -> CostCache {
         if let cache = self.cache { return cache }
         let cache = try CostCache(path: self.databaseURL)

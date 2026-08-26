@@ -17,20 +17,34 @@ enum CardDump {
         defaults.removePersistentDomain(forName: "AgentUsageBarSettingsDump")
         let settings = SettingsStore(defaults: defaults)
 
-        let hosting = NSHostingView(rootView: SettingsView(settings: settings))
-        hosting.frame = NSRect(origin: .zero, size: hosting.fittingSize)
+        let hosting = NSHostingView(rootView: PricingSettingsView(
+            model: PricingEditorModel(costService: CostService())
+        ))
+        hosting.appearance = NSAppearance(named: .darkAqua)
+        hosting.frame = NSRect(x: 0, y: 0, width: 620, height: 460)
+
         let window = NSWindow(
             contentRect: hosting.frame,
-            styleMask: [.borderless],
+            styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
         )
         window.appearance = NSAppearance(named: .darkAqua)
-        window.contentView = hosting
-        hosting.layoutSubtreeIfNeeded()
+        // cacheDisplay paints no window background, so give it an opaque ground or the dark-mode
+        // text renders white on white.
+        let ground = NSView(frame: hosting.frame)
+        ground.wantsLayer = true
+        ground.layer?.backgroundColor = NSColor(white: 0.13, alpha: 1).cgColor
+        ground.addSubview(hosting)
+        window.contentView = ground
+        window.orderFront(nil)
 
-        guard let rep = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else { return }
-        hosting.cacheDisplay(in: hosting.bounds, to: rep)
+        // The pane loads its rows asynchronously, so let the run loop turn before capturing.
+        RunLoop.current.run(until: Date().addingTimeInterval(3))
+        ground.layoutSubtreeIfNeeded()
+
+        guard let rep = ground.bitmapImageRepForCachingDisplay(in: ground.bounds) else { return }
+        ground.cacheDisplay(in: ground.bounds, to: rep)
         guard let data = rep.representation(using: NSBitmapImageRep.FileType.png, properties: [:]) else {
             return
         }

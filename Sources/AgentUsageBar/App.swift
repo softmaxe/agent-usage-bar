@@ -4,11 +4,17 @@ import AppKit
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let settings = SettingsStore()
-    private lazy var store = UsageStore(settings: self.settings)
+    private let costService = CostService()
+    private lazy var store = UsageStore(settings: self.settings, costService: self.costService)
+    private lazy var pricing = PricingEditorModel(costService: self.costService)
     private var controller: StatusItemController?
 
     func applicationDidFinishLaunching(_: Notification) {
-        self.controller = StatusItemController(store: self.store, settings: self.settings)
+        self.controller = StatusItemController(
+            store: self.store,
+            settings: self.settings,
+            pricing: self.pricing
+        )
         self.store.start()
         Log.ui.info("AgentUsageBar launched")
         print("AgentUsageBar launched — use the Quit menu item or Ctrl-C to stop.")
