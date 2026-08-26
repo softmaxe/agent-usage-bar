@@ -188,7 +188,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             keyEquivalent: ""
         )
         switchProvider.target = self
-        switchProvider.image = MenuIconRenderer.rightClick()
+        switchProvider.image = Self.menuIcon("computermouse")
         menu.addItem(switchProvider)
 
         let refresh = NSMenuItem(

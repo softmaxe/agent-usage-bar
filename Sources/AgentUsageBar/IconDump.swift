@@ -33,11 +33,6 @@ enum IconDump {
                 print("wrote \(url.path)")
             }
         }
-
-        let menuIconURL = root.appendingPathComponent("menu-right-click.png")
-        if Self.writeLiteralPNG(MenuIconRenderer.rightClick(), to: menuIconURL) {
-            print("wrote \(menuIconURL.path)")
-        }
     }
 
     /// Template images carry alpha only, so tint them white on a transparent layer first and
@@ -79,38 +74,6 @@ enum IconDump {
         NSBezierPath(rect: bounds).fill()
         tinted.draw(in: bounds)
         ctx.flushGraphics()
-
-        guard let data = rep.representation(using: .png, properties: [:]) else { return false }
-        return (try? data.write(to: url)) != nil
-    }
-
-    private static func writeLiteralPNG(_ image: NSImage, to url: URL) -> Bool {
-        let scale: CGFloat = 8
-        let size = NSSize(width: image.size.width * scale, height: image.size.height * scale)
-        let bounds = NSRect(origin: .zero, size: size)
-        guard let rep = NSBitmapImageRep(
-            bitmapDataPlanes: nil,
-            pixelsWide: Int(size.width),
-            pixelsHigh: Int(size.height),
-            bitsPerSample: 8,
-            samplesPerPixel: 4,
-            hasAlpha: true,
-            isPlanar: false,
-            colorSpaceName: .deviceRGB,
-            bytesPerRow: 0,
-            bitsPerPixel: 0
-        ) else { return false }
-
-        rep.size = size
-        NSGraphicsContext.saveGraphicsState()
-        defer { NSGraphicsContext.restoreGraphicsState() }
-        guard let context = NSGraphicsContext(bitmapImageRep: rep) else { return false }
-        NSGraphicsContext.current = context
-        context.imageInterpolation = .none
-        NSColor(white: 0.11, alpha: 1).setFill()
-        bounds.fill()
-        image.draw(in: bounds)
-        context.flushGraphics()
 
         guard let data = rep.representation(using: .png, properties: [:]) else { return false }
         return (try? data.write(to: url)) != nil
