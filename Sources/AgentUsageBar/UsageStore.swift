@@ -10,8 +10,8 @@ final class UsageStore: ObservableObject {
     @Published private(set) var isRefreshing = false
 
 
-    /// Opening a menu forces a refresh, but not more often than this.
-    private static let menuRefreshDebounce: TimeInterval = 30
+    /// Manual mode has no cadence of its own, so a menu opening falls back to this.
+    private static let manualRefreshDebounce: TimeInterval = 30
     private var lastRefreshStartedAt: Date?
 
     private var timer: Timer?
@@ -60,11 +60,12 @@ final class UsageStore: ObservableObject {
         self.settingsObserver = nil
     }
 
-    /// Called when a menu opens. Debounced so repeatedly opening the menu cannot hammer the
-    /// quota endpoints into a 429.
+    /// Called when a menu opens. Honours the configured cadence, so a five-minute setting means
+    /// five minutes whether the refresh comes from the timer or from opening the menu.
     func refreshIfStale() {
+        let debounce = self.settings.refreshFrequency.seconds ?? Self.manualRefreshDebounce
         if let last = self.lastRefreshStartedAt,
-           Date().timeIntervalSince(last) < Self.menuRefreshDebounce {
+           Date().timeIntervalSince(last) < debounce {
             return
         }
         self.refresh()
