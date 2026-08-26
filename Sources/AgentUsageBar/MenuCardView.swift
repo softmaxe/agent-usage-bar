@@ -16,6 +16,8 @@ struct MenuCardView: View {
     var celebrating: Set<QuotaWindowKind> = []
     /// Bumped with the celebration itself, so replaying one is a value change the bars notice.
     var celebrationToken = 0
+    /// Captured when the card is rebuilt so relative labels can be tested without wall-clock waits.
+    var now = Date()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -56,8 +58,12 @@ struct MenuCardView: View {
             return self.display.error == nil ? "No data yet" : "Refresh failed"
         }
         // Even after a failed refresh the age of the data on screen is what matters.
-        return "Updated \(Formatters.relativeAge(since: snapshot.fetchedAt))"
+        return "Updated \(Formatters.relativeAge(since: snapshot.fetchedAt, now: self.now))"
     }
+
+#if DEBUG
+    var debugStatusLine: String { self.statusLine }
+#endif
 
     private var planLabel: String? {
         self.display.snapshot?.planLabel
