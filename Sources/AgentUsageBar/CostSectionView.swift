@@ -90,9 +90,14 @@ struct CostSectionView: View {
 
     // MARK: - Chart
 
-    /// Only days with activity get a bar, which is why the bar count varies by provider.
+    /// Activity days plus an empty today bar, so today's cost remains visible before the first
+    /// completed turn. Older activity falls off the left once the chart reaches its cap.
     private var bars: [CostDay] {
-        Array(self.snapshot.days.suffix(Self.maxBars))
+        CostChartHighlightPolicy.visibleDays(
+            from: self.snapshot.days,
+            todayDayKey: self.todayDayKey,
+            maxBars: Self.maxBars
+        )
     }
 
     private var maxValue: Double {

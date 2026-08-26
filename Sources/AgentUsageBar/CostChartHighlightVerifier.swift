@@ -1,4 +1,5 @@
 #if DEBUG
+import AgentUsageBarCore
 import Foundation
 
 enum CostChartHighlightVerifier {
@@ -7,6 +8,67 @@ enum CostChartHighlightVerifier {
         let today = "2026-08-26"
         let available = Set([yesterday, today])
         var failures: [String] = []
+
+        let previousDay = CostDay(
+            dayKey: yesterday,
+            byModel: [:],
+            costUSD: 17,
+            unpricedTokens: 0
+        )
+        let visibleWithoutToday = CostChartHighlightPolicy.visibleDays(
+            from: [previousDay],
+            todayDayKey: today,
+            maxBars: 10
+        )
+        if visibleWithoutToday.map(\.dayKey) != [yesterday, today]
+            || visibleWithoutToday.last?.costUSD != 0 {
+            failures.append("a missing today expected a zero-cost today bar")
+        }
+        let emptyTodaySelection = CostChartHighlightPolicy.selectedDayKey(
+            hoveredDayKey: nil,
+            todayDayKey: today,
+            availableDayKeys: Set(visibleWithoutToday.map(\.dayKey))
+        )
+        let emptyTodayLabel = CostChartHighlightPolicy.labelCost(
+            dayKey: today,
+            selectedDayKey: emptyTodaySelection,
+            costUSD: visibleWithoutToday.last?.costUSD
+        )
+        if emptyTodayLabel != 0 {
+            failures.append("an empty today bar expected its default $0 label")
+        }
+
+        let todayDay = CostDay(
+            dayKey: today,
+            byModel: [:],
+            costUSD: 23,
+            unpricedTokens: 0
+        )
+        let visibleWithToday = CostChartHighlightPolicy.visibleDays(
+            from: [previousDay, todayDay],
+            todayDayKey: today,
+            maxBars: 10
+        )
+        if visibleWithToday.map(\.dayKey) != [yesterday, today]
+            || visibleWithToday.last?.costUSD != 23 {
+            failures.append("an existing today bar was duplicated or replaced")
+        }
+
+        let capped = CostChartHighlightPolicy.visibleDays(
+            from: (1...10).map { day in
+                CostDay(
+                    dayKey: String(format: "2026-08-%02d", day),
+                    byModel: [:],
+                    costUSD: Double(day),
+                    unpricedTokens: 0
+                )
+            },
+            todayDayKey: today,
+            maxBars: 10
+        )
+        if capped.count != 10 || capped.first?.dayKey != "2026-08-02" || capped.last?.dayKey != today {
+            failures.append("adding today expected to keep the ten-bar cap and evict the oldest day")
+        }
 
         let defaultSelection = CostChartHighlightPolicy.selectedDayKey(
             hoveredDayKey: nil,

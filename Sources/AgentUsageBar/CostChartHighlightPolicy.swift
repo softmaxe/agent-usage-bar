@@ -1,4 +1,29 @@
+import AgentUsageBarCore
+
 enum CostChartHighlightPolicy {
+    static func visibleDays(
+        from days: [CostDay],
+        todayDayKey: String,
+        maxBars: Int
+    ) -> [CostDay] {
+        guard maxBars > 0 else { return [] }
+
+        var visible = Array(days.suffix(maxBars))
+        guard !visible.contains(where: { $0.dayKey == todayDayKey }) else { return visible }
+
+        if visible.count == maxBars {
+            visible.removeFirst()
+        }
+        visible.append(CostDay(
+            dayKey: todayDayKey,
+            byModel: [:],
+            costUSD: 0,
+            unpricedTokens: 0
+        ))
+        visible.sort { $0.dayKey < $1.dayKey }
+        return visible
+    }
+
     static func selectedDayKey(
         hoveredDayKey: String?,
         todayDayKey: String,
