@@ -1,3 +1,4 @@
+#if DEBUG
 import AgentUsageBarCore
 import AppKit
 import Foundation
@@ -203,3 +204,4 @@ enum QuotaRecoveryVerifier {
         exit(0)
     }
 }
+#endif
