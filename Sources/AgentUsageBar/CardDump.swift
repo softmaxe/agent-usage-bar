@@ -17,8 +17,9 @@ enum CardDump {
         defaults.removePersistentDomain(forName: "AgentUsageBarSettingsDump")
         let settings = SettingsStore(defaults: defaults)
 
-        let hosting = NSHostingView(rootView: PricingSettingsView(
-            model: PricingEditorModel(costService: CostService())
+        let hosting = NSHostingView(rootView: SettingsView(
+            settings: settings,
+            pricing: PricingEditorModel(costService: CostService())
         ))
         hosting.appearance = NSAppearance(named: .darkAqua)
         hosting.frame = NSRect(x: 0, y: 0, width: 620, height: 460)
