@@ -36,6 +36,9 @@ enum AgentUsageBarApp {
         if CommandLine.arguments.contains("--verify-menu-toggles") {
             StatusItemToggleVerifier.run()
         }
+        if CommandLine.arguments.contains("--verify-usage-bar-fill") {
+            UsageBarFillVerifier.run()
+        }
 #endif
         if let index = CommandLine.arguments.firstIndex(of: "--dump-icons"),
            index + 1 < CommandLine.arguments.count {

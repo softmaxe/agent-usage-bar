@@ -171,7 +171,9 @@ enum CardDump {
                     cost: costs[provider],
                     error: errors[name]
                 ),
-                isRefreshing: false
+                isRefreshing: false,
+                presentationToken: 0,
+                animatesFill: false
             )
             let hosting = NSHostingView(rootView: view)
             hosting.frame = NSRect(origin: .zero, size: hosting.fittingSize)

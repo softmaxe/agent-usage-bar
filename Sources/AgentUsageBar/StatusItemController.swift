@@ -13,6 +13,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private var hostingViews: [Provider: NSHostingView<MenuCardView>] = [:]
     private var cancellables: Set<AnyCancellable> = []
 
+    /// Bumped every time a provider's menu opens, which is what replays the bars' fill animation.
+    private var presentationTokens: [Provider: Int] = [:]
     /// "Updated 2m ago" and "Resets in 4h 53m" are strings built at render time, so an open menu
     /// needs its own clock; nothing else publishes between two scheduled refreshes.
     private var openMenuClock: Timer?
@@ -79,7 +81,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.autosaveName = Self.autosaveName(for: provider)
-        item.menu = self.makeMenu(for: provider)
+        let menu = self.makeMenu(for: provider)
+        // The delegate callbacks are menu-scoped, so the menu carries the provider it belongs to.
+        menu.identifier = NSUserInterfaceItemIdentifier(provider.rawValue)
+        item.menu = menu
         self.statusItems[provider] = item
         return item
     }
@@ -144,7 +149,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         let hosting = NSHostingView(rootView: MenuCardView(
             provider: provider,
             display: ProviderDisplay(),
-            isRefreshing: false
+            isRefreshing: false,
+            presentationToken: 0
         ))
         hosting.frame = NSRect(x: 0, y: 0, width: 280, height: 200)
         cardItem.view = hosting
@@ -200,7 +206,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         hosting.rootView = MenuCardView(
             provider: provider,
             display: display,
-            isRefreshing: self.store.isRefreshing
+            isRefreshing: self.store.isRefreshing,
+            presentationToken: self.presentationTokens[provider] ?? 0
         )
         // The card's height depends on how many windows the provider reported, so resize to fit.
         let height = hosting.fittingSize.height
@@ -223,16 +230,23 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     // MARK: - NSMenuDelegate
 
-    func menuWillOpen(_: NSMenu) {
+    func menuWillOpen(_ menu: NSMenu) {
         // Opening the menu is an explicit "show me now", but it is debounced to the configured
         // cadence: the quota endpoints rate-limit, and a menu can be opened many times a minute.
         self.store.refreshIfStale()
+        if let provider = Self.provider(of: menu) {
+            self.presentationTokens[provider, default: 0] += 1
+        }
         self.refreshOpenCards()
         self.startOpenMenuClock()
     }
 
     func menuDidClose(_: NSMenu) {
         self.stopOpenMenuClock()
+    }
+
+    private static func provider(of menu: NSMenu) -> Provider? {
+        menu.identifier.map(\.rawValue).flatMap(Provider.init(rawValue:))
     }
 
     private func startOpenMenuClock() {

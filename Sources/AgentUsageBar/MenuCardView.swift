@@ -7,6 +7,11 @@ struct MenuCardView: View {
     let provider: Provider
     let display: ProviderDisplay
     let isRefreshing: Bool
+    /// Bumped by the controller each time this provider's menu opens, so the quota bars replay
+    /// their sweep on every viewing rather than only on the app's first paint.
+    let presentationToken: Int
+    /// False for the offscreen card dump, which captures one frame and would catch empty bars.
+    var animatesFill = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -130,7 +135,9 @@ struct MenuCardView: View {
                 tint: Theme.accent(for: self.provider),
                 // The bar shows what is left, so the pace tip marks the remaining side too.
                 pacePercent: pace?.expectedRemainingPercent,
-                paceIsDeficit: pace?.stage.isAhead ?? false
+                paceIsDeficit: pace?.stage.isAhead ?? false,
+                presentationToken: self.presentationToken,
+                animatesFill: self.animatesFill
             )
             if let pace {
                 // One Text, not an HStack: split across views the line wraps mid-phrase.
