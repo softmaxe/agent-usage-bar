@@ -29,16 +29,13 @@ struct SettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            Section("Show in menu bar") {
-                ForEach(Provider.allCases, id: \.self) { provider in
-                    Toggle(provider.displayName, isOn: Binding(
-                        get: { self.settings.isEnabled(provider) },
-                        set: { self.settings.setEnabled($0, for: provider) }
-                    ))
-                }
-                Text("Each provider has its own menu bar item. Sign-in status does not change this setting.")
+            Section("Menu bar") {
+                LabeledContent("Showing", value: self.settings.menuBarProvider.displayName)
+                Text("One item at a time. Right-click it to switch providers, or use "
+                    + "\u{201C}Switch provider\u{201D} in its menu. Sign-in status does not change this.")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .formStyle(.grouped)

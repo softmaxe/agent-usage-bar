@@ -117,7 +117,7 @@ do {
 await CostTests.run()
 await RateLimitTests.run()
 await MainActor.run { SettingsTests.run() }
-MenuBarVisibilityTests.run()
+MenuBarProviderTests.run()
 PaceTests.run()
 HistoricalPaceTests.run()
 PricingOverrideTests.run()

@@ -1,12 +1,12 @@
 # AgentUsageBar
 
-AgentUsageBar is a lightweight macOS menu bar app for tracking Codex and Claude usage. It shows one independently controlled status item per provider, with quota windows, reset times, usage pace, local token and cost estimates, and recent model activity.
+AgentUsageBar is a lightweight macOS menu bar app for tracking Codex and Claude usage. It shows a single status item for one provider at a time — right-click to switch — with quota windows, reset times, usage pace, local token and cost estimates, and recent model activity.
 
 The project is a focused reimplementation of selected [CodexBar](https://github.com/steipete/CodexBar) behavior for Codex and Claude.
 
 ## Features
 
-- Separate Codex and Claude menu bar items
+- One menu bar item, right-click to switch between Codex and Claude
 - Session and weekly quota remaining, reset times, and pace indicators
 - Today's and rolling 30-day token and estimated cost totals
 - Recent daily usage chart, per-model breakdown, and top-model summary
@@ -65,15 +65,16 @@ Claude credentials are read from the macOS Keychain entry used by Claude Code.
 
 ## Use the menu bar app
 
-Open either provider icon to view its current quota and local cost summary. The menu provides:
+Left-click the icon to view the current quota and local cost summary for the provider it shows. The menu provides:
 
+- `Switch provider` to move the item to the other provider
 - `Refresh` (`⌘R`) to request fresh provider data
-- `Settings…` (`⌘,`) to change refresh frequency, menu bar visibility, and pricing
+- `Settings…` (`⌘,`) to change refresh frequency and pricing
 - `Quit` (`⌘Q`) to stop the app
 
-The Codex and Claude switches under **Settings → General → Show in menu bar** are independent. An enabled item remains visible while its provider is signed out or waiting for its first refresh, so the menu can report the current state instead of silently disappearing.
+The menu bar carries one item. **Right-clicking** (or control-clicking) it switches between Codex and Claude, and the choice is remembered across launches; **Settings → General → Menu bar** shows which provider is current. The item stays visible while its provider is signed out or waiting for its first refresh, so the menu can report the current state instead of silently disappearing. Both providers keep refreshing in the background, so switching shows current data immediately.
 
-Opening a provider menu also requests a refresh, limited to once every 30 seconds. The default scheduled refresh interval is five minutes to reduce quota-endpoint rate limiting.
+Opening the menu also requests a refresh, limited to once every 30 seconds. The default scheduled refresh interval is five minutes to reduce quota-endpoint rate limiting.
 
 ## Cost estimates and pricing
 

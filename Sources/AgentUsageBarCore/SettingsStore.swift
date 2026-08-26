@@ -43,6 +43,8 @@ public enum RefreshFrequency: String, CaseIterable, Identifiable {
 public final class SettingsStore: ObservableObject {
     private enum Key {
         static let refreshFrequency = "refreshFrequency"
+        static let menuBarProvider = "menuBarProvider"
+        /// Pre-single-item builds stored one visibility switch per provider.
         static func providerEnabled(_ provider: Provider) -> String {
             "provider.\(provider.rawValue).enabled"
         }
@@ -59,15 +61,11 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    @Published public var enabledProviders: Set<Provider> {
+    /// The one provider the menu bar item shows. A right-click on the item cycles it.
+    @Published public var menuBarProvider: Provider {
         didSet {
-            guard oldValue != self.enabledProviders else { return }
-            for provider in Provider.allCases {
-                self.defaults.set(
-                    self.enabledProviders.contains(provider),
-                    forKey: Key.providerEnabled(provider)
-                )
-            }
+            guard oldValue != self.menuBarProvider else { return }
+            self.defaults.set(self.menuBarProvider.rawValue, forKey: Key.menuBarProvider)
         }
     }
 
@@ -75,24 +73,24 @@ public final class SettingsStore: ObservableObject {
         self.defaults = defaults
         self.refreshFrequency = (defaults.string(forKey: Key.refreshFrequency))
             .flatMap(RefreshFrequency.init(rawValue:)) ?? .fiveMinutes
-        self.enabledProviders = Set(Provider.allCases.filter { provider in
-            // Absent key means "not configured yet", which should show the provider.
-            defaults.object(forKey: Key.providerEnabled(provider)) as? Bool ?? true
-        })
+        self.menuBarProvider = Self.initialMenuBarProvider(defaults: defaults)
     }
 
-    public func isEnabled(_ provider: Provider) -> Bool {
-        self.enabledProviders.contains(provider)
+    /// Moves the menu bar item to the next provider, which is what a right-click does.
+    public func advanceMenuBarProvider() {
+        self.menuBarProvider = MenuBarProviderPolicy.next(after: self.menuBarProvider)
     }
 
-    public func setEnabled(_ enabled: Bool, for provider: Provider) {
-        var updated = self.enabledProviders
-        if enabled {
-            updated.insert(provider)
-        } else {
-            updated.remove(provider)
+    /// Older builds showed one item per provider behind a pair of switches. When exactly one of
+    /// them was on, that is the provider the single item should keep showing.
+    private static func initialMenuBarProvider(defaults: UserDefaults) -> Provider {
+        if let stored = defaults.string(forKey: Key.menuBarProvider),
+           let provider = Provider(rawValue: stored) {
+            return provider
         }
-        guard updated != self.enabledProviders else { return }
-        self.enabledProviders = updated
+        let legacy = Provider.allCases.filter {
+            defaults.object(forKey: Key.providerEnabled($0)) as? Bool == true
+        }
+        return legacy.count == 1 ? legacy[0] : (Provider.allCases.first ?? .codex)
     }
 }

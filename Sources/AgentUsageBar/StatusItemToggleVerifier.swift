@@ -3,6 +3,8 @@ import AgentUsageBarCore
 import AppKit
 import Foundation
 
+/// The menu bar carries exactly one item, and a right-click moves it between providers. This
+/// hammers that switch to prove the item is reused rather than torn down and rebuilt.
 @MainActor
 enum StatusItemToggleVerifier {
     static func run() -> Never {
@@ -24,35 +26,49 @@ enum StatusItemToggleVerifier {
         )
 
         Self.drainMainRunLoop()
-        Self.requireVisible(.codex, controller: controller, step: "initial Codex")
-        Self.requireVisible(.claude, controller: controller, step: "initial Claude")
+        let first = settings.menuBarProvider
+        Self.requireItem(showing: first, controller: controller, step: "initial item")
 
         for iteration in 1 ... 1_000 {
-            settings.setEnabled(false, for: .codex)
-            Self.drainMainRunLoop(for: 0.002)
-            let hidden = controller.debugStatusItemState(for: .codex)
-            guard !hidden.exists else {
-                Self.fail("iteration \(iteration) Codex stayed present after disable: \(hidden)")
-            }
+            let before = settings.menuBarProvider
+            let expected = MenuBarProviderPolicy.next(after: before)
 
-            settings.setEnabled(true, for: .codex)
+            controller.debugSecondaryClick()
             Self.drainMainRunLoop(for: 0.002)
-            Self.requireVisible(.codex, controller: controller, step: "iteration \(iteration) Codex re-enable")
-            Self.requireVisible(.claude, controller: controller, step: "iteration \(iteration) Claude unaffected")
+
+            guard settings.menuBarProvider == expected else {
+                Self.fail(
+                    "iteration \(iteration) right-click went to \(settings.menuBarProvider.rawValue), "
+                        + "expected \(expected.rawValue)"
+                )
+            }
+            Self.requireItem(
+                showing: expected,
+                controller: controller,
+                step: "iteration \(iteration) after switching to \(expected.rawValue)"
+            )
         }
 
-        print("1,000 rapid Codex toggle cycles passed")
+        // Two providers and a wrapping cycle: an even number of switches lands back at the start.
+        guard settings.menuBarProvider == first else {
+            Self.fail("cycling 1,000 times did not return to \(first.rawValue)")
+        }
+
+        print("1,000 rapid provider switches passed on a single status item")
         exit(0)
     }
 
-    private static func requireVisible(
-        _ provider: Provider,
+    private static func requireItem(
+        showing provider: Provider,
         controller: StatusItemController,
         step: String
     ) {
-        let state = controller.debugStatusItemState(for: provider)
+        let state = controller.debugStatusItemState()
         guard state.exists, state.visible, state.attached, state.stableIdentity else {
             Self.fail("\(step) was not materialized: \(state)")
+        }
+        guard state.provider == provider else {
+            Self.fail("\(step) shows \(state.provider.rawValue), expected \(provider.rawValue)")
         }
     }
 
@@ -61,7 +77,7 @@ enum StatusItemToggleVerifier {
     }
 
     private static func fail(_ message: String) -> Never {
-        fputs("menu toggle verification failed: \(message)\n", stderr)
+        fputs("menu switch verification failed: \(message)\n", stderr)
         exit(1)
     }
 }

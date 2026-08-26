@@ -511,59 +511,62 @@ enum SettingsTests {
         // reintroduce the 429 this cadence exists to avoid.
         let store = SettingsStore(defaults: defaults)
         Harness.expectEqual(store.refreshFrequency, .fiveMinutes, "default cadence")
-        Harness.expect(store.isEnabled(.codex) && store.isEnabled(.claude), "both providers default on")
+        Harness.expectEqual(store.menuBarProvider, Provider.allCases[0], "one provider shows by default")
 
         Harness.expectEqual(RefreshFrequency.manual.seconds, nil, "manual runs no timer")
         Harness.expectEqual(RefreshFrequency.oneMinute.seconds, 60, "one minute in seconds")
         Harness.expectEqual(RefreshFrequency.thirtyMinutes.seconds, 1800, "thirty minutes in seconds")
         Harness.expectEqual(RefreshFrequency.allCases.count, 6, "six cadence options")
 
-        var visibilityChanges: [Set<Provider>] = []
-        let observer = store.$enabledProviders
+        // A right-click publishes exactly one provider, and cycling wraps back around.
+        var switches: [Provider] = []
+        let observer = store.$menuBarProvider
             .dropFirst()
-            .sink { visibilityChanges.append($0) }
+            .sink { switches.append($0) }
 
         store.refreshFrequency = .fifteenMinutes
-        store.setEnabled(false, for: .codex)
-        store.setEnabled(false, for: .claude)
-        store.setEnabled(true, for: .codex)
-        store.setEnabled(true, for: .claude)
+        store.advanceMenuBarProvider()
+        store.advanceMenuBarProvider()
         Harness.expectEqual(
-            visibilityChanges,
-            [Set([.claude]), [], Set([.codex]), Set(Provider.allCases)],
-            "each toggle publishes its complete independent state"
+            switches,
+            [MenuBarProviderPolicy.next(after: Provider.allCases[0]), Provider.allCases[0]],
+            "each right-click publishes the next provider"
         )
         _ = observer
 
-        store.setEnabled(false, for: .codex)
+        store.menuBarProvider = .claude
 
         let reloaded = SettingsStore(defaults: defaults)
         Harness.expectEqual(reloaded.refreshFrequency, .fifteenMinutes, "cadence survives a reload")
-        Harness.expect(!reloaded.isEnabled(.codex), "a disabled provider survives a reload")
-        Harness.expect(reloaded.isEnabled(.claude), "the other provider is untouched")
+        Harness.expectEqual(reloaded.menuBarProvider, .claude, "the shown provider survives a reload")
+
+        // A machine upgrading from the two-toggle build keeps the item it had left enabled.
+        let legacySuite = "\(suite)-legacy"
+        let legacyDefaults = UserDefaults(suiteName: legacySuite) ?? .standard
+        legacyDefaults.removePersistentDomain(forName: legacySuite)
+        defer { legacyDefaults.removePersistentDomain(forName: legacySuite) }
+        legacyDefaults.set(false, forKey: "provider.codex.enabled")
+        legacyDefaults.set(true, forKey: "provider.claude.enabled")
+        Harness.expectEqual(
+            SettingsStore(defaults: legacyDefaults).menuBarProvider,
+            .claude,
+            "the single remaining legacy item becomes the shown provider"
+        )
     }
 }
 
-/// A menu bar toggle owns visibility independently of provider refresh state.
-enum MenuBarVisibilityTests {
+/// The menu bar shows one provider at a time, and a right-click walks the list.
+enum MenuBarProviderTests {
     static func run() {
-        let onlyCodex: Set<Provider> = [.codex]
-
-        Harness.expectEqual(
-            MenuBarVisibilityPolicy.visibleProviders(enabledProviders: onlyCodex),
-            onlyCodex,
-            "an enabled provider is visible before its first refresh"
-        )
-        Harness.expectEqual(
-            MenuBarVisibilityPolicy.visibleProviders(enabledProviders: [.claude]),
-            Set([.claude]),
-            "each provider can be enabled independently"
-        )
-        Harness.expectEqual(
-            MenuBarVisibilityPolicy.visibleProviders(enabledProviders: []),
-            Set<Provider>(),
-            "disabling every provider removes every item"
-        )
+        // Cycling reaches every provider and wraps, so it never dead-ends on the last one.
+        var provider = Provider.allCases[0]
+        var walk: [Provider] = []
+        for _ in Provider.allCases {
+            provider = MenuBarProviderPolicy.next(after: provider)
+            walk.append(provider)
+        }
+        Harness.expectEqual(Set(walk), Set(Provider.allCases), "cycling reaches every provider")
+        Harness.expectEqual(walk.last, Provider.allCases[0], "cycling wraps back to the first")
     }
 }
 
