@@ -83,13 +83,35 @@ public actor CostService {
         self.overlay = nil
     }
 
-    /// Called immediately before an override file changes, so rows created by older app versions
-    /// are frozen with the old rates rather than the rates being saved.
+    /// Replaces the cached price layers outright. The app reloads them from disk instead
+    /// (`invalidatePricing`); this exists so tests can move prices without touching the network.
+    public func usePricingOverlay(_ overlay: PricingOverlay) {
+        self.overlay = overlay
+    }
+
+    /// Called immediately before an override file changes. Every log line already on disk is
+    /// scanned and priced at the rates in force right now, and rows written by older app versions
+    /// are frozen the same way. A stored cost is never recomputed, so the edit that follows can
+    /// only reach usage recorded after it.
     public func freezeCurrentPrices() async throws {
         let cache = try self.openCache()
         let overlay = await self.currentOverlay()
         for provider in Provider.allCases {
             try cache.freezeLegacyPrices(provider: provider, overlay: overlay)
+            do {
+                switch provider {
+                case .codex:
+                    _ = try CodexLogScanner.scan(cache: cache, overlay: overlay, env: self.env)
+                case .claude:
+                    _ = try ClaudeLogScanner.scan(cache: cache, overlay: overlay, env: self.env)
+                }
+            } catch {
+                // A provider whose logs cannot be read has nothing to freeze; the other one
+                // still has to be sealed before the new rates land.
+                Log.ui.error(
+                    "\(provider.rawValue, privacy: .public) pre-edit scan failed: \(error.localizedDescription, privacy: .public)"
+                )
+            }
         }
     }
 

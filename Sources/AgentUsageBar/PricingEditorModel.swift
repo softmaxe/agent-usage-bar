@@ -21,7 +21,8 @@ enum PricingGroup: String, CaseIterable, Identifiable, Hashable {
 }
 
 /// One editable row of the pricing table. Rates are USD per million tokens, matching how
-/// providers publish them.
+/// providers publish them, and the fields cover every input the billing math actually reads:
+/// the four base rates, the one-hour cache write, and the long-context tier.
 struct PricingRow: Identifiable, Equatable {
     let provider: Provider
     let group: PricingGroup
@@ -35,13 +36,41 @@ struct PricingRow: Identifiable, Equatable {
 
     var input: String
     var output: String
+    /// Five-minute cache write, which is the TTL the published price tables quote.
     var cacheWrite: String
+    /// One-hour cache write. Empty means "twice the input rate", the ratio Anthropic publishes.
+    var cacheWrite1h: String
     var cacheRead: String
+
+    /// Tokens in one request above which the long-context rates apply. Empty means no tier.
+    var thresholdTokens: String
+    var inputAbove: String
+    var outputAbove: String
+    var cacheWriteAbove: String
+    var cacheWrite1hAbove: String
+    var cacheReadAbove: String
 
     var id: String { "\(self.provider.rawValue)|\(self.model)" }
 
     var isPriced: Bool {
         Double(self.input) != nil && Double(self.output) != nil
+    }
+
+    /// Whether the model has a second price tier, which the row labels so it is clear there is
+    /// more behind the disclosure than the four visible columns.
+    var hasLongContextTier: Bool {
+        !self.thresholdTokens.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    /// What an empty one-hour field bills at, so the placeholder shows the real number.
+    var derivedCacheWrite1h: Double? {
+        Double(self.input.trimmingCharacters(in: .whitespaces))
+            .map { $0 * ModelPricing.oneHourCacheWriteMultiplier }
+    }
+
+    var derivedCacheWrite1hAbove: Double? {
+        Double(self.inputAbove.trimmingCharacters(in: .whitespaces))
+            .map { $0 * ModelPricing.oneHourCacheWriteMultiplier }
     }
 }
 
@@ -52,6 +81,11 @@ final class PricingEditorModel: ObservableObject {
     @Published private(set) var isLoading = true
     @Published private(set) var saveError: String?
     @Published private(set) var hasUnsavedChanges = false
+    /// Set after a save so the pane can say what the new rates do and do not touch.
+    @Published private(set) var lastSavedAt: Date?
+    /// Rows whose one-hour and long-context fields are unfolded. Kept here rather than in the
+    /// view so a headless dump can capture an expanded row.
+    @Published var expandedRowIDs: Set<String> = []
 
     private var originalRows: [String: PricingRow] = [:]
     /// Rates from the built-in table plus models.dev, i.e. what a row falls back to.
@@ -124,7 +158,14 @@ final class PricingEditorModel: ObservableObject {
                     input: Self.text(effective?.input),
                     output: Self.text(effective?.output),
                     cacheWrite: Self.text(effective?.cacheWrite),
-                    cacheRead: Self.text(effective?.cacheRead)
+                    cacheWrite1h: Self.text(effective?.cacheWrite1h),
+                    cacheRead: Self.text(effective?.cacheRead),
+                    thresholdTokens: Self.integerText(effective?.thresholdTokens),
+                    inputAbove: Self.text(effective?.inputAbove),
+                    outputAbove: Self.text(effective?.outputAbove),
+                    cacheWriteAbove: Self.text(effective?.cacheWriteAbove),
+                    cacheWrite1hAbove: Self.text(effective?.cacheWrite1hAbove),
+                    cacheReadAbove: Self.text(effective?.cacheReadAbove)
                 ))
             }
         }
@@ -151,14 +192,25 @@ final class PricingEditorModel: ObservableObject {
         self.rows.filter { $0.group == group }
     }
 
+    func isExpanded(_ id: String) -> Bool {
+        self.expandedRowIDs.contains(id)
+    }
+
+    func toggleExpanded(_ id: String) {
+        if self.expandedRowIDs.contains(id) {
+            self.expandedRowIDs.remove(id)
+        } else {
+            self.expandedRowIDs.insert(id)
+        }
+    }
+
     func binding(for id: String, keyPath: WritableKeyPath<PricingRow, String>) -> Binding<String> {
         Binding(
             get: { self.rows.first { $0.id == id }?[keyPath: keyPath] ?? "" },
             set: { newValue in
                 guard let index = self.rows.firstIndex(where: { $0.id == id }) else { return }
                 self.rows[index][keyPath: keyPath] = newValue
-                self.hasUnsavedChanges = self.rows != Array(self.originalRows.values.sorted { $0.id < $1.id })
-                    || self.rows.contains { row in self.originalRows[row.id] != row }
+                self.hasUnsavedChanges = self.rows.contains { self.originalRows[$0.id] != $0 }
             }
         )
     }
@@ -170,8 +222,15 @@ final class PricingEditorModel: ObservableObject {
         self.rows[index].input = Self.text(fallback?.input)
         self.rows[index].output = Self.text(fallback?.output)
         self.rows[index].cacheWrite = Self.text(fallback?.cacheWrite)
+        self.rows[index].cacheWrite1h = Self.text(fallback?.cacheWrite1h)
         self.rows[index].cacheRead = Self.text(fallback?.cacheRead)
-        self.hasUnsavedChanges = true
+        self.rows[index].thresholdTokens = Self.integerText(fallback?.thresholdTokens)
+        self.rows[index].inputAbove = Self.text(fallback?.inputAbove)
+        self.rows[index].outputAbove = Self.text(fallback?.outputAbove)
+        self.rows[index].cacheWriteAbove = Self.text(fallback?.cacheWriteAbove)
+        self.rows[index].cacheWrite1hAbove = Self.text(fallback?.cacheWrite1hAbove)
+        self.rows[index].cacheReadAbove = Self.text(fallback?.cacheReadAbove)
+        self.hasUnsavedChanges = self.rows.contains { self.originalRows[$0.id] != $0 }
     }
 
     func resetAll() {
@@ -180,18 +239,14 @@ final class PricingEditorModel: ObservableObject {
 
     /// Writes only the rows that differ from their fallback, so the override file stays small
     /// and future built-in updates still reach the untouched models.
+    ///
+    /// Usage already recorded keeps the cost it was scanned with: the service prices everything
+    /// on disk at the old rates first, and the new rates only reach what is logged afterwards.
     func save() async {
         var overrides: [String: ModelPricing] = [:]
         for row in self.rows {
-            guard let input = Double(row.input.trimmingCharacters(in: .whitespaces)),
-                  let output = Double(row.output.trimmingCharacters(in: .whitespaces)) else { continue }
-            let pricing = ModelPricing(
-                input: input,
-                output: output,
-                cacheWrite: Double(row.cacheWrite.trimmingCharacters(in: .whitespaces)),
-                cacheRead: Double(row.cacheRead.trimmingCharacters(in: .whitespaces))
-            )
-            if let fallback = self.defaults[row.id] ?? nil, Self.matches(pricing, fallback) { continue }
+            guard let pricing = Self.pricing(from: row) else { continue }
+            if let fallback = self.defaults[row.id] ?? nil, pricing == fallback { continue }
             overrides[row.model] = pricing
         }
 
@@ -201,6 +256,7 @@ final class PricingEditorModel: ObservableObject {
             await self.costService.invalidatePricing()
             self.saveError = nil
             self.hasUnsavedChanges = false
+            self.lastSavedAt = Date()
             self.originalRows = Dictionary(uniqueKeysWithValues: self.rows.map { ($0.id, $0) })
             self.onSaved?()
         } catch {
@@ -208,12 +264,32 @@ final class PricingEditorModel: ObservableObject {
         }
     }
 
-    /// Only the four editable rates are compared; long-context tiers are not editable here.
-    private static func matches(_ lhs: ModelPricing, _ rhs: ModelPricing) -> Bool {
-        lhs.input == rhs.input
-            && lhs.output == rhs.output
-            && lhs.cacheWrite == rhs.cacheWrite
-            && lhs.cacheRead == rhs.cacheRead
+    /// A row with no base rates is not priced at all, which is how a model gets removed from the
+    /// override file. Everything else round-trips, including the tier the billing math reads.
+    static func pricing(from row: PricingRow) -> ModelPricing? {
+        guard let input = Self.number(row.input), let output = Self.number(row.output) else {
+            return nil
+        }
+        return ModelPricing(
+            input: input,
+            output: output,
+            cacheWrite: Self.number(row.cacheWrite),
+            cacheWrite1h: Self.number(row.cacheWrite1h),
+            cacheRead: Self.number(row.cacheRead),
+            thresholdTokens: Self.number(row.thresholdTokens).map { Int($0) },
+            inputAbove: Self.number(row.inputAbove),
+            outputAbove: Self.number(row.outputAbove),
+            cacheWriteAbove: Self.number(row.cacheWriteAbove),
+            cacheWrite1hAbove: Self.number(row.cacheWrite1hAbove),
+            cacheReadAbove: Self.number(row.cacheReadAbove)
+        )
+    }
+
+    private static func number(_ text: String) -> Double? {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return nil }
+        // Thousands separators are natural to type into a token threshold.
+        return Double(trimmed.replacingOccurrences(of: ",", with: ""))
     }
 
     private static func text(_ value: Double?) -> String {
@@ -222,6 +298,10 @@ final class PricingEditorModel: ObservableObject {
         return value == value.rounded()
             ? String(format: "%.0f", value)
             : String(format: "%g", value)
+    }
+
+    private static func integerText(_ value: Int?) -> String {
+        value.map(String.init) ?? ""
     }
 
     private static func provider(

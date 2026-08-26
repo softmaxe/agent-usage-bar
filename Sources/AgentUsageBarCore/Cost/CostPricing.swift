@@ -10,39 +10,57 @@ import Foundation
 public struct ModelPricing: Sendable, Equatable {
     public let input: Double
     public let output: Double
+    /// Five-minute cache write, which is the TTL the published tables quote.
     public let cacheWrite: Double?
+    /// One-hour cache write. nil bills it at `oneHourCacheWriteMultiplier` times the input rate,
+    /// which is the ratio Anthropic publishes instead of a column of its own.
+    public let cacheWrite1h: Double?
     public let cacheRead: Double?
     /// Above this many tokens in one request the long-context rates apply.
     public let thresholdTokens: Int?
     public let inputAbove: Double?
     public let outputAbove: Double?
     public let cacheWriteAbove: Double?
+    public let cacheWrite1hAbove: Double?
     public let cacheReadAbove: Double?
 
     public init(
         input: Double,
         output: Double,
         cacheWrite: Double? = nil,
+        cacheWrite1h: Double? = nil,
         cacheRead: Double? = nil,
         thresholdTokens: Int? = nil,
         inputAbove: Double? = nil,
         outputAbove: Double? = nil,
         cacheWriteAbove: Double? = nil,
+        cacheWrite1hAbove: Double? = nil,
         cacheReadAbove: Double? = nil
     ) {
         self.input = input
         self.output = output
         self.cacheWrite = cacheWrite
+        self.cacheWrite1h = cacheWrite1h
         self.cacheRead = cacheRead
         self.thresholdTokens = thresholdTokens
         self.inputAbove = inputAbove
         self.outputAbove = outputAbove
         self.cacheWriteAbove = cacheWriteAbove
+        self.cacheWrite1hAbove = cacheWrite1hAbove
         self.cacheReadAbove = cacheReadAbove
     }
 
     /// Anthropic's published ratio between a one-hour cache write and the base input rate.
-    static let oneHourCacheWriteMultiplier = 2.0
+    /// Used only when no explicit one-hour rate is set.
+    public static let oneHourCacheWriteMultiplier = 2.0
+
+    /// The one-hour cache-write rate actually billed, derived from the input rate when the
+    /// table (or the user's override) does not state one.
+    public func cacheWrite1hRate(longContext: Bool) -> Double {
+        let inputRate = (longContext ? self.inputAbove : nil) ?? self.input
+        if let stated = (longContext ? self.cacheWrite1hAbove : nil) ?? self.cacheWrite1h { return stated }
+        return inputRate * Self.oneHourCacheWriteMultiplier
+    }
 
     /// Cost in USD for one bucket of tokens, at either the base or the long-context tier.
     public func cost(for totals: TokenTotals, longContext: Bool) -> Double {
@@ -54,15 +72,15 @@ public struct ModelPricing: Sendable, Equatable {
         let cacheReadRate = (longContext ? self.cacheReadAbove : nil) ?? self.cacheRead ?? inputRate
 
         // Anthropic prices a one-hour cache write at twice the input rate, against 1.25x for the
-        // five-minute default. The table's cache-write column is the five-minute rate, so the
-        // longer TTL is derived from the input rate the way Anthropic publishes it.
+        // five-minute default. The table's cache-write column is the five-minute rate, so unless
+        // a one-hour rate is stated the longer TTL is derived the way Anthropic publishes it.
         let write1h = Double(min(totals.cacheWrite1h, totals.cacheWrite))
         let write5m = Double(totals.cacheWrite) - write1h
 
         return (Double(totals.input) * inputRate
             + Double(totals.output) * outputRate
             + write5m * cacheWriteRate
-            + write1h * inputRate * Self.oneHourCacheWriteMultiplier
+            + write1h * self.cacheWrite1hRate(longContext: longContext)
             + Double(totals.cacheRead) * cacheReadRate) / million
     }
 }

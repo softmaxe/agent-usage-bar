@@ -81,11 +81,13 @@ public enum PricingOverlayStore {
                 input: input,
                 output: output,
                 cacheWrite: Self.double(entry["cacheWrite"]),
+                cacheWrite1h: Self.double(entry["cacheWrite1h"]),
                 cacheRead: Self.double(entry["cacheRead"]),
                 thresholdTokens: (entry["thresholdTokens"] as? NSNumber)?.intValue,
                 inputAbove: Self.double(entry["inputAbove"]),
                 outputAbove: Self.double(entry["outputAbove"]),
                 cacheWriteAbove: Self.double(entry["cacheWriteAbove"]),
+                cacheWrite1hAbove: Self.double(entry["cacheWrite1hAbove"]),
                 cacheReadAbove: Self.double(entry["cacheReadAbove"])
             )
         }
@@ -105,11 +107,13 @@ public enum PricingOverlayStore {
         for (model, pricing) in overrides {
             var entry: [String: Any] = ["input": pricing.input, "output": pricing.output]
             if let cacheWrite = pricing.cacheWrite { entry["cacheWrite"] = cacheWrite }
+            if let value = pricing.cacheWrite1h { entry["cacheWrite1h"] = value }
             if let cacheRead = pricing.cacheRead { entry["cacheRead"] = cacheRead }
             if let threshold = pricing.thresholdTokens { entry["thresholdTokens"] = threshold }
             if let value = pricing.inputAbove { entry["inputAbove"] = value }
             if let value = pricing.outputAbove { entry["outputAbove"] = value }
             if let value = pricing.cacheWriteAbove { entry["cacheWriteAbove"] = value }
+            if let value = pricing.cacheWrite1hAbove { entry["cacheWrite1hAbove"] = value }
             if let value = pricing.cacheReadAbove { entry["cacheReadAbove"] = value }
             root[model] = entry
         }
@@ -162,7 +166,8 @@ public enum PricingOverlayStore {
         try? data.write(to: url)
     }
 
-    /// models.dev publishes USD per million tokens, keyed provider -> model.
+    /// models.dev publishes USD per million tokens, keyed provider -> model. It has no
+    /// one-hour cache-write column, so that rate stays derived from the input rate.
     public static func parseCatalog(_ data: Data) -> [String: ModelPricing]? {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let providers = root["providers"] as? [String: Any] else { return nil }

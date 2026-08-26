@@ -12,7 +12,7 @@ The project is a focused reimplementation of selected [CodexBar](https://github.
 - Recent daily usage chart, per-model breakdown, and top-model summary
 - Codex credits when the usage endpoint reports them
 - Configurable manual or 1, 2, 5, 15, and 30-minute refresh intervals
-- Editable per-model pricing overrides
+- Editable per-model pricing overrides, including cache and long-context rates
 - Last-known data retained and dimmed when a refresh fails
 
 ## Requirements
@@ -89,11 +89,13 @@ The first scan can take longer on a large history. Later scans are incremental a
 ~/Library/Caches/AgentUsageBar/cost-usage/cost-usage.sqlite
 ```
 
-Built-in rates are supplemented by the public [models.dev](https://models.dev) catalog, cached for 24 hours. Rates can be reviewed or overridden under **Settings → Pricing**. User overrides are stored at:
+Built-in rates are supplemented by the public [models.dev](https://models.dev) catalog, cached for 24 hours. Rates can be reviewed or overridden under **Settings → Pricing**, which exposes every figure the cost math reads: input, output, five-minute cache write, cache read, the one-hour cache write (empty means twice input, the ratio Anthropic publishes), and the long-context tier — its per-request token threshold plus the rates that apply above it. User overrides are stored at:
 
 ```text
 ~/Library/Application Support/AgentUsageBar/pricing-overrides.json
 ```
+
+Saved rates apply going forward. Everything already recorded is priced and frozen at the rates in force when it was scanned, so an edit changes future usage only and never rewrites past days.
 
 All displayed costs are estimates. Cache-token accounting, provider billing rules, and changing model prices can make them differ from an invoice.
 

@@ -16,11 +16,31 @@ enum CardDump {
         let defaults = UserDefaults(suiteName: "AgentUsageBarSettingsDump") ?? .standard
         defaults.removePersistentDomain(forName: "AgentUsageBarSettingsDump")
         let settings = SettingsStore(defaults: defaults)
+        let pricing = PricingEditorModel(costService: CostService())
 
-        let hosting = NSHostingView(rootView: SettingsView(
-            settings: settings,
-            pricing: PricingEditorModel(costService: CostService())
-        ))
+        Self.captureSettings(
+            AnyView(SettingsView(settings: settings, pricing: pricing)),
+            named: "settings",
+            into: root
+        )
+        // The pricing pane again on its own, with the top row unfolded, so the one-hour and
+        // long-context fields are in the dump rather than a click away. The rows only load when
+        // the pane appears, and the first capture never selects that tab, so load them here.
+        let loading = Task {
+            await pricing.load()
+            if let row = pricing.rows.first { pricing.expandedRowIDs = [row.id] }
+        }
+        RunLoop.current.run(until: Date().addingTimeInterval(3))
+        _ = loading
+        Self.captureSettings(
+            AnyView(PricingSettingsView(model: pricing)),
+            named: "settings-pricing-expanded",
+            into: root
+        )
+    }
+
+    private static func captureSettings(_ view: AnyView, named name: String, into root: URL) {
+        let hosting = NSHostingView(rootView: view)
         hosting.appearance = NSAppearance(named: .darkAqua)
         hosting.frame = NSRect(x: 0, y: 0, width: 620, height: 460)
 
@@ -49,9 +69,10 @@ enum CardDump {
         guard let data = rep.representation(using: NSBitmapImageRep.FileType.png, properties: [:]) else {
             return
         }
-        let url = root.appendingPathComponent("settings.png")
+        let url = root.appendingPathComponent("\(name).png")
         try? data.write(to: url)
         print("wrote \(url.path) (\(Int(hosting.frame.width))x\(Int(hosting.frame.height)))")
+        window.orderOut(nil)
     }
 
     static func run(directory: String) {

@@ -11,6 +11,7 @@ enum CostTests {
         Self.longContextTiering()
         Self.overlayParsing()
         await Self.scanning()
+        await Self.pricingEditsApplyForward()
     }
 
     // MARK: - Pricing
@@ -140,6 +141,75 @@ enum CostTests {
     }
 
     // MARK: - Scanning
+
+    /// A price edit must not rewrite history: what has already been scanned keeps the cost it was
+    /// billed at, and the new rate reaches only the turns logged afterwards.
+    private static func pricingEditsApplyForward() async {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("agentusagebar-forwardprices-\(ProcessInfo.processInfo.processIdentifier)")
+        try? FileManager.default.removeItem(at: root)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let codexHome = root.appendingPathComponent("codex")
+        let logFile = codexHome.appendingPathComponent("sessions/rollout-forward.jsonl")
+        try? FileManager.default.createDirectory(
+            at: logFile.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+
+        // Stamped now, so the day always lands inside the 30-day window the snapshot covers.
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let now = formatter.string(from: Date())
+        // 200k input stays under luna's 272k long-context threshold, so the base rate applies.
+        let turn = """
+        {"type":"turn_context","timestamp":"\(now)","payload":{"model":"gpt-5.6-luna"}}
+        {"type":"event_msg","timestamp":"\(now)","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":200000,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":0}}}}
+
+        """
+        try? turn.write(to: logFile, atomically: true, encoding: .utf8)
+
+        let service = CostService(
+            databaseURL: root.appendingPathComponent("cache.sqlite"),
+            env: ["CODEX_HOME": codexHome.path, "CLAUDE_CONFIG_DIR": root.appendingPathComponent("claude").path],
+            pricingOverlay: PricingOverlay()
+        )
+
+        let append = {
+            guard let handle = try? FileHandle(forWritingTo: logFile) else { return }
+            _ = try? handle.seekToEnd()
+            try? handle.write(contentsOf: Data(turn.utf8))
+            try? handle.close()
+        }
+
+        let before = await service.refresh(.codex)
+        Harness.expectClose(before?.windowCostUSD, 0.04, "200k luna tokens at the built-in rate")
+
+        // A turn logged before the edit but not yet scanned still belongs to the old rate.
+        append()
+
+        // What the settings pane does on Save: seal what is on disk, then move the rates.
+        do {
+            try await service.freezeCurrentPrices()
+        } catch {
+            Harness.expect(false, "freezing prices threw: \(error)")
+            return
+        }
+        await service.usePricingOverlay(PricingOverlay(
+            userOverrides: ["gpt-5.6-luna": ModelPricing(input: 5, output: 5)]
+        ))
+
+        let sealed = await service.refresh(.codex)
+        Harness.expectEqual(sealed?.windowTokens, 400_000, "the pending turn is scanned before the edit")
+        Harness.expectClose(sealed?.windowCostUSD, 0.08, "a price edit leaves recorded usage alone")
+
+        append()
+
+        let after = await service.refresh(.codex)
+        Harness.expectEqual(after?.windowTokens, 600_000, "the turn logged after the edit is scanned")
+        // 0.08 frozen at the old rate plus 200k at the new $5/M rate.
+        Harness.expectClose(after?.windowCostUSD, 1.08, "only new usage bills at the new rate")
+    }
 
     private static func scanning() async {
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
@@ -934,6 +1004,13 @@ enum PricingOverrideTests {
         let overrides: [String: ModelPricing] = [
             "ox-alpha": ModelPricing(input: 1.5, output: 6, cacheWrite: 1.875, cacheRead: 0.15),
             "claude-opus-5": ModelPricing(input: 99, output: 99),
+            // Everything the billing math reads, so an override cannot silently drop a tier.
+            "ox-tiered": ModelPricing(
+                input: 2, output: 12, cacheWrite: 2.5, cacheWrite1h: 3.5, cacheRead: 0.2,
+                thresholdTokens: 200_000,
+                inputAbove: 4, outputAbove: 18, cacheWriteAbove: 5,
+                cacheWrite1hAbove: 7, cacheReadAbove: 0.4
+            ),
         ]
         do {
             try PricingOverlayStore.saveUserOverrides(overrides)
@@ -945,7 +1022,8 @@ enum PricingOverrideTests {
         let loaded = PricingOverlayStore.loadUserOverrides()
         Harness.expectEqual(loaded["ox-alpha"]?.input, 1.5, "override input rate round-trips")
         Harness.expectEqual(loaded["ox-alpha"]?.cacheRead, 0.15, "override cache rate round-trips")
-        Harness.expectEqual(loaded.count, 2, "both overrides round-trip")
+        Harness.expectEqual(loaded.count, 3, "every override round-trips")
+        Harness.expectEqual(loaded["ox-tiered"], overrides["ox-tiered"], "the full rate set round-trips")
 
         // A model with no built-in price becomes priceable through the override alone.
         let overlay = PricingOverlay(userOverrides: loaded, modelsDev: [:])
@@ -965,6 +1043,41 @@ enum PricingOverrideTests {
             CostPricing.pricing(for: "claude-opus-5", provider: .claude, overlay: overlay)?.input,
             99,
             "an override outranks the built-in table"
+        )
+
+        // A one-hour cache write is billed at its own rate when the override states one, and at
+        // twice input when it does not.
+        let hourly = TokenTotals(cacheWrite: 1_000_000, cacheWrite1h: 1_000_000)
+        Harness.expectEqual(
+            CostPricing.cost(
+                totals: hourly, model: "ox-tiered", provider: .codex,
+                longContext: false, overlay: overlay
+            ),
+            3.5,
+            "a stated one-hour rate is what bills"
+        )
+        Harness.expectEqual(
+            CostPricing.cost(
+                totals: hourly, model: "ox-tiered", provider: .codex,
+                longContext: true, overlay: overlay
+            ),
+            7,
+            "the long-context one-hour rate applies above the threshold"
+        )
+        Harness.expectEqual(
+            CostPricing.cost(
+                totals: hourly, model: "ox-alpha", provider: .claude,
+                longContext: false, overlay: overlay
+            ),
+            3,
+            "no stated one-hour rate falls back to twice input"
+        )
+        Harness.expect(
+            CostPricing.isLongContext(
+                totals: TokenTotals(input: 250_000), model: "ox-tiered",
+                provider: .codex, overlay: overlay
+            ),
+            "an overridden threshold decides the tier"
         )
 
         // Saving nothing removes the file, handing control back to the lower layers.
