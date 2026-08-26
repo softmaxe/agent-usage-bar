@@ -38,7 +38,7 @@ final class CostCache {
     /// Bumped whenever a scan would write different numbers for the same bytes — a parser change,
     /// a different token split, a change in what a stored cost means. The rows are a derivative of
     /// the scanner, and costs are frozen at scan time, so neither can be corrected in place.
-    private static let scanSemanticsVersion = 4
+    private static let scanSemanticsVersion = 5
 
     deinit {
         if let db = self.db { sqlite3_close(db) }
@@ -70,8 +70,8 @@ final class CostCache {
             PRIMARY KEY (path, day, model, long_context)
         )
         """)
-        // Claude replays the same assistant message into several transcripts, so rows are keyed by
-        // message identity and inserted with OR IGNORE to keep the count honest.
+        // Claude replays the same assistant message into several transcripts, so rows are keyed
+        // by message identity; a replay updates the row rather than adding to it.
         try self.exec("""
         CREATE TABLE IF NOT EXISTS claude_message (
             key TEXT PRIMARY KEY,
@@ -278,10 +278,26 @@ final class CostCache {
         guard sqlite3_prepare_v2(
             self.db,
             """
-            INSERT OR IGNORE INTO claude_message
+            INSERT INTO claude_message
                 (key, path, day, model, long_context, input, output, cache_write, cache_write_1h,
                  cache_read, cost_usd, unpriced_tokens)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET
+                path = excluded.path,
+                day = excluded.day,
+                model = excluded.model,
+                long_context = excluded.long_context,
+                input = excluded.input,
+                output = excluded.output,
+                cache_write = excluded.cache_write,
+                cache_write_1h = excluded.cache_write_1h,
+                cache_read = excluded.cache_read,
+                cost_usd = excluded.cost_usd,
+                unpriced_tokens = excluded.unpriced_tokens
+            -- Streaming writes the same message several times as it completes; only the chunk
+            -- that grew the reply supersedes what is already stored. Everything else is a replay
+            -- of a message this cache already has, and must not overwrite the finished figure.
+            WHERE excluded.output > claude_message.output
             """,
             -1,
             &stmt,

@@ -231,10 +231,46 @@ enum CostTests {
         Harness.expectEqual(modelUsage.first?.model, "gpt-5.6-luna", "pricing models sort by token usage")
         Harness.expectEqual(modelUsage.first?.tokens, 400_000, "pricing model usage carries token totals")
 
+        await Self.claudeStreamingChunksKeepTheFinalOutput(root: root)
         await Self.claudeOneHourCacheWritesCostDouble(root: root)
         await Self.codexSkipsReEmittedTokenCounts(root: root)
         await Self.codexCacheBucketsAreCarvedOutOfInput(root: root)
         await Self.pricingChangesOnlyAffectNewUsage(root: root)
+    }
+
+    /// Claude writes an assistant message several times while it streams. The prompt figures are
+    /// final from the first chunk, but output_tokens grows, so the last chunk is the honest one.
+    private static func claudeStreamingChunksKeepTheFinalOutput(root: URL) async {
+        let projects = root.appendingPathComponent("stream-claude/projects/app")
+        try? FileManager.default.createDirectory(at: projects, withIntermediateDirectories: true)
+        let file = projects.appendingPathComponent("session.jsonl")
+
+        func line(output: Int) -> String {
+            #"{"type":"assistant","timestamp":"2026-08-26T15:00:00.000Z","requestId":"req-1","message":{"id":"msg-1","model":"stream-model","usage":{"input_tokens":1000000,"output_tokens":\#(output),"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}"#
+        }
+        // A partial chunk, then the finished reply, then the same message replayed into a fork.
+        let lines = [line(output: 3), line(output: 2_000_000), line(output: 2_000_000)]
+        try? (lines.joined(separator: "\n") + "\n").write(to: file, atomically: true, encoding: .utf8)
+
+        let service = CostService(
+            databaseURL: root.appendingPathComponent("stream-cache.sqlite"),
+            env: ["CLAUDE_CONFIG_DIR": root.appendingPathComponent("stream-claude").path],
+            pricingOverlay: PricingOverlay(userOverrides: [
+                "stream-model": ModelPricing(input: 1, output: 2),
+            ])
+        )
+        let snapshot = await service.refresh(.claude)
+        // $1 of prompt and $4 of reply, counted once: the partial chunk and the replay both lose.
+        Harness.expectClose(
+            snapshot?.windowCostUSD,
+            5,
+            "a streamed message is billed once, at the output count of its final chunk"
+        )
+        Harness.expectEqual(
+            snapshot?.windowTokens,
+            3_000_000,
+            "replaying a finished message does not add its tokens again"
+        )
     }
 
     /// Anthropic bills a one-hour cache write at twice the input rate and a five-minute one at
