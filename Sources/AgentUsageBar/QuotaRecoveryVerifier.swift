@@ -3,47 +3,15 @@ import AgentUsageBarCore
 import AppKit
 import Foundation
 
-/// No XCTest without Xcode, so the recovery rules and the celebration's curves are asserted from
-/// a launch flag the way the fill policy and the chart highlighting are.
+/// No XCTest without Xcode, so reset detection, persistence, and animation curves are asserted
+/// from a launch flag the way the fill policy and chart highlighting are.
 enum QuotaRecoveryVerifier {
     @MainActor
     static func run() -> Never {
         var failures: [String] = []
-        failures += Self.policyFailures()
         failures += Self.trackerFailures()
         failures += Self.choreographyFailures()
         return Self.finish(failures)
-    }
-
-    // MARK: - Policy
-
-    private static func policyFailures() -> [String] {
-        var failures: [String] = []
-        let action = QuotaRecoveryPolicy.action
-
-        if action(false, 0) != .arm {
-            failures.append("an empty window was not remembered")
-        }
-        if action(false, QuotaRecoveryPolicy.drainedCeiling) != .arm {
-            failures.append("a window at the drained ceiling was not treated as empty")
-        }
-        if action(true, 100) != .celebrate {
-            failures.append("a window that came back full from empty did not celebrate")
-        }
-        if action(true, QuotaRecoveryPolicy.recoveredFloor) != .celebrate {
-            failures.append("a rollover caught one poll late, at the recovered floor, did not celebrate")
-        }
-        if action(false, 100) != .hold {
-            failures.append("a window that was already full celebrated anyway")
-        }
-        // Everything in between is ordinary spending, which is what the sweep is for.
-        if action(true, 60) != .clear {
-            failures.append("a half-spent window was mistaken for a rollover")
-        }
-        if action(true, QuotaRecoveryPolicy.recoveredFloor - 0.1) != .clear {
-            failures.append("a window just under the recovered floor celebrated")
-        }
-        return failures
     }
 
     // MARK: - Tracker
@@ -59,135 +27,215 @@ enum QuotaRecoveryVerifier {
         defer { defaults.removePersistentDomain(forName: suite) }
 
         let tracker = QuotaRecoveryTracker(defaults: defaults)
-
-        tracker.observe(provider: .claude, kind: .session, remainingPercent: 0)
-        if !tracker.pendingWindows(for: .claude).isEmpty {
-            failures.append("running dry queued a celebration on its own")
+        let epoch = Date(timeIntervalSince1970: 2_000_000_000)
+        let first = Self.snapshot(
+            provider: .claude,
+            sessionRemaining: 37,
+            sessionReset: epoch.addingTimeInterval(5 * 3600),
+            weeklyRemaining: 62,
+            weeklyReset: epoch.addingTimeInterval(7 * 24 * 3600)
+        )
+        tracker.observe(provider: .claude, snapshot: first)
+        if !tracker.pendingRecoveries(for: .claude).isEmpty {
+            failures.append("the first reading was mistaken for a reset")
         }
 
-        tracker.observe(provider: .claude, kind: .session, remainingPercent: 100)
-        if tracker.pendingWindows(for: .claude) != [.session] {
-            failures.append("a five-hour window coming back from empty queued nothing")
+        let spent = Self.snapshot(
+            provider: .claude,
+            sessionRemaining: 23,
+            sessionReset: epoch.addingTimeInterval(5 * 3600),
+            weeklyRemaining: 51,
+            weeklyReset: epoch.addingTimeInterval(7 * 24 * 3600)
+        )
+        tracker.observe(provider: .claude, snapshot: spent)
+        if !tracker.pendingRecoveries(for: .claude).isEmpty {
+            failures.append("ordinary spending with the same reset identity queued an animation")
         }
 
-        // The card can be opened long after the rollover, and the poller keeps running until it is.
-        tracker.observe(provider: .claude, kind: .session, remainingPercent: 100)
-        if tracker.pendingWindows(for: .claude) != [.session] {
-            failures.append("a later poll on a still-full window dropped the queued celebration")
+        let reset = Self.snapshot(
+            provider: .claude,
+            sessionRemaining: 100,
+            sessionReset: epoch.addingTimeInterval(10 * 3600),
+            weeklyRemaining: 100,
+            weeklyReset: epoch.addingTimeInterval(14 * 24 * 3600)
+        )
+        tracker.observe(provider: .claude, snapshot: reset)
+        let expected: [QuotaWindowKind: QuotaRecoveryEvent] = [
+            .session: QuotaRecoveryEvent(fromRemainingPercent: 23),
+            .weekly: QuotaRecoveryEvent(fromRemainingPercent: 51),
+        ]
+        if tracker.pendingRecoveries(for: .claude) != expected {
+            failures.append("five-hour and weekly resets did not independently preserve their starting values")
+        }
+        if !tracker.pendingRecoveries(for: .codex).isEmpty {
+            failures.append("one provider's reset leaked into the other")
         }
 
-        tracker.observe(provider: .claude, kind: .weekly, remainingPercent: 0)
-        tracker.observe(provider: .claude, kind: .weekly, remainingPercent: 99)
-        if tracker.pendingWindows(for: .claude) != [.session, .weekly] {
-            failures.append("the weekly window did not queue independently of the five-hour one")
-        }
-        if !tracker.pendingWindows(for: .codex).isEmpty {
-            failures.append("one provider's celebration leaked into the other")
-        }
-
-        if tracker.consumePending(for: .claude) != [.session, .weekly] {
-            failures.append("the card was not handed both queued windows")
-        }
-        if !tracker.consumePending(for: .claude).isEmpty {
-            failures.append("the celebration was handed out twice, so it would replay")
+        // Later polls must update the baseline without discarding a reset the card has not shown.
+        tracker.observe(
+            provider: .claude,
+            kind: .session,
+            remainingPercent: 98,
+            resetsAt: epoch.addingTimeInterval(10 * 3600)
+        )
+        if tracker.pendingRecoveries(for: .claude) != expected {
+            failures.append("a later poll dropped a queued reset animation")
         }
 
-        // Spending the window before the card is ever opened retires the celebration: sweeping a
-        // half-empty bar to 100 would be a lie.
-        tracker.observe(provider: .codex, kind: .session, remainingPercent: 0)
-        tracker.observe(provider: .codex, kind: .session, remainingPercent: 100)
-        tracker.observe(provider: .codex, kind: .session, remainingPercent: 62)
-        if !tracker.pendingWindows(for: .codex).isEmpty {
-            failures.append("a window spent back down still had a celebration waiting")
-        }
-
-        // The empty flag is on disk, so quitting while a window sits at 0% does not cost the user
-        // the animation when it rolls over.
-        tracker.observe(provider: .codex, kind: .weekly, remainingPercent: 0)
+        // Both the baseline and pending payload survive a process restart.
         let restarted = QuotaRecoveryTracker(defaults: defaults)
-        restarted.observe(provider: .codex, kind: .weekly, remainingPercent: 100)
-        if restarted.pendingWindows(for: .codex) != [.weekly] {
-            failures.append("a window that ran dry before a restart did not celebrate afterwards")
+        if restarted.pendingRecoveries(for: .claude) != expected {
+            failures.append("pending reset animations did not survive a restart")
+        }
+        if restarted.consumePending(for: .claude) != expected {
+            failures.append("the card was not handed both reset windows with their starting values")
+        }
+        if !restarted.consumePending(for: .claude).isEmpty {
+            failures.append("a reset animation was handed out twice")
+        }
+
+        // A large percentage jump alone is not a reset; the provider's reset identity is.
+        tracker.observe(
+            provider: .codex,
+            kind: .session,
+            remainingPercent: 12,
+            resetsAt: epoch.addingTimeInterval(5 * 3600)
+        )
+        tracker.observe(
+            provider: .codex,
+            kind: .session,
+            remainingPercent: 100,
+            resetsAt: epoch.addingTimeInterval(5 * 3600)
+        )
+        if !tracker.pendingRecoveries(for: .codex).isEmpty {
+            failures.append("a percentage jump with an unchanged reset identity was treated as a reset")
+        }
+
+        // An older response must not move the identity backwards and manufacture a future reset.
+        tracker.observe(
+            provider: .codex,
+            kind: .weekly,
+            remainingPercent: 44,
+            resetsAt: epoch.addingTimeInterval(14 * 24 * 3600)
+        )
+        tracker.observe(
+            provider: .codex,
+            kind: .weekly,
+            remainingPercent: 80,
+            resetsAt: epoch.addingTimeInterval(7 * 24 * 3600)
+        )
+        tracker.observe(
+            provider: .codex,
+            kind: .weekly,
+            remainingPercent: 43,
+            resetsAt: epoch.addingTimeInterval(14 * 24 * 3600)
+        )
+        if !tracker.pendingRecoveries(for: .codex).isEmpty {
+            failures.append("a stale response manufactured a weekly reset")
         }
 
         return failures
+    }
+
+    private static func snapshot(
+        provider: Provider,
+        sessionRemaining: Double,
+        sessionReset: Date,
+        weeklyRemaining: Double,
+        weeklyReset: Date
+    ) -> UsageSnapshot {
+        UsageSnapshot(
+            provider: provider,
+            session: UsageWindow(
+                usedPercent: 100 - sessionRemaining,
+                resetsAt: sessionReset,
+                windowSeconds: 5 * 3600
+            ),
+            weekly: UsageWindow(
+                usedPercent: 100 - weeklyRemaining,
+                resetsAt: weeklyReset,
+                windowSeconds: 7 * 24 * 3600
+            ),
+            planLabel: nil,
+            credits: nil,
+            fetchedAt: Date()
+        )
     }
 
     // MARK: - Choreography
 
     private static func choreographyFailures() -> [String] {
         var failures: [String] = []
+        let start = 37.0
 
-        if QuotaCelebration.fillFraction(at: 0) != 0 {
-            failures.append("the celebration did not start from an empty bar")
+        if QuotaCelebration.fillPercent(at: 0, from: start, to: 100) != start {
+            failures.append("the reset animation did not start at the pre-reset reading")
         }
-        if QuotaCelebration.fillFraction(at: QuotaCelebration.sweepDuration) != 1 {
-            failures.append("the fill did not reach 100 by the end of the sweep")
+        if QuotaCelebration.fillPercent(at: QuotaCelebration.landing, from: start, to: 100) != 100 {
+            failures.append("the reset animation did not finish at 100")
         }
-        var previous = 0.0
-        for step in 0...200 {
-            let value = QuotaCelebration.fillFraction(
-                at: QuotaCelebration.sweepDuration * Double(step) / 200
+
+        var previousValue = start
+        var previousStep = Double.infinity
+        for step in 1...200 {
+            let value = QuotaCelebration.fillPercent(
+                at: QuotaCelebration.landing * Double(step) / 200,
+                from: start,
+                to: 100
             )
-            if value < previous - 1e-9 {
-                failures.append("the fill went backwards at \(step)/200 of the sweep")
+            if value < previousValue - 1e-9 {
+                failures.append("the reset fill went backwards at \(step)/200")
                 break
             }
-            previous = value
+            let delta = value - previousValue
+            if delta > previousStep + 1e-8 {
+                failures.append("the reset fill sped up instead of continuously slowing at \(step)/200")
+                break
+            }
+            previousValue = value
+            previousStep = delta
         }
-        // Fast away, slowing by the middle, closing the last points gently. The pop hangs off the
-        // landing, so the fill has to be all but home by then.
-        if QuotaCelebration.fillFraction(at: QuotaCelebration.sweepDuration * 0.2) < 0.6 {
-            failures.append("the fill did not leave fast enough to read as a leap")
-        }
-        if QuotaCelebration.fillFraction(at: QuotaCelebration.landing) < 0.99 {
-            failures.append("the bar was still visibly moving when the burst went off")
-        }
-
-        let atLanding = QuotaCelebration.barScale(at: QuotaCelebration.landing)
-        if abs(atLanding.height - 1) > 1e-9 || abs(atLanding.width - 1) > 1e-9 {
-            failures.append("the pop started from something other than the bar's own size")
-        }
-        let peak = stride(from: 0.0, through: QuotaCelebration.popDuration, by: 0.005)
-            .map { QuotaCelebration.barScale(at: QuotaCelebration.landing + $0).height }
-            .max() ?? 1
-        if peak < 1.15 {
-            failures.append("the bar never grew enough to read as a pop, peaked at \(peak)")
-        }
-        let settled = QuotaCelebration.barScale(at: QuotaCelebration.landing + QuotaCelebration.popDuration)
-        if settled != CGSize(width: 1, height: 1) {
-            failures.append("the bar did not settle back to its own size")
+        if QuotaCelebration.fillFraction(at: QuotaCelebration.landing * 0.2) < 0.6 {
+            failures.append("the continuous curve did not start fast enough")
         }
 
-        if QuotaCelebration.ring(at: QuotaCelebration.landing - 0.01) != nil {
-            failures.append("the shockwave went out before the fill landed")
+        let synchronized = QuotaCelebration.landing + 0.02
+        if QuotaCelebration.flashOpacity(at: synchronized) <= 0 {
+            failures.append("the landing flash did not share the final beat")
         }
-        if QuotaCelebration.ring(at: QuotaCelebration.landing + 0.01) == nil {
-            failures.append("the fill landed without a shockwave")
+        if QuotaCelebration.ring(at: synchronized) == nil {
+            failures.append("the landing ring did not share the final beat")
+        }
+        if QuotaCelebration.barScale(at: synchronized).height <= 1 {
+            failures.append("the bar did not start enlarging on the final beat")
         }
 
-        // Left first, then high over the middle, then on the 100 mark: the shells walk the bar
-        // the way the fill does.
         let width: CGFloat = 252
-        if !QuotaCelebration.sparks(at: 0, barWidth: width).isEmpty {
-            failures.append("sparks were already out before the first shell")
+        if !QuotaCelebration.sparks(at: QuotaCelebration.landing - 0.01, barWidth: width).isEmpty {
+            failures.append("fireworks appeared before the 100% landing")
         }
-        let early = QuotaCelebration.sparks(at: 0.2, barWidth: width)
-        if early.isEmpty {
-            failures.append("the first shell never went off")
-        } else if let rightmost = early.map(\.position.x).max(), rightmost > width * 0.5 {
-            failures.append("the first shell did not go off on the left of the bar")
+        if QuotaCelebration.sparks(at: synchronized, barWidth: width)
+            .filter({ $0.opacity > 0 && $0.position.x > width * 0.8 }).count < 8 {
+            failures.append("the only firework did not go off at the synchronized 100% landing")
         }
-        let middle = QuotaCelebration.sparks(at: 0.5, barWidth: width)
-        if middle.allSatisfy({ $0.position.y > -20 }) {
-            failures.append("the middle shell did not climb above the bar")
+        if QuotaCelebration.chargeMotes(
+            at: QuotaCelebration.landing * 0.5,
+            barWidth: width,
+            startPercent: start,
+            targetPercent: 100
+        ).isEmpty {
+            failures.append("the moving fill had no charging particles")
         }
-        let landing = QuotaCelebration.sparks(at: QuotaCelebration.landing + 0.05, barWidth: width)
-        if landing.filter({ $0.position.x > width * 0.8 }).count < 8 {
-            failures.append("nothing much went off at the 100 mark")
+        if !QuotaCelebration.chargeMotes(
+            at: QuotaCelebration.landing,
+            barWidth: width,
+            startPercent: start,
+            targetPercent: 100
+        ).isEmpty {
+            failures.append("charging particles continued after the landing")
         }
         if !QuotaCelebration.sparks(at: QuotaCelebration.duration, barWidth: width).isEmpty {
-            failures.append("sparks were still on screen when the clock stopped")
+            failures.append("fireworks were still on screen when the clock stopped")
         }
 
         return failures
@@ -200,7 +248,7 @@ enum QuotaRecoveryVerifier {
             }
             exit(1)
         }
-        print("quota recovery arming, hand-off, persistence, and celebration curves passed")
+        print("quota reset detection, five-hour/weekly hand-off, persistence, and shared animation passed")
         exit(0)
     }
 }

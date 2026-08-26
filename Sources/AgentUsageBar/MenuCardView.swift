@@ -12,10 +12,10 @@ struct MenuCardView: View {
     let presentationToken: Int
     /// False for the offscreen card dump, which captures one frame and would catch empty bars.
     var animatesFill = true
-    /// Windows that came back from empty and should celebrate rather than sweep.
-    var celebrating: Set<QuotaWindowKind> = []
-    /// Bumped with the celebration itself, so replaying one is a value change the bars notice.
-    var celebrationToken = 0
+    /// Windows that reset and the final remaining percentage observed before each reset.
+    var recoveries: [QuotaWindowKind: QuotaRecoveryEvent] = [:]
+    /// Bumped per window, so one reset cannot replay the other window's finished animation.
+    var celebrationTokens: [QuotaWindowKind: Int] = [:]
     /// Captured when the card is rebuilt so relative labels can be tested without wall-clock waits.
     var now = Date()
 
@@ -149,7 +149,8 @@ struct MenuCardView: View {
                 paceIsDeficit: pace?.stage.isAhead ?? false,
                 presentationToken: self.presentationToken,
                 animatesFill: self.animatesFill,
-                celebrationToken: self.celebrating.contains(kind) ? self.celebrationToken : 0
+                celebrationToken: self.recoveries[kind] == nil ? 0 : self.celebrationTokens[kind] ?? 0,
+                celebrationStartPercent: self.recoveries[kind]?.fromRemainingPercent
             )
             if let pace {
                 // One Text, not an HStack: split across views the line wraps mid-phrase.

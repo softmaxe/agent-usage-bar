@@ -1,33 +1,28 @@
 import CoreGraphics
 import Foundation
 
-/// One quota window. Also the key a drained window is remembered under, so the celebration can
-/// survive the app being restarted between running dry and the window rolling over.
+/// One quota window. It also keeps five-hour and weekly reset tracking independent.
 enum QuotaWindowKind: String, Hashable, CaseIterable {
     case session
     case weekly
 }
 
-/// Choreography for the "the quota came back" animation: the fill sweeps in from empty, the bar
-/// pops as the head lands, a ring goes out from it, and three shells of sparks burst over the
-/// card. Written as pure functions of elapsed time so the curves can be asserted without running
-/// an animation, and so the demo window and the menu card share exactly one set of timings.
+/// Choreography for a quota reset: the fill resumes from the last pre-reset reading, continuously
+/// slows into 100%, and carries charging motes along its head. The landing synchronizes the bar
+/// pop, flash, ring, and only firework burst.
 enum QuotaCelebration {
     // MARK: - Timeline
 
-    /// The head covers most of the bar in the first third of this and spends the rest easing the
-    /// last few points closed.
-    static let sweepDuration: TimeInterval = 1.05
-    /// When the fill is close enough to 100 that it has stopped moving to the eye. The pop, the
-    /// flash and the ring all hang off this rather than off the end of the crawl.
-    static let landing: TimeInterval = 0.92
+    /// One continuous exponential decay drives the fill all the way to its destination.
+    static let landing: TimeInterval = 2.8
+    static let sweepDuration = Self.landing
     /// How long the bar keeps springing after the head lands.
-    static let popDuration: TimeInterval = 0.72
+    static let popDuration: TimeInterval = 0.78
     /// The fill washes bright at the moment of landing and cools back to the tint.
-    static let flashDuration: TimeInterval = 0.44
-    static let ringDuration: TimeInterval = 0.58
+    static let flashDuration: TimeInterval = 0.48
+    static let ringDuration: TimeInterval = 0.62
     /// Longest a spark can live; each one picks a shorter life than this.
-    static let sparkLife: TimeInterval = 1.05
+    static let sparkLife: TimeInterval = 0.85
 
     /// When the last spark of the last shell has faded, and therefore when the clock stops.
     static var duration: TimeInterval {
@@ -44,32 +39,37 @@ enum QuotaCelebration {
 
     // MARK: - Fill
 
-    /// Off the mark fast, already slowing by the middle, and closing the last few points slowly
-    /// enough to be watched. No ease-in at all: the bar is meant to leap, then be placed.
-    private static let sweepEasing = Easing(0.2, 0.95, 0.34, 1)
+    private static let fillDecay: Double = 5.2
 
     /// Share of the final percentage the bar shows, 0...1.
     static func fillFraction(at time: TimeInterval) -> Double {
         guard time > 0 else { return 0 }
         guard time < Self.sweepDuration else { return 1 }
-        return Self.sweepEasing(time / Self.sweepDuration)
+        let normalized = time / Self.sweepDuration
+        return (1 - exp(-Self.fillDecay * normalized)) / (1 - exp(-Self.fillDecay))
+    }
+
+    static func fillPercent(at time: TimeInterval, from start: Double, to target: Double) -> Double {
+        let from = min(100, max(0, start))
+        let to = min(100, max(0, target))
+        return from + (to - from) * Self.fillFraction(at: time)
     }
 
     /// A bright edge riding the head of the fill. Fades out as the head arrives so the landing
     /// reads as the flash, not as the shine stopping.
     static func headShineOpacity(at time: TimeInterval) -> Double {
         guard time > 0 else { return 0 }
-        let fadeIn = min(1, time / 0.06)
+        let fadeIn = min(1, time / 0.05)
         let remaining = Self.landing - time
         guard remaining > 0 else { return 0 }
-        return fadeIn * min(1, remaining / 0.16)
+        return 0.64 * fadeIn * min(1, remaining / 0.22)
     }
 
     /// The whole fill washing white at the moment of landing.
     static func flashOpacity(at time: TimeInterval) -> Double {
         let age = time - Self.landing
         guard age >= 0, age < Self.flashDuration else { return 0 }
-        return 0.32 * pow(1 - age / Self.flashDuration, 1.7)
+        return 0.3 * pow(1 - age / Self.flashDuration, 1.7)
     }
 
     // MARK: - Pop
@@ -80,8 +80,8 @@ enum QuotaCelebration {
         let age = time - Self.landing
         guard age >= 0, age < Self.popDuration else { return CGSize(width: 1, height: 1) }
         // A damped sine: zero at the landing, one overshoot, then it settles instead of snapping.
-        let pulse = exp(-6.2 * age) * sin(2 * .pi * 1.85 * age)
-        return CGSize(width: 1 + 0.05 * pulse, height: 1 + 0.62 * pulse)
+        let pulse = exp(-5.7 * age) * sin(2 * .pi * 1.72 * age)
+        return CGSize(width: 1 + 0.035 * pulse, height: 1 + 0.7 * pulse)
     }
 
     // MARK: - Ring
@@ -94,18 +94,18 @@ enum QuotaCelebration {
 
     /// Where along the bar the ring is centred — the same place the last shell goes off, a hair
     /// short of the end so the card's edge does not cut the whole right half of it away.
-    static let ringOriginX: Double = 0.97
+    static let ringOriginX: Double = 0.985
 
     /// The shockwave leaving the point where the head landed.
     static func ring(at time: TimeInterval) -> Ring? {
         let age = time - Self.landing
         guard age >= 0, age < Self.ringDuration else { return nil }
         let progress = age / Self.ringDuration
-        let eased = 1 - pow(1 - progress, 2.6)
+        let eased = 1 - pow(1 - progress, 2.5)
         return Ring(
-            radius: 3 + 24 * eased,
-            lineWidth: 2.1 * (1 - progress) + 0.35,
-            opacity: 0.5 * pow(1 - progress, 1.5)
+            radius: 4 + 26 * eased,
+            lineWidth: 2.3 * (1 - progress) + 0.3,
+            opacity: 0.55 * pow(1 - progress, 1.5)
         )
     }
 
@@ -129,8 +129,7 @@ enum QuotaCelebration {
     }
 
     private struct Shell {
-        /// Seconds from the start of the whole sequence, not from the landing: the first two
-        /// shells go off while the fill is still on its way.
+        /// Seconds from the start of the whole sequence.
         let time: TimeInterval
         /// Fraction of the bar width the shell goes off at.
         let originX: Double
@@ -143,13 +142,9 @@ enum QuotaCelebration {
         let seed: UInt64
     }
 
-    /// Three shells rather than one: a single burst reads as a particle effect, a staggered set
-    /// reads as fireworks. They walk the bar the way the fill does — left, then high over the
-    /// middle, then on the 100 mark as the fill arrives there.
+    /// Charging motes carry the motion; fireworks are reserved for the synchronized landing.
     private static let shells: [Shell] = [
-        Shell(time: 0.08, originX: 0.06, originY: -7, count: 16, speed: 45...125, driftX: 16, seed: 0x1F3B_7C5D),
-        Shell(time: 0.38, originX: 0.5, originY: -24, count: 21, speed: 55...155, driftX: 0, seed: 0x7C5D_1F3B),
-        Shell(time: Self.landing, originX: 0.97, originY: 0, count: 24, speed: 55...170, driftX: -34, seed: 0x9E37_79B9),
+        Shell(time: Self.landing, originX: Self.ringOriginX, originY: 0, count: 25, speed: 55...170, driftX: -34, seed: 0x9E37_79B9),
     ]
 
     /// Air drag, so sparks decelerate instead of flying off in straight lines.
@@ -199,6 +194,45 @@ enum QuotaCelebration {
             }
         }
         return sparks
+    }
+
+    /// Small motes stream into the moving head for the whole charge. They use the same tint,
+    /// warm, and white palette as the landing burst, but never fan out like fireworks.
+    static func chargeMotes(
+        at time: TimeInterval,
+        barWidth: CGFloat,
+        startPercent: Double,
+        targetPercent: Double
+    ) -> [Spark] {
+        guard time >= 0, time < Self.landing else { return [] }
+        let start = min(1, max(0, startPercent / 100))
+        let target = min(1, max(0, targetPercent / 100))
+        let head = start + (target - start) * Self.fillFraction(at: time)
+        let startX = Double(barWidth) * start
+        let headX = Double(barWidth) * head
+
+        return (0..<7).map { index in
+            let rate = 2.1 + Double(index) * 0.17
+            let phase = (time * rate + Double(index) * 0.137).truncatingRemainder(dividingBy: 1)
+            let distance = 8 + phase * 46
+            let x = max(startX, headX - distance)
+            let spread = 4.5 + Double(index % 3) * 2.1
+            let y = sin(time * 17 + Double(index) * 2.3) * spread
+            let opacity = sin(phase * .pi) * 0.76
+            let radius = 0.8 + Double(index % 3) * 0.28
+            let tone: SparkTone = switch index % 3 {
+            case 0: .tint
+            case 1: .warm
+            default: .white
+            }
+            return Spark(
+                position: CGPoint(x: x, y: y),
+                previous: CGPoint(x: max(startX, x - (4 + phase * 5)), y: y),
+                radius: radius,
+                opacity: opacity,
+                tone: tone
+            )
+        }
     }
 
     private static func tone(_ random: inout SeededRandom) -> SparkTone {
