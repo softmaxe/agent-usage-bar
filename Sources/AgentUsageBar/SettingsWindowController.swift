@@ -15,12 +15,18 @@ final class SettingsWindowController {
     }
 
     func show() {
-        if let window = self.window {
-            NSApp.activate(ignoringOtherApps: true)
-            window.makeKeyAndOrderFront(nil)
-            return
+        let window = self.window ?? self.makeWindow()
+        // A window that is already on screen keeps wherever the user put it; one that is being
+        // opened lands in the middle of the active screen.
+        if !window.isVisible {
+            window.layoutIfNeeded()
+            window.center()
         }
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+    }
 
+    private func makeWindow() -> NSWindow {
         let hosting = NSHostingController(
             rootView: SettingsView(settings: self.settings, pricing: self.pricing)
         )
@@ -28,10 +34,11 @@ final class SettingsWindowController {
         window.title = "AgentUsageBar Settings"
         window.styleMask = [.titled, .closable]
         window.isReleasedWhenClosed = false
-        window.center()
+        // SwiftUI settles the content size only after a layout pass; centering the pre-layout
+        // frame is what left the window sitting off-centre.
+        hosting.view.layoutSubtreeIfNeeded()
+        window.setContentSize(hosting.view.fittingSize)
         self.window = window
-
-        NSApp.activate(ignoringOtherApps: true)
-        window.makeKeyAndOrderFront(nil)
+        return window
     }
 }
