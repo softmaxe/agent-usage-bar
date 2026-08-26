@@ -48,36 +48,36 @@ enum CostChartHighlightVerifier {
             failures.append("inactive opacity varied by bar height: \(shortInactive) vs \(tallInactive)")
         }
 
-        let noHoverLabel = CostChartHighlightPolicy.hoverLabelCost(
+        let defaultLabel = CostChartHighlightPolicy.labelCost(
             dayKey: today,
-            hoveredDayKey: nil,
+            selectedDayKey: defaultSelection,
             costUSD: 231
         )
-        if noHoverLabel != nil {
-            failures.append("a cost label appeared without a hovered bar")
+        if defaultLabel != 231 {
+            failures.append("default today bar expected its $231 label, got \(String(describing: defaultLabel))")
         }
 
-        let hoveredLabel = CostChartHighlightPolicy.hoverLabelCost(
+        let hoveredLabel = CostChartHighlightPolicy.labelCost(
             dayKey: yesterday,
-            hoveredDayKey: yesterday,
+            selectedDayKey: hoverSelection,
             costUSD: 17
         )
         if hoveredLabel != 17 {
             failures.append("hovered bar expected its own $17 label, got \(String(describing: hoveredLabel))")
         }
 
-        let otherBarLabel = CostChartHighlightPolicy.hoverLabelCost(
+        let otherBarLabel = CostChartHighlightPolicy.labelCost(
             dayKey: today,
-            hoveredDayKey: yesterday,
+            selectedDayKey: hoverSelection,
             costUSD: 231
         )
         if otherBarLabel != nil {
             failures.append("a non-hovered bar displayed a cost label")
         }
 
-        let unpricedLabel = CostChartHighlightPolicy.hoverLabelCost(
+        let unpricedLabel = CostChartHighlightPolicy.labelCost(
             dayKey: yesterday,
-            hoveredDayKey: yesterday,
+            selectedDayKey: hoverSelection,
             costUSD: nil
         )
         if unpricedLabel != nil {
