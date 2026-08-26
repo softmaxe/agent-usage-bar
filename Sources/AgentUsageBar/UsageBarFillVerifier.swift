@@ -1,4 +1,5 @@
-import Foundation
+import AppKit
+import SwiftUI
 
 /// No XCTest without Xcode, so the fill policy is asserted from a launch flag the way the chart
 /// highlighting and the menu toggles are.
@@ -38,6 +39,30 @@ enum UsageBarFillVerifier {
         )
         if case .glide = atThreshold {
             failures.append("a rise of exactly the rollover threshold glided instead of sweeping")
+        }
+
+        let marker = UsageProgressBar(
+            percent: 50,
+            tint: .cyan,
+            pacePercent: 50,
+            presentationToken: 0,
+            animatesFill: false
+        )
+        .frame(width: 100, height: 6)
+        let renderer = ImageRenderer(content: marker)
+        renderer.scale = 2
+        if let image = renderer.cgImage {
+            let bitmap = NSBitmapImageRep(cgImage: image)
+            let leftAlpha = bitmap.colorAt(x: 96, y: 6)?.alphaComponent ?? 1
+            let rightAlpha = bitmap.colorAt(x: 103, y: 6)?.alphaComponent ?? 1
+            if leftAlpha > 0.01 || rightAlpha > 0.01 {
+                failures.append(
+                    "the pace marker did not fully cut through both sides of the bar "
+                        + "(left alpha \(leftAlpha), right alpha \(rightAlpha))"
+                )
+            }
+        } else {
+            failures.append("the pace marker render check did not produce an image")
         }
 
         return Self.finish(failures)

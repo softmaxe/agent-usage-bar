@@ -27,7 +27,7 @@ struct UsageProgressBar: View {
 
     private static let pacePunchWidth: CGFloat = 4
     private static let paceStripeWidth: CGFloat = 2
-    private static let punchOpacity: Double = 0.9
+    private static let punchOpacity: Double = 1
 
     init(
         percent: Double,
