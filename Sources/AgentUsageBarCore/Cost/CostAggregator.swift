@@ -20,13 +20,16 @@ enum CostAggregator {
         var hasUnpriced = false
 
         for (dayKey, buckets) in rows {
-            var byModel: [String: TokenTotals] = [:]
+            var dayTokens: [String: TokenTotals] = [:]
+            // Per-model cost stays nil until something prices it, so an unpriced model reads as
+            // "no price" in the breakdown rather than as zero dollars.
+            var dayCostByModel: [String: Double] = [:]
             var dayCost = 0.0
             var dayPriced = false
             var dayUnpricedTokens = 0
 
             for (key, totals) in buckets {
-                byModel[key.model, default: TokenTotals()] += totals
+                dayTokens[key.model, default: TokenTotals()] += totals
                 modelTokens[key.model, default: 0] += totals.total
 
                 if let cost = CostPricing.cost(
@@ -38,6 +41,7 @@ enum CostAggregator {
                 ) {
                     dayCost += cost
                     dayPriced = true
+                    dayCostByModel[key.model, default: 0] += cost
                     modelCost[key.model, default: 0] += cost
                 } else {
                     // An unpriced model still counts toward token totals; leaving it out of the
@@ -46,6 +50,16 @@ enum CostAggregator {
                     dayUnpricedTokens += totals.total
                 }
             }
+
+            let byModel = dayTokens.mapValues { tokens in
+                ModelDayUsage(tokens: tokens, costUSD: nil)
+            }
+            .merging(
+                dayCostByModel.map { model, cost in
+                    (model, ModelDayUsage(tokens: dayTokens[model] ?? TokenTotals(), costUSD: cost))
+                },
+                uniquingKeysWith: { _, priced in priced }
+            )
 
             days.append(CostDay(
                 dayKey: dayKey,

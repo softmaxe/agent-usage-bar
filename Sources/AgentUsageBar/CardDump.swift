@@ -60,10 +60,19 @@ enum CardDump {
         let now = Date().addingTimeInterval(-5 * 60)
 
         func sampleCost(_ provider: Provider, peak: Double, values: [Double], top: String) -> CostSnapshot {
+            // A realistic day mixes models, which is what the hover breakdown is for.
+            let mix = provider == .codex
+                ? [(top, 0.72), ("gpt-5.6-terra", 0.2), ("gpt-5.6-luna", 0.08)]
+                : [(top, 0.8), ("claude-sonnet-5", 0.15), ("claude-haiku-4-5", 0.05)]
             let days = values.enumerated().map { index, value in
                 CostDay(
                     dayKey: String(format: "2026-08-%02d", 17 + index),
-                    byModel: [top: TokenTotals(input: Int(value * 1_000_000), output: 0)],
+                    byModel: Dictionary(uniqueKeysWithValues: mix.map { model, share in
+                        (model, ModelDayUsage(
+                            tokens: TokenTotals(input: Int(value * share * 1_000_000)),
+                            costUSD: value * share
+                        ))
+                    }),
                     costUSD: value,
                     unpricedTokens: 0
                 )
@@ -116,6 +125,38 @@ enum CardDump {
             ))),
         ]
         let errors = ["claude-rate-limited": "Claude usage API rate-limited. Try again after 4:24 PM."]
+
+        // One extra capture of the cost section with a bar hovered, since the dump has no pointer.
+        for (provider, cost) in costs {
+            guard let day = cost.days.max(by: { ($0.costUSD ?? 0) < ($1.costUSD ?? 0) }) else { continue }
+            let hosting = NSHostingView(rootView: CostSectionView(
+                provider: provider,
+                snapshot: cost,
+                previewHoveredDayKey: day.dayKey
+            ).padding(14).frame(width: 280))
+            hosting.frame = NSRect(origin: .zero, size: hosting.fittingSize)
+            let window = NSWindow(
+                contentRect: hosting.frame,
+                styleMask: [.borderless],
+                backing: .buffered,
+                defer: false
+            )
+            window.appearance = NSAppearance(named: .darkAqua)
+            let ground = NSView(frame: hosting.frame)
+            ground.wantsLayer = true
+            ground.layer?.backgroundColor = NSColor(white: 0.13, alpha: 1).cgColor
+            ground.addSubview(hosting)
+            window.contentView = ground
+            ground.layoutSubtreeIfNeeded()
+            if let rep = ground.bitmapImageRepForCachingDisplay(in: ground.bounds) {
+                ground.cacheDisplay(in: ground.bounds, to: rep)
+                if let data = rep.representation(using: NSBitmapImageRep.FileType.png, properties: [:]) {
+                    let url = root.appendingPathComponent("\(provider.rawValue)-hover.png")
+                    try? data.write(to: url)
+                    print("wrote \(url.path)")
+                }
+            }
+        }
 
         for (name, provider, snapshot) in cases {
             let view = MenuCardView(

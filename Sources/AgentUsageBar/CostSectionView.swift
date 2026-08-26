@@ -11,10 +11,23 @@ struct CostSectionView: View {
     private static let maxBars = 10
     private static let chartHeight: CGFloat = 56
     private static let barSpacing: CGFloat = 4
+    /// Four covers a normal day for either provider; the rest collapse into a "+N more" line.
+    private static let maxBreakdownRows = 4
+    private static let summaryLineHeight: CGFloat = 14
+    private static let breakdownRowHeight: CGFloat = 13
+    private static let overflowLineHeight: CGFloat = 12
+    private static let detailSpacing: CGFloat = 3
 
     /// Which day the pointer is over. It sticks after the pointer leaves, matching CodexBar,
     /// so the reading stays put while you move toward it.
     @State private var hoveredDayKey: String?
+
+    /// Seeds the hover state so `--dump-card` can capture what hovering looks like.
+    init(provider: Provider, snapshot: CostSnapshot, previewHoveredDayKey: String? = nil) {
+        self.provider = provider
+        self.snapshot = snapshot
+        self._hoveredDayKey = State(initialValue: previewHoveredDayKey)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -22,12 +35,7 @@ struct CostSectionView: View {
             if !self.bars.isEmpty {
                 self.chart
             }
-            // Reserves a line so the card does not resize as the pointer moves across bars.
-            Text(self.hoverLine)
-                .font(.system(size: 11))
-                .foregroundStyle(self.hoveredDay == nil ? .secondary : .primary)
-                .lineLimit(1)
-                .truncationMode(.tail)
+            self.hoverDetail
 
             if let topModel = self.snapshot.topModel {
                 Text("Top model: \(topModel)")
@@ -128,7 +136,71 @@ struct CostSectionView: View {
         return self.bars.first { $0.dayKey == key }
     }
 
-    /// The day's own numbers when hovering, otherwise the window summary.
+    /// Summary line plus the per-model split, because a day is usually several models -- a
+    /// Codex day mixes sol, terra and luna; a Claude day mixes opus, sonnet and haiku.
+    /// The block is a fixed height so the card does not resize under the pointer.
+    private var hoverDetail: some View {
+        VStack(alignment: .leading, spacing: Self.detailSpacing) {
+            Text(self.hoverLine)
+                .font(.system(size: 11))
+                .foregroundStyle(self.hoveredDay == nil ? .secondary : .primary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+
+            if let day = self.hoveredDay {
+                let ranked = day.rankedModels
+                ForEach(Array(ranked.prefix(Self.maxBreakdownRows).enumerated()), id: \.element.model) {
+                    index, entry in
+                    self.breakdownRow(model: entry.model, usage: entry.usage, index: index)
+                }
+                if ranked.count > Self.maxBreakdownRows {
+                    Text("+\(ranked.count - Self.maxBreakdownRows) more")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                        .padding(.leading, 6)
+                }
+            }
+        }
+        .frame(height: self.hoverDetailHeight, alignment: .top)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Sized for the busiest day on the chart rather than the day under the pointer, so the
+    /// block neither jumps between bars nor reserves space no day needs.
+    private var hoverDetailHeight: CGFloat {
+        let busiest = self.bars.map(\.byModel.count).max() ?? 0
+        let rows = min(busiest, Self.maxBreakdownRows)
+        var height = Self.summaryLineHeight + CGFloat(rows) * Self.breakdownRowHeight
+        if busiest > Self.maxBreakdownRows { height += Self.overflowLineHeight }
+        let lines = 1 + rows + (busiest > Self.maxBreakdownRows ? 1 : 0)
+        return height + CGFloat(max(0, lines - 1)) * Self.detailSpacing
+    }
+
+    private func breakdownRow(model: String, usage: ModelDayUsage, index: Int) -> some View {
+        HStack(spacing: 6) {
+            // Each row fades a step further, so rank reads without numbering.
+            Rectangle()
+                .fill(Theme.accent(for: self.provider).opacity(max(0.3, 0.75 - Double(index) * 0.12)))
+                .frame(width: 2, height: 10)
+            Text(model)
+                .font(.system(size: 10))
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 6)
+            Text(Self.breakdownValue(usage))
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+    }
+
+    private static func breakdownValue(_ usage: ModelDayUsage) -> String {
+        let tokens = Formatters.tokens(usage.tokens.total)
+        guard let cost = usage.costUSD else { return "no price · \(tokens)" }
+        return "\(Formatters.cost(cost)) · \(tokens)"
+    }
+
+    /// The day total when hovering, otherwise a prompt.
     private var hoverLine: String {
         guard let day = self.hoveredDay else {
             return "\(self.bars.count) days with activity · hover a bar for a day"
@@ -136,7 +208,6 @@ struct CostSectionView: View {
         var parts = [Self.dayLabel(day.dayKey), Formatters.cost(day.costUSD ?? 0)]
         let tokens = day.tokens.total
         if tokens > 0 { parts.append("\(Formatters.tokens(tokens)) tokens") }
-        if let model = Self.dominantModel(of: day) { parts.append(model) }
         return parts.joined(separator: " · ")
     }
 
@@ -161,9 +232,7 @@ struct CostSectionView: View {
         return "\(names[month - 1]) \(day)"
     }
 
-    private static func dominantModel(of day: CostDay) -> String? {
-        day.byModel.max { $0.value.total < $1.value.total }?.key
-    }
+
 
     // MARK: - Disclaimer
 

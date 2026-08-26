@@ -159,9 +159,13 @@ enum CostTests {
 
         let day = "2026-08-26T10:00:00.000Z"
         // turn_context names the model; each token_count carries that turn's delta.
+        // A real day mixes models: turn_context announces the model for the turns that follow.
+        let solTurn = #"{"type":"event_msg","timestamp":"\#(day)","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":200000,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":0}}}}"#
         let codexLines = [
             #"{"type":"turn_context","timestamp":"\#(day)","payload":{"model":"gpt-5.6-sol"}}"#,
-            #"{"type":"event_msg","timestamp":"\#(day)","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":200000,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":0}}}}"#,
+            solTurn,
+            #"{"type":"turn_context","timestamp":"\#(day)","payload":{"model":"gpt-5.6-luna"}}"#,
+            solTurn,
         ]
         let claudeLines = [
             #"{"type":"assistant","timestamp":"\#(day)","requestId":"req-1","uuid":"u1","message":{"id":"msg-1","model":"claude-opus-5","usage":{"input_tokens":1000000,"output_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}"#,
@@ -179,10 +183,22 @@ enum CostTests {
         )
 
         let codex = await service.refresh(.codex)
-        // 200k input tokens stays under sol's 272k long-context threshold, so the base rate applies.
-        Harness.expectEqual(codex?.windowTokens, 200_000, "codex tokens scanned")
-        Harness.expectEqual(codex?.windowCostUSD, 1.0, "codex cost at the sol base input rate")
+        // 200k input tokens stays under sol's 272k long-context threshold, so the base rate
+        // applies: 200k at $5/M for sol plus 200k at $0.20/M for luna.
+        Harness.expectEqual(codex?.windowTokens, 400_000, "codex tokens scanned")
+        Harness.expectClose(codex?.windowCostUSD, 1.04, "codex cost across two models")
         Harness.expectEqual(codex?.topModel, "gpt-5.6-sol", "codex top model")
+
+        // The hover breakdown needs each model's own share, ranked by cost.
+        let breakdown = codex?.days.first
+        Harness.expectEqual(breakdown?.byModel.count, 2, "both models appear in the day breakdown")
+        Harness.expectEqual(
+            breakdown?.rankedModels.first?.model,
+            "gpt-5.6-sol",
+            "the costlier model ranks first"
+        )
+        Harness.expectClose(breakdown?.rankedModels.first?.usage.costUSD, 1.0, "per-model cost for sol")
+        Harness.expectClose(breakdown?.rankedModels.last?.usage.costUSD, 0.04, "per-model cost for luna")
 
         let claude = await service.refresh(.claude)
         // The duplicated message must not double the total.
@@ -192,17 +208,24 @@ enum CostTests {
         // Scanning Claude must not evict Codex's rows: each scanner only knows its own roots, so
         // an unscoped prune would wipe the other provider every refresh.
         let codexAfter = await service.refresh(.codex)
-        Harness.expectEqual(codexAfter?.windowTokens, 200_000, "codex survives a Claude scan")
+        Harness.expectEqual(codexAfter?.windowTokens, 400_000, "codex survives a Claude scan")
 
-        // Appending to a file must add to the totals rather than restate them.
-        let appended = codexLines[1] + "\n"
+        // Appending must add to the totals rather than restate them, and the appended turn must
+        // land on the model named by the last turn_context -- which a resumed scan has to recover
+        // by rereading the turn_context lines it already skipped past.
+        let appended = solTurn + "\n"
         if let handle = try? FileHandle(forWritingTo: codexFile) {
             try? handle.seekToEnd()
             try? handle.write(contentsOf: Data(appended.utf8))
             try? handle.close()
         }
         let codexGrown = await service.refresh(.codex)
-        Harness.expectEqual(codexGrown?.windowTokens, 400_000, "appended turns are picked up incrementally")
+        Harness.expectEqual(codexGrown?.windowTokens, 600_000, "appended turns are picked up incrementally")
+        Harness.expectClose(
+            codexGrown?.days.first?.byModel["gpt-5.6-luna"]?.costUSD,
+            0.08,
+            "a resumed scan attributes the appended turn to the last announced model"
+        )
     }
 }
 
