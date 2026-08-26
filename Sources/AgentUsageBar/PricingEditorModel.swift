@@ -156,6 +156,7 @@ final class PricingEditorModel: ObservableObject {
         }
 
         do {
+            try await self.costService.freezeCurrentPrices()
             try PricingOverlayStore.saveUserOverrides(overrides)
             await self.costService.invalidatePricing()
             self.saveError = nil

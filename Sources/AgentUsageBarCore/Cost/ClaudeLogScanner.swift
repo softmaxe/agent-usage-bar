@@ -119,20 +119,28 @@ enum ClaudeLogScanner {
             key = "\(messageId)|\(requestId)"
         }
 
-        // The long-context tier is a property of the individual request, so it has to be decided
-        // here; deciding it from a day's aggregate would push almost everything above the threshold.
+        // The long-context tier and price are properties of the individual request, so they have
+        // to be decided here; deciding them from a day's aggregate would rewrite history.
+        let longContext = CostPricing.isLongContext(
+            totals: totals,
+            model: model,
+            provider: .claude,
+            overlay: overlay
+        )
         try cache.addClaudeMessage(
             key: key,
             path: path,
             day: DayKey.make(from: date),
             model: model,
-            longContext: CostPricing.isLongContext(
+            longContext: longContext,
+            totals: totals,
+            costUSD: CostPricing.cost(
                 totals: totals,
                 model: model,
                 provider: .claude,
+                longContext: longContext,
                 overlay: overlay
-            ),
-            totals: totals
+            )
         )
     }
 

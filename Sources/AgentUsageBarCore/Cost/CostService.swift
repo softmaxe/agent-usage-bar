@@ -32,6 +32,7 @@ public actor CostService {
         do {
             let cache = try self.openCache()
             let overlay = await self.currentOverlay()
+            try cache.freezeLegacyPrices(provider: provider, overlay: overlay)
 
             let started = Date()
             let touched: Int
@@ -48,7 +49,7 @@ public actor CostService {
                 )
             }
 
-            return try CostAggregator.snapshot(provider: provider, cache: cache, overlay: overlay)
+            return try CostAggregator.snapshot(provider: provider, cache: cache)
         } catch {
             Log.ui.error(
                 "\(provider.rawValue, privacy: .public) cost scan failed: \(error.localizedDescription, privacy: .public)"
@@ -68,6 +69,16 @@ public actor CostService {
     /// Drops the cached price layers so the next refresh picks up an edited override file.
     public func invalidatePricing() {
         self.overlay = nil
+    }
+
+    /// Called immediately before an override file changes, so rows created by older app versions
+    /// are frozen with the old rates rather than the rates being saved.
+    public func freezeCurrentPrices() async throws {
+        let cache = try self.openCache()
+        let overlay = await self.currentOverlay()
+        for provider in Provider.allCases {
+            try cache.freezeLegacyPrices(provider: provider, overlay: overlay)
+        }
     }
 
     private func openCache() throws -> CostCache {

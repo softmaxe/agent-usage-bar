@@ -5,7 +5,6 @@ enum CostAggregator {
     static func snapshot(
         provider: Provider,
         cache: CostCache,
-        overlay: PricingOverlay?,
         windowDays: Int = 30,
         now: Date = Date(),
         calendar: Calendar = .current
@@ -28,26 +27,21 @@ enum CostAggregator {
             var dayPriced = false
             var dayUnpricedTokens = 0
 
-            for (key, totals) in buckets {
+            for (key, stored) in buckets {
+                let totals = stored.tokens
                 dayTokens[key.model, default: TokenTotals()] += totals
                 modelTokens[key.model, default: 0] += totals.total
 
-                if let cost = CostPricing.cost(
-                    totals: totals,
-                    model: key.model,
-                    provider: provider,
-                    longContext: key.longContext,
-                    overlay: overlay
-                ) {
-                    dayCost += cost
+                let pricedTokens = totals.total - stored.unpricedTokens
+                if pricedTokens > 0 {
+                    dayCost += stored.costUSD
                     dayPriced = true
-                    dayCostByModel[key.model, default: 0] += cost
-                    modelCost[key.model, default: 0] += cost
-                } else {
-                    // An unpriced model still counts toward token totals; leaving it out of the
-                    // cost silently understates the bill, so it is surfaced in the footnote.
+                    dayCostByModel[key.model, default: 0] += stored.costUSD
+                    modelCost[key.model, default: 0] += stored.costUSD
+                }
+                if stored.unpricedTokens > 0 {
                     hasUnpriced = true
-                    dayUnpricedTokens += totals.total
+                    dayUnpricedTokens += stored.unpricedTokens
                 }
             }
 

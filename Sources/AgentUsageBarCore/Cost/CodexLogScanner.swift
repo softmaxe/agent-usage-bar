@@ -132,18 +132,26 @@ enum CodexLogScanner {
 
         // Older rollouts predate turn_context; count their tokens but leave them unpriced.
         let model = currentModel ?? CostPricing.unknownModel
-        // The long-context tier belongs to the individual turn, not to the day's total.
+        // The long-context tier and price belong to the individual turn, not to the day's total.
+        let longContext = CostPricing.isLongContext(
+            totals: totals,
+            model: model,
+            provider: .codex,
+            overlay: overlay
+        )
         try cache.addCodexTokens(
             path: path,
             day: DayKey.make(from: date),
             model: model,
-            longContext: CostPricing.isLongContext(
+            longContext: longContext,
+            totals: totals,
+            costUSD: CostPricing.cost(
                 totals: totals,
                 model: model,
                 provider: .codex,
+                longContext: longContext,
                 overlay: overlay
-            ),
-            totals: totals
+            )
         )
     }
 

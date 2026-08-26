@@ -227,6 +227,57 @@ enum CostTests {
             0.08,
             "a resumed scan attributes the appended turn to the last announced model"
         )
+
+        await Self.pricingChangesOnlyAffectNewUsage(root: root)
+    }
+
+    /// Editing a custom rate is prospective: usage already scanned keeps the price that was in
+    /// force, while bytes appended afterward use the new rate.
+    private static func pricingChangesOnlyAffectNewUsage(root: URL) async {
+        let home = root.appendingPathComponent("versioned-codex")
+        let file = home.appendingPathComponent("sessions/2026/08/26/rollout-pricing.jsonl")
+        try? FileManager.default.createDirectory(
+            at: file.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+
+        let timestamp = "2026-08-26T11:00:00.000Z"
+        let context = #"{"type":"turn_context","timestamp":"\#(timestamp)","payload":{"model":"custom-model"}}"#
+        let usage = #"{"type":"event_msg","timestamp":"\#(timestamp)","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":1000000,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":0}}}}"#
+        try? ([context, usage].joined(separator: "\n") + "\n")
+            .write(to: file, atomically: true, encoding: .utf8)
+
+        let database = root.appendingPathComponent("versioned-cache.sqlite")
+        let env = ["CODEX_HOME": home.path]
+        let originalService = CostService(
+            databaseURL: database,
+            env: env,
+            pricingOverlay: PricingOverlay(
+                userOverrides: ["custom-model": ModelPricing(input: 1, output: 1)]
+            )
+        )
+        let original = await originalService.refresh(.codex)
+        Harness.expectClose(original?.windowCostUSD, 1, "original usage uses the original custom rate")
+
+        if let handle = try? FileHandle(forWritingTo: file) {
+            _ = try? handle.seekToEnd()
+            try? handle.write(contentsOf: Data((usage + "\n").utf8))
+            try? handle.close()
+        }
+
+        let updatedService = CostService(
+            databaseURL: database,
+            env: env,
+            pricingOverlay: PricingOverlay(
+                userOverrides: ["custom-model": ModelPricing(input: 2, output: 1)]
+            )
+        )
+        let updated = await updatedService.refresh(.codex)
+        Harness.expectClose(
+            updated?.windowCostUSD,
+            3,
+            "a changed custom rate only prices usage appended after the change"
+        )
     }
 }
 

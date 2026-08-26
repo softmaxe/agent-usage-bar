@@ -124,7 +124,7 @@ struct PricingSettingsView: View {
                     .foregroundStyle(.red)
                     .lineLimit(2)
             } else {
-                Text("A model with no input and output rate stays uncounted in cost totals.")
+                Text("Saved rates apply to new usage only. Unpriced models stay out of cost totals.")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
