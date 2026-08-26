@@ -420,3 +420,213 @@ enum PaceTests {
         Harness.expectEqual(UsagePace.stage(for: 12.1), .farAhead, "past 12 points is far ahead")
     }
 }
+
+/// The historical pace model: sampling, week reconstruction, and the regression that replaces
+/// the linear expectation once enough complete windows exist.
+enum HistoricalPaceTests {
+    private static let weekSeconds: TimeInterval = 7 * 24 * 3600
+    private static let weekMinutes = 10_080
+
+    /// A synthetic completed window whose usage follows `shape(u)`, sampled at 11 points so it
+    /// clears both the sample-count floor and the boundary-coverage test.
+    private static func records(
+        resetsAt: Date,
+        shape: (Double) -> Double
+    ) -> [UsageHistoryRecord] {
+        let windowStart = resetsAt.addingTimeInterval(-Self.weekSeconds)
+        return stride(from: 0.0, through: 1.0, by: 0.1).map { u in
+            UsageHistoryRecord(
+                provider: .codex,
+                sampledAt: windowStart.addingTimeInterval(u * Self.weekSeconds),
+                usedPercent: shape(u),
+                resetsAt: resetsAt,
+                windowMinutes: Self.weekMinutes
+            )
+        }
+    }
+
+    static func run() {
+        Self.samplingGate()
+        Self.curveReconstruction()
+        Self.completeness()
+        Self.helpers()
+        Self.regression()
+    }
+
+    private static func samplingGate() {
+        let now = Date()
+        let base = UsageHistoryRecord(
+            provider: .codex,
+            sampledAt: now,
+            usedPercent: 40,
+            resetsAt: now.addingTimeInterval(Self.weekSeconds),
+            windowMinutes: Self.weekMinutes
+        )
+        Harness.expect(UsageHistoryStore.shouldWrite(base, after: nil), "the first sample is always kept")
+
+        // Same reading a few minutes later is not worth a row.
+        let soon = UsageHistoryRecord(
+            provider: .codex,
+            sampledAt: now.addingTimeInterval(300),
+            usedPercent: 40.2,
+            resetsAt: base.resetsAt,
+            windowMinutes: Self.weekMinutes
+        )
+        Harness.expect(!UsageHistoryStore.shouldWrite(soon, after: base), "a tiny change soon after is skipped")
+
+        // A whole point of movement is worth recording immediately.
+        let moved = UsageHistoryRecord(
+            provider: .codex,
+            sampledAt: now.addingTimeInterval(300),
+            usedPercent: 41.5,
+            resetsAt: base.resetsAt,
+            windowMinutes: Self.weekMinutes
+        )
+        Harness.expect(UsageHistoryStore.shouldWrite(moved, after: base), "a one-point move is recorded")
+
+        // And so is the passage of the write interval.
+        let later = UsageHistoryRecord(
+            provider: .codex,
+            sampledAt: now.addingTimeInterval(31 * 60),
+            usedPercent: 40.1,
+            resetsAt: base.resetsAt,
+            windowMinutes: Self.weekMinutes
+        )
+        Harness.expect(UsageHistoryStore.shouldWrite(later, after: base), "the write interval forces a sample")
+    }
+
+    private static func curveReconstruction() {
+        let resetsAt = Date()
+        let windowStart = resetsAt.addingTimeInterval(-Self.weekSeconds)
+        // A dip mid-week must not survive: cumulative usage only goes up.
+        let samples = Self.records(resetsAt: resetsAt) { u in u < 0.5 ? u * 100 : max(0, 50 - (u - 0.5) * 20) }
+        guard let curve = UsageHistoryStore.reconstructCurve(
+            samples: samples,
+            windowStart: windowStart,
+            duration: Self.weekSeconds
+        ) else {
+            Harness.expect(false, "curve reconstruction returned nil")
+            return
+        }
+
+        Harness.expectEqual(curve.count, UsageWeekProfile.gridPointCount, "curve lands on the fixed grid")
+        Harness.expectEqual(curve.first, 0, "the curve is anchored at zero on the window start")
+        Harness.expect(
+            zip(curve, curve.dropFirst()).allSatisfy { $0 <= $1 + 1e-9 },
+            "the curve is monotone despite a dip in the samples"
+        )
+        Harness.expect(curve.last! >= 49.9, "the curve holds the peak through the reset")
+    }
+
+    private static func completeness() {
+        let resetsAt = Date()
+        let windowStart = resetsAt.addingTimeInterval(-Self.weekSeconds)
+        let full = Self.records(resetsAt: resetsAt) { $0 * 100 }
+        Harness.expect(
+            UsageHistoryStore.isComplete(samples: full, windowStart: windowStart, resetsAt: resetsAt),
+            "a fully sampled window is complete"
+        )
+
+        // Too few samples cannot describe a shape.
+        Harness.expect(
+            !UsageHistoryStore.isComplete(
+                samples: Array(full.prefix(3)),
+                windowStart: windowStart,
+                resetsAt: resetsAt
+            ),
+            "three samples is not a complete window"
+        )
+
+        // A window first observed on day five would look like a very light week.
+        let lateOnly = full.filter { $0.sampledAt.timeIntervalSince(windowStart) > 5 * 86_400 }
+        Harness.expect(
+            !UsageHistoryStore.isComplete(samples: lateOnly, windowStart: windowStart, resetsAt: resetsAt),
+            "a window missing its start is rejected"
+        )
+
+        // Incomplete weeks must not reach the dataset at all.
+        let dataset = UsageHistoryStore.buildDataset(from: Array(full.prefix(3)))
+        Harness.expect(dataset == nil, "an incomplete week yields no dataset")
+    }
+
+    private static func helpers() {
+        Harness.expectEqual(
+            HistoricalUsagePace.interpolate(curve: [0, 50, 100], at: 0.25),
+            25,
+            "interpolation between grid points"
+        )
+        Harness.expectEqual(
+            HistoricalUsagePace.weightedMedian(values: [10, 20, 30], weights: [1, 1, 8]),
+            30,
+            "weight dominates the median"
+        )
+        Harness.expectEqual(
+            HistoricalUsagePace.weightedMedian(values: [10, 20, 30], weights: [1, 1, 1]),
+            20,
+            "equal weights give the plain median"
+        )
+
+        // A week that hit the cap early carries no rate information past that point, so the
+        // tail is replaced by the average slope that got it there.
+        let capped = [0.0, 50.0, 100.0, 100.0, 100.0]
+        let extended = HistoricalUsagePace.extendPastCap(capped)
+        Harness.expect(extended.last! > 100, "the capped tail is extrapolated past the cap")
+
+        // Crossing detection: a curve shifted to meet current usage reaches 100 partway.
+        let crossing = HistoricalUsagePace.firstCrossing(
+            after: 0,
+            curve: [0, 25, 50, 75, 100],
+            shift: 50,
+            actualAtNow: 50
+        )
+        Harness.expect(crossing != nil, "a shifted curve that reaches the cap reports a crossing")
+        Harness.expect((crossing ?? 1) <= 0.55, "the crossing lands where the shifted curve hits 100")
+    }
+
+    private static func regression() {
+        let now = Date()
+        let resetsAt = now.addingTimeInterval(Self.weekSeconds / 2)
+        let current = UsageWindow(
+            usedPercent: 50,
+            resetsAt: resetsAt,
+            windowSeconds: Self.weekMinutes * 60
+        )
+
+        // Past weeks that spend late: 20% by mid-week, everything by the reset.
+        func backLoaded(_ weeksAgo: Int) -> [UsageHistoryRecord] {
+            Self.records(resetsAt: resetsAt.addingTimeInterval(-Double(weeksAgo) * Self.weekSeconds)) { u in
+                u <= 0.5 ? u * 40 : 20 + (u - 0.5) * 160
+            }
+        }
+
+        // Two weeks of history is not enough to displace the linear model.
+        let thin = UsageHistoryStore.buildDataset(from: (1...2).flatMap(backLoaded))
+        Harness.expect(
+            HistoricalUsagePace.evaluate(window: current, dataset: thin, now: now) == nil,
+            "under three weeks the historical model stays silent"
+        )
+
+        guard let four = UsageHistoryStore.buildDataset(from: (1...4).flatMap(backLoaded)),
+              let pace = HistoricalUsagePace.evaluate(window: current, dataset: four, now: now) else {
+            Harness.expect(false, "four weeks of history should produce a pace")
+            return
+        }
+        Harness.expectEqual(four.weeks.count, 4, "four complete weeks are recognised")
+        // Halfway through, history says 20% is normal, so 50% spent is a deficit -- where the
+        // linear model would have called this exactly on pace.
+        Harness.expect(pace.expectedUsedPercent < 50, "history lowers the expectation below linear")
+        Harness.expect(pace.stage.isAhead, "spending at the linear rate reads as a deficit here")
+        Harness.expect(pace.runOutProbability == nil, "risk needs five weeks, not four")
+
+        guard let five = UsageHistoryStore.buildDataset(from: (1...5).flatMap(backLoaded)),
+              let withRisk = HistoricalUsagePace.evaluate(window: current, dataset: five, now: now) else {
+            Harness.expect(false, "five weeks of history should produce a pace")
+            return
+        }
+        Harness.expect(withRisk.runOutProbability != nil, "five weeks unlocks the risk figure")
+
+        // Every past week ran the window dry from here, so this one is projected to as well.
+        Harness.expect(!withRisk.willLastToReset, "a history of running dry projects running dry")
+        Harness.expect(withRisk.etaSeconds != nil, "a projected run-out carries an ETA")
+    }
+}

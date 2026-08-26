@@ -18,6 +18,7 @@ final class UsageStore: ObservableObject {
     private var refreshTask: Task<Void, Never>?
     private var costTask: Task<Void, Never>?
     private let costService = CostService()
+    private let historyStore = UsageHistoryStore()
     private let settings: SettingsStore
     private var settingsObserver: AnyCancellable?
 
@@ -74,16 +75,29 @@ final class UsageStore: ObservableObject {
         self.isRefreshing = true
         self.lastRefreshStartedAt = Date()
 
-        self.refreshTask = Task { [weak self] in
+        self.refreshTask = Task { [weak self, historyStore] in
             async let codex = CodexProvider.fetch()
             async let claude = ClaudeProvider.fetch()
             let results: [Provider: ProviderState] = await [.codex: codex, .claude: claude]
+
+            // Sampling the weekly window builds the history the pace model regresses over.
+            // CodexBar records only Codex here; the model is provider-agnostic, so both are.
+            var histories: [Provider: UsageHistoryDataset] = [:]
+            for (provider, state) in results {
+                guard case let .loaded(snapshot) = state, let weekly = snapshot.weekly else { continue }
+                if let dataset = await historyStore.record(provider: provider, window: weekly) {
+                    histories[provider] = dataset
+                }
+            }
 
             await MainActor.run {
                 guard let self else { return }
                 for (provider, state) in results {
                     self.apply(state: state, to: provider)
                     Self.log(provider: provider, state: state)
+                }
+                for (provider, dataset) in histories {
+                    self.displays[provider, default: ProviderDisplay()].history = dataset
                 }
                 self.isRefreshing = false
                 self.refreshTask = nil

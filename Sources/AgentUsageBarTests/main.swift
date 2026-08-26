@@ -118,5 +118,6 @@ await CostTests.run()
 await RateLimitTests.run()
 await MainActor.run { SettingsTests.run() }
 PaceTests.run()
+HistoricalPaceTests.run()
 
 Harness.finish()

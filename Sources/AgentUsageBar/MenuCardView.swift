@@ -111,7 +111,12 @@ struct MenuCardView: View {
         window: UsageWindow,
         context: UsagePace.Context
     ) -> some View {
-        let pace = UsagePace.evaluate(window: window, context: context)
+        // Past weeks describe the real shape of usage better than the clock does, but only once
+        // enough of them are on record; until then this falls back to the linear model.
+        let pace = (context == .weekly
+            ? HistoricalUsagePace.evaluate(window: window, dataset: self.display.history)
+            : nil)
+            ?? UsagePace.evaluate(window: window, context: context)
         return VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text("\(title) \(Formatters.percent(window.remainingPercent)) left")

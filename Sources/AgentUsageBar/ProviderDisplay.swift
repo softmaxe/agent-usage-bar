@@ -7,6 +7,8 @@ struct ProviderDisplay: Equatable {
     var snapshot: UsageSnapshot?
     var cost: CostSnapshot?
     var error: String?
+    /// Completed past windows, once enough have been recorded to model a pace from them.
+    var history: UsageHistoryDataset?
     /// No credentials on this machine: the status item is hidden entirely.
     var isSignedOut = false
 

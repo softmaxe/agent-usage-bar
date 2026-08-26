@@ -35,6 +35,9 @@ public struct UsagePace: Sendable, Equatable {
     public let willLastToReset: Bool
     /// How much faster than the current rate the remaining budget allows.
     public let speedMultiplierToReset: Double?
+    /// Share of comparable past weeks that ran the window dry. Only the historical model
+    /// produces this, and only once enough weeks have been recorded.
+    public let runOutProbability: Double?
 
     public init(
         stage: Stage,
@@ -43,7 +46,8 @@ public struct UsagePace: Sendable, Equatable {
         actualUsedPercent: Double,
         etaSeconds: TimeInterval?,
         willLastToReset: Bool,
-        speedMultiplierToReset: Double?
+        speedMultiplierToReset: Double?,
+        runOutProbability: Double? = nil
     ) {
         self.stage = stage
         self.deltaPercent = deltaPercent
@@ -52,6 +56,33 @@ public struct UsagePace: Sendable, Equatable {
         self.etaSeconds = etaSeconds
         self.willLastToReset = willLastToReset
         self.speedMultiplierToReset = speedMultiplierToReset
+        self.runOutProbability = runOutProbability
+    }
+
+    /// Built from the historical model, where expected usage comes from past weeks rather than
+    /// from the clock. The stage and the headroom multiplier are derived the same way.
+    public static func historical(
+        expectedUsedPercent: Double,
+        actualUsedPercent: Double,
+        etaSeconds: TimeInterval?,
+        willLastToReset: Bool,
+        runOutProbability: Double?,
+        projectedRemainingUsage: Double
+    ) -> UsagePace {
+        let delta = actualUsedPercent - expectedUsedPercent
+        return UsagePace(
+            stage: Self.stage(for: delta),
+            deltaPercent: delta,
+            expectedUsedPercent: expectedUsedPercent,
+            actualUsedPercent: actualUsedPercent,
+            etaSeconds: etaSeconds,
+            willLastToReset: willLastToReset,
+            speedMultiplierToReset: Self.speedMultiplier(
+                remainingCapacity: 100 - actualUsedPercent,
+                projectedRemainingUsage: projectedRemainingUsage
+            ),
+            runOutProbability: runOutProbability
+        )
     }
 
     /// Where the fill "should" sit on a bar that shows remaining budget.
@@ -64,7 +95,7 @@ public struct UsagePace: Sendable, Equatable {
         case session
         case weekly
 
-        var defaultWindowMinutes: Int {
+        public var defaultWindowMinutes: Int {
             switch self {
             case .session: 300
             case .weekly: 10_080
@@ -132,7 +163,8 @@ public struct UsagePace: Sendable, Equatable {
             actualUsedPercent: actual,
             etaSeconds: etaSeconds,
             willLastToReset: willLastToReset,
-            speedMultiplierToReset: speedMultiplier
+            speedMultiplierToReset: speedMultiplier,
+            runOutProbability: nil
         )
     }
 
@@ -165,19 +197,29 @@ public struct UsagePace: Sendable, Equatable {
     /// Right half: whether the budget survives to the reset, or when it is projected to empty.
     /// `durationText` renders a seconds value the way the reset countdowns do.
     public func etaLabel(context: Context, durationText: (TimeInterval) -> String) -> String? {
+        let base: String?
         if self.willLastToReset {
-            guard self.deltaPercent < -15,
-                  let multiplier = self.speedMultiplierToReset,
-                  multiplier >= 1.5 else { return "Lasts until reset" }
-            return "Lasts until reset · 1.5× headroom"
+            if self.deltaPercent < -15, let multiplier = self.speedMultiplierToReset, multiplier >= 1.5 {
+                base = "Lasts until reset · 1.5× headroom"
+            } else {
+                base = "Lasts until reset"
+            }
+        } else if let etaSeconds {
+            let text = durationText(etaSeconds)
+            switch context {
+            case .session:
+                base = etaSeconds <= 0 ? "Projected empty now" : "Projected empty in \(text)"
+            case .weekly:
+                base = etaSeconds <= 0 ? "Runs out now" : "Runs out in \(text)"
+            }
+        } else {
+            base = nil
         }
-        guard let etaSeconds else { return nil }
-        let text = durationText(etaSeconds)
-        switch context {
-        case .session:
-            return etaSeconds <= 0 ? "Projected empty now" : "Projected empty in \(text)"
-        case .weekly:
-            return etaSeconds <= 0 ? "Runs out now" : "Runs out in \(text)"
-        }
+
+        guard let runOutProbability else { return base }
+        // Rounded to the nearest 5 so it reads as an estimate, not a measurement.
+        let risk = Int((min(1, max(0, runOutProbability)) * 100 / 5).rounded() * 5)
+        guard let base else { return "(\(risk)% risk)" }
+        return "\(base) (\(risk)% risk)"
     }
 }
