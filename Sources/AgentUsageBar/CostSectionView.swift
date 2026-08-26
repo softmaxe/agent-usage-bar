@@ -18,15 +18,21 @@ struct CostSectionView: View {
     private static let overflowLineHeight: CGFloat = 12
     private static let detailSpacing: CGFloat = 3
 
-    /// Which day the pointer is over. It sticks after the pointer leaves, matching CodexBar,
-    /// so the reading stays put while you move toward it.
+    /// Which day the pointer is over. Nil falls back to today's bar.
     @State private var hoveredDayKey: String?
+    private let todayDayKey: String
 
     /// Seeds the hover state so `--dump-card` can capture what hovering looks like.
-    init(provider: Provider, snapshot: CostSnapshot, previewHoveredDayKey: String? = nil) {
+    init(
+        provider: Provider,
+        snapshot: CostSnapshot,
+        previewHoveredDayKey: String? = nil,
+        previewTodayDayKey: String? = nil
+    ) {
         self.provider = provider
         self.snapshot = snapshot
         self._hoveredDayKey = State(initialValue: previewHoveredDayKey)
+        self.todayDayKey = previewTodayDayKey ?? Self.dayKey(for: Date())
     }
 
     var body: some View {
@@ -118,10 +124,17 @@ struct CostSectionView: View {
     private func bar(for day: CostDay) -> some View {
         let value = day.costUSD ?? 0
         let ratio = self.maxValue > 0 ? value / self.maxValue : 0
-        let isHovered = day.dayKey == self.hoveredDayKey
-        // Taller bars read as more saturated, so the shape and the tone agree. The hovered bar
-        // goes fully opaque instead of gaining a border, which would shift the layout.
-        let opacity = isHovered ? 1.0 : 0.55 + 0.45 * ratio
+        let selectedDayKey = CostChartHighlightPolicy.selectedDayKey(
+            hoveredDayKey: self.hoveredDayKey,
+            todayDayKey: self.todayDayKey,
+            availableDayKeys: Set(self.bars.map(\.dayKey))
+        )
+        // Exactly one selected bar is fully opaque; every other day shares one quiet tone.
+        let opacity = CostChartHighlightPolicy.opacity(
+            dayKey: day.dayKey,
+            selectedDayKey: selectedDayKey,
+            valueRatio: ratio
+        )
         return RoundedRectangle(cornerRadius: 2)
             .fill(Theme.accent(for: self.provider).opacity(opacity))
             // A day with a trace of spend still deserves a visible sliver.
@@ -132,7 +145,11 @@ struct CostSectionView: View {
     // MARK: - Hover
 
     private var hoveredDay: CostDay? {
-        guard let key = self.hoveredDayKey else { return nil }
+        guard let key = CostChartHighlightPolicy.selectedDayKey(
+            hoveredDayKey: self.hoveredDayKey,
+            todayDayKey: self.todayDayKey,
+            availableDayKeys: Set(self.bars.map(\.dayKey))
+        ) else { return nil }
         return self.bars.first { $0.dayKey == key }
     }
 
@@ -200,7 +217,7 @@ struct CostSectionView: View {
         return "\(Formatters.cost(cost)) · \(tokens)"
     }
 
-    /// The day total when hovering, otherwise a prompt.
+    /// The selected day total, defaulting to today when the pointer is outside the chart.
     private var hoverLine: String {
         guard let day = self.hoveredDay else {
             return "\(self.bars.count) days with activity · hover a bar for a day"
@@ -212,15 +229,32 @@ struct CostSectionView: View {
     }
 
     private func updateHover(at location: CGPoint?, width: CGFloat) {
-        // Keep the last day selected when the pointer leaves, so the reading does not vanish
-        // as you move toward it.
-        guard let location, !self.bars.isEmpty, width > 0 else { return }
+        // Leaving the chart clears hover selection, which restores today's default highlight.
+        guard let location, !self.bars.isEmpty, width > 0 else {
+            self.hoveredDayKey = CostChartHighlightPolicy.hoveredDayKey(
+                afterMovingTo: nil,
+                currentDayKey: self.hoveredDayKey
+            )
+            return
+        }
         let count = CGFloat(self.bars.count)
         let slot = (width - Self.barSpacing * (count - 1)) / count + Self.barSpacing
         guard slot > 0 else { return }
         let index = min(self.bars.count - 1, max(0, Int(location.x / slot)))
         let key = self.bars[index].dayKey
-        if self.hoveredDayKey != key { self.hoveredDayKey = key }
+        let nextKey = CostChartHighlightPolicy.hoveredDayKey(
+            afterMovingTo: key,
+            currentDayKey: self.hoveredDayKey
+        )
+        if self.hoveredDayKey != nextKey { self.hoveredDayKey = nextKey }
+    }
+
+    private static func dayKey(for date: Date, calendar: Calendar = .current) -> String {
+        let components = calendar.dateComponents([.year, .month, .day], from: date)
+        guard let year = components.year, let month = components.month, let day = components.day else {
+            return ""
+        }
+        return String(format: "%04d-%02d-%02d", year, month, day)
     }
 
     /// "2026-08-24" -> "Aug 24".

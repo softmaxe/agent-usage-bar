@@ -127,34 +127,38 @@ enum CardDump {
         ]
         let errors = ["claude-rate-limited": "Claude usage API rate-limited. Try again after 4:24 PM."]
 
-        // One extra capture of the cost section with a bar hovered, since the dump has no pointer.
+        // Capture both the default-today and hovered states, since the dump has no pointer.
         for (provider, cost) in costs {
-            guard let day = cost.days.max(by: { ($0.costUSD ?? 0) < ($1.costUSD ?? 0) }) else { continue }
-            let hosting = NSHostingView(rootView: CostSectionView(
-                provider: provider,
-                snapshot: cost,
-                previewHoveredDayKey: day.dayKey
-            ).padding(14).frame(width: 280))
-            hosting.frame = NSRect(origin: .zero, size: hosting.fittingSize)
-            let window = NSWindow(
-                contentRect: hosting.frame,
-                styleMask: [.borderless],
-                backing: .buffered,
-                defer: false
-            )
-            window.appearance = NSAppearance(named: .darkAqua)
-            let ground = NSView(frame: hosting.frame)
-            ground.wantsLayer = true
-            ground.layer?.backgroundColor = NSColor(white: 0.13, alpha: 1).cgColor
-            ground.addSubview(hosting)
-            window.contentView = ground
-            ground.layoutSubtreeIfNeeded()
-            if let rep = ground.bitmapImageRepForCachingDisplay(in: ground.bounds) {
-                ground.cacheDisplay(in: ground.bounds, to: rep)
-                if let data = rep.representation(using: NSBitmapImageRep.FileType.png, properties: [:]) {
-                    let url = root.appendingPathComponent("\(provider.rawValue)-hover.png")
-                    try? data.write(to: url)
-                    print("wrote \(url.path)")
+            guard let today = cost.days.last,
+                  let hovered = cost.days.max(by: { ($0.costUSD ?? 0) < ($1.costUSD ?? 0) }) else { continue }
+            for (name, hoveredDayKey) in [("today", nil), ("hover", hovered.dayKey)] {
+                let hosting = NSHostingView(rootView: CostSectionView(
+                    provider: provider,
+                    snapshot: cost,
+                    previewHoveredDayKey: hoveredDayKey,
+                    previewTodayDayKey: today.dayKey
+                ).padding(14).frame(width: 280))
+                hosting.frame = NSRect(origin: .zero, size: hosting.fittingSize)
+                let window = NSWindow(
+                    contentRect: hosting.frame,
+                    styleMask: [.borderless],
+                    backing: .buffered,
+                    defer: false
+                )
+                window.appearance = NSAppearance(named: .darkAqua)
+                let ground = NSView(frame: hosting.frame)
+                ground.wantsLayer = true
+                ground.layer?.backgroundColor = NSColor(white: 0.13, alpha: 1).cgColor
+                ground.addSubview(hosting)
+                window.contentView = ground
+                ground.layoutSubtreeIfNeeded()
+                if let rep = ground.bitmapImageRepForCachingDisplay(in: ground.bounds) {
+                    ground.cacheDisplay(in: ground.bounds, to: rep)
+                    if let data = rep.representation(using: NSBitmapImageRep.FileType.png, properties: [:]) {
+                        let url = root.appendingPathComponent("\(provider.rawValue)-\(name).png")
+                        try? data.write(to: url)
+                        print("wrote \(url.path)")
+                    }
                 }
             }
         }

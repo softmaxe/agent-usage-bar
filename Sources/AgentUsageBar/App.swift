@@ -30,6 +30,9 @@ enum AgentUsageBarApp {
     @MainActor
     static func main() {
 #if DEBUG
+        if CommandLine.arguments.contains("--verify-cost-chart-highlighting") {
+            CostChartHighlightVerifier.run()
+        }
         if CommandLine.arguments.contains("--verify-menu-toggles") {
             StatusItemToggleVerifier.run()
         }

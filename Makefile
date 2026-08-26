@@ -36,6 +36,7 @@ test:
 	$(BUILD_DIR)/$(CONFIG)/$(APP_NAME)Tests
 	swift build -c debug --product $(APP_NAME)
 	$(BUILD_DIR)/debug/$(APP_NAME) --verify-menu-toggles
+	$(BUILD_DIR)/debug/$(APP_NAME) --verify-cost-chart-highlighting
 
 clean:
 	swift package clean
