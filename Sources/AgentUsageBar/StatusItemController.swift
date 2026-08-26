@@ -19,6 +19,13 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     /// Bumped every time the menu opens, which is what replays the bars' fill animation.
     private var presentationToken = 0
+    /// Only true between menuWillOpen and menuDidClose: a celebration is claimed when a card is
+    /// there to play it, never while the menu is closed.
+    private var isMenuOpen = false
+    /// The windows the open menu is celebrating, and the token that replays them. Both are per
+    /// provider, so switching providers mid-menu cannot replay the other one's animation.
+    private var celebrating: [Provider: Set<QuotaWindowKind>] = [:]
+    private var celebrationTokens: [Provider: Int] = [:]
     /// "Updated 2m ago" and "Resets in 4h 53m" are strings built at render time, so an open menu
     /// needs its own clock; nothing else publishes between two scheduled refreshes.
     private var openMenuClock: Timer?
@@ -242,17 +249,33 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     private func updateCard(provider: Provider, display: ProviderDisplay) {
         guard let hosting = self.hostingView else { return }
+        // A window can come back while the menu is already open, so this is claimed on every
+        // update rather than only when the menu is opened.
+        self.claimCelebrations(for: provider)
         let before = Self.openMenuGeometry(hosting)
         hosting.rootView = MenuCardView(
             provider: provider,
             display: display,
             isRefreshing: self.store.isRefreshing,
-            presentationToken: self.presentationToken
+            presentationToken: self.presentationToken,
+            celebrating: self.celebrating[provider] ?? [],
+            celebrationToken: self.celebrationTokens[provider] ?? 0
         )
         // The card's height depends on how many windows the provider reported, so resize to fit.
         let height = hosting.fittingSize.height
         hosting.frame = NSRect(x: 0, y: 0, width: Self.cardWidth, height: height)
         Self.movePointerWithRows(from: before, hosting: hosting)
+    }
+
+    /// Takes whatever this provider has waiting and bumps its token, which is the value change
+    /// the bars watch. Already-claimed windows keep the same token, so redrawing the open card
+    /// does not restart an animation halfway through.
+    private func claimCelebrations(for provider: Provider) {
+        guard self.isMenuOpen else { return }
+        let kinds = self.store.consumeCelebrations(for: provider)
+        guard !kinds.isEmpty else { return }
+        self.celebrating[provider, default: []].formUnion(kinds)
+        self.celebrationTokens[provider, default: 0] += 1
     }
 
     /// The card's bottom edge and the menu's frame, both in screen coordinates. nil when no menu
@@ -306,11 +329,15 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         // cadence: the quota endpoints rate-limit, and a menu can be opened many times a minute.
         self.store.refreshIfStale()
         self.presentationToken += 1
+        self.isMenuOpen = true
+        // A celebration belongs to one viewing of the card. Whatever the last one played is over.
+        self.celebrating = [:]
         self.refreshOpenCard()
         self.startOpenMenuClock()
     }
 
     func menuDidClose(_: NSMenu) {
+        self.isMenuOpen = false
         self.stopOpenMenuClock()
     }
 

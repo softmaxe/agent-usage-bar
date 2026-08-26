@@ -74,6 +74,8 @@ Left-click the icon to view the current quota and local cost summary for the pro
 
 The menu bar carries one item. **Right-clicking** (or control-clicking) it switches between Codex and Claude, and the choice is remembered across launches; **Settings → General → Menu bar** shows which provider is current. The item stays visible while its provider is signed out or waiting for its first refresh, so the menu can report the current state instead of silently disappearing. Both providers keep refreshing in the background, so switching shows current data immediately.
 
+When a five-hour or weekly window that had run to 0% comes back full, the card plays a one-off recovery animation the next time it is opened: the bar sweeps in to 100%, pops, and three shells of sparks go off across it. It plays once per recovery, only for the window that actually ran dry, and never for ordinary spending. Quitting the app while a window sits at 0% does not lose it, spending the window back down before the card is opened retires it, and turning on **System Settings → Accessibility → Display → Reduce motion** replaces it with the ordinary fill. `make demo` replays it on demand without waiting for a real reset.
+
 Opening the menu also requests a refresh, limited to once every 30 seconds. The default scheduled refresh interval is five minutes to reduce quota-endpoint rate limiting.
 
 ## Cost estimates and pricing
@@ -120,6 +122,7 @@ make build   # Build a debug binary
 make run     # Stop an existing instance, build, and run in the foreground
 make test    # Run the assertion-based test suite
 make probe   # Check both provider integrations from the terminal
+make demo    # Replay the quota-recovery animation in a plain window
 make logs    # Stream app logs
 make app     # Build the release .app bundle
 make clean   # Remove SwiftPM and app build output

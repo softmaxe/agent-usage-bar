@@ -45,6 +45,17 @@ enum AgentUsageBarApp {
         if CommandLine.arguments.contains("--verify-menu-pointer-follow") {
             MenuPointerFollowVerifier.run()
         }
+        if CommandLine.arguments.contains("--verify-quota-recovery") {
+            QuotaRecoveryVerifier.run()
+        }
+        if CommandLine.arguments.contains("--demo-celebration") {
+            CelebrationDemo.run()
+        }
+        if let index = CommandLine.arguments.firstIndex(of: "--dump-celebration"),
+           index + 1 < CommandLine.arguments.count {
+            CelebrationDemo.dumpFrames(directory: CommandLine.arguments[index + 1])
+            return
+        }
 #endif
         if let index = CommandLine.arguments.firstIndex(of: "--dump-icons"),
            index + 1 < CommandLine.arguments.count {

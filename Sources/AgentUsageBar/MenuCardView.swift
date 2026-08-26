@@ -12,6 +12,10 @@ struct MenuCardView: View {
     let presentationToken: Int
     /// False for the offscreen card dump, which captures one frame and would catch empty bars.
     var animatesFill = true
+    /// Windows that came back from empty and should celebrate rather than sweep.
+    var celebrating: Set<QuotaWindowKind> = []
+    /// Bumped with the celebration itself, so replaying one is a value change the bars notice.
+    var celebrationToken = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -73,10 +77,10 @@ struct MenuCardView: View {
         VStack(alignment: .leading, spacing: 12) {
             if let snapshot = self.display.snapshot {
                 if let session = snapshot.session {
-                    self.window(title: "Session", window: session, context: .session)
+                    self.window(title: "Session", window: session, kind: .session, context: .session)
                 }
                 if let weekly = snapshot.weekly {
-                    self.window(title: "Weekly", window: weekly, context: .weekly)
+                    self.window(title: "Weekly", window: weekly, kind: .weekly, context: .weekly)
                 }
                 if snapshot.session == nil, snapshot.weekly == nil {
                     Text("No quota windows reported.")
@@ -111,6 +115,7 @@ struct MenuCardView: View {
     private func window(
         title: String,
         window: UsageWindow,
+        kind: QuotaWindowKind,
         context: UsagePace.Context
     ) -> some View {
         // Past weeks describe the real shape of usage better than the clock does, but only once
@@ -137,7 +142,8 @@ struct MenuCardView: View {
                 pacePercent: pace?.expectedRemainingPercent,
                 paceIsDeficit: pace?.stage.isAhead ?? false,
                 presentationToken: self.presentationToken,
-                animatesFill: self.animatesFill
+                animatesFill: self.animatesFill,
+                celebrationToken: self.celebrating.contains(kind) ? self.celebrationToken : 0
             )
             if let pace {
                 // One Text, not an HStack: split across views the line wraps mid-phrase.

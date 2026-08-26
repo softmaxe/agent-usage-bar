@@ -4,7 +4,7 @@ CONFIG ?= debug
 BIN := $(BUILD_DIR)/$(CONFIG)/$(APP_NAME)
 LOG_SUBSYSTEM := com.agentusagebar.app
 
-.PHONY: build run probe logs kill test app clean
+.PHONY: build run probe logs kill test app demo clean
 
 build:
 	swift build -c $(CONFIG)
@@ -31,6 +31,11 @@ logs:
 kill:
 	@pkill -x $(APP_NAME) 2>/dev/null || true
 
+## Replay the quota-recovery celebration in a plain window, without waiting for a real reset.
+demo:
+	swift build -c debug --product $(APP_NAME)
+	$(BUILD_DIR)/debug/$(APP_NAME) --demo-celebration
+
 ## Assemble a double-clickable AgentUsageBar.app under build/.
 app:
 	Scripts/package_app.sh
@@ -45,6 +50,7 @@ test:
 	$(BUILD_DIR)/debug/$(APP_NAME) --verify-usage-bar-fill
 	$(BUILD_DIR)/debug/$(APP_NAME) --verify-icon-rendering
 	$(BUILD_DIR)/debug/$(APP_NAME) --verify-menu-pointer-follow
+	$(BUILD_DIR)/debug/$(APP_NAME) --verify-quota-recovery
 
 clean:
 	swift package clean

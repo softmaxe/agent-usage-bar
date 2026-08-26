@@ -19,6 +19,7 @@ final class UsageStore: ObservableObject {
     private var costTask: Task<Void, Never>?
     private let costService: CostService
     private let historyStore = UsageHistoryStore()
+    private let recovery = QuotaRecoveryTracker()
     private let settings: SettingsStore
     private var settingsObserver: AnyCancellable?
 
@@ -131,6 +132,12 @@ final class UsageStore: ObservableObject {
         }
     }
 
+    /// Windows that have come back from empty and have not been celebrated yet. Consuming them
+    /// is what arms the animation, so only the card that actually shows it may ask.
+    func consumeCelebrations(for provider: Provider) -> Set<QuotaWindowKind> {
+        self.recovery.consumePending(for: provider)
+    }
+
     /// A failed refresh keeps whatever snapshot we already had: showing yesterday's numbers with
     /// an error line beats blanking a working card because one request was rate-limited.
     private func apply(state: ProviderState, to provider: Provider) {
@@ -147,6 +154,9 @@ final class UsageStore: ObservableObject {
             display.snapshot = snapshot
             display.error = nil
             display.isSignedOut = false
+            // Every reading, not just the ones the card is looking at: a window that runs dry has
+            // to be noticed even when the menu has not been opened in hours.
+            self.recovery.observe(provider: provider, snapshot: snapshot)
         }
         self.displays[provider] = display
     }
