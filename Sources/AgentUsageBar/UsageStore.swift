@@ -132,9 +132,9 @@ final class UsageStore: ObservableObject {
         }
     }
 
-    /// Windows that have come back from empty and have not been celebrated yet. Consuming them
-    /// is what arms the animation, so only the card that actually shows it may ask.
-    func consumeCelebrations(for provider: Provider) -> Set<QuotaWindowKind> {
+    /// Window resets that have not been shown yet. Consuming them arms the animation, so only the
+    /// card that actually shows it may ask.
+    func consumeCelebrations(for provider: Provider) -> [QuotaWindowKind: QuotaRecoveryEvent] {
         self.recovery.consumePending(for: provider)
     }
 

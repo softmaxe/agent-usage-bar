@@ -50,12 +50,13 @@ final class CelebrationClock: ObservableObject {
     }
 }
 
-/// Everything the celebration draws outside the bar: the ring leaving the point where the fill
-/// landed, and the shells of sparks over it. One Canvas, no compositing modifiers — the same
-/// constraint the bar itself is drawn under.
+/// Everything the reset animation draws outside the bar: charging motes around the moving head,
+/// then the synchronized landing ring and firework. One Canvas, no compositing modifiers.
 struct QuotaCelebrationLayer: View {
     let elapsed: TimeInterval
     let tint: Color
+    let startPercent: Double
+    let targetPercent: Double
     /// How far the canvas reaches past each end of the bar, so sparks can fly off it.
     let inset: CGFloat
 
@@ -65,6 +66,24 @@ struct QuotaCelebrationLayer: View {
         Canvas { context, size in
             let barWidth = max(0, size.width - self.inset * 2)
             let centre = CGPoint(x: self.inset, y: size.height / 2)
+
+            if self.elapsed < QuotaCelebration.landing {
+                let headPercent = QuotaCelebration.fillPercent(
+                    at: self.elapsed,
+                    from: self.startPercent,
+                    to: self.targetPercent
+                )
+                let headX = centre.x + barWidth * min(100, max(0, headPercent)) / 100
+                let pulse = 0.82 + 0.18 * sin(self.elapsed * 22)
+                context.fill(
+                    Path(ellipseIn: CGRect(x: headX - 8, y: centre.y - 8, width: 16, height: 16)),
+                    with: .color(self.tint.opacity(0.12 * pulse))
+                )
+                context.fill(
+                    Path(ellipseIn: CGRect(x: headX - 2.8, y: centre.y - 2.8, width: 5.6, height: 5.6)),
+                    with: .color(.white.opacity(0.82 * pulse))
+                )
+            }
 
             if let ring = QuotaCelebration.ring(at: self.elapsed) {
                 let origin = CGPoint(x: centre.x + barWidth * QuotaCelebration.ringOriginX, y: centre.y)
@@ -81,7 +100,13 @@ struct QuotaCelebrationLayer: View {
                 )
             }
 
-            for spark in QuotaCelebration.sparks(at: self.elapsed, barWidth: barWidth) {
+            let particles = QuotaCelebration.chargeMotes(
+                at: self.elapsed,
+                barWidth: barWidth,
+                startPercent: self.startPercent,
+                targetPercent: self.targetPercent
+            ) + QuotaCelebration.sparks(at: self.elapsed, barWidth: barWidth)
+            for spark in particles {
                 guard spark.opacity > 0.01, spark.radius > 0.05 else { continue }
                 let color = self.color(for: spark.tone)
                 let point = CGPoint(x: centre.x + spark.position.x, y: centre.y + spark.position.y)

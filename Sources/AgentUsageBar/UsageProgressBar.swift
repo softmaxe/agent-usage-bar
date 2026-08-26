@@ -1,8 +1,8 @@
 // Adapted from CodexBar (MIT, © 2026 Peter Steinberger): Sources/CodexBar/UsageProgressBar.swift
 // Kept: the single-Canvas track, fill, and pace marker.
 // Dropped: quota/workday markers, highlight-state theming, and accessibility values.
-// Added: the sweep-from-empty fill, which CodexBar draws statically, and the recovery
-// celebration a window that came back from empty plays.
+// Added: the sweep-from-empty fill, which CodexBar draws statically, and the reset animation that
+// resumes from the final reading of the previous quota window.
 
 import AppKit
 import SwiftUI
@@ -21,9 +21,11 @@ struct UsageProgressBar: View {
     let presentationToken: Int
     /// Offscreen renders capture a single frame, so they need the bar to start at its final value.
     let animatesFill: Bool
-    /// Non-zero, and changing, means this window just came back from empty: play the celebration
-    /// instead of the ordinary sweep. Zero for every bar that has nothing to celebrate.
+    /// Non-zero, and changing, means this window reset: play the celebration instead of the
+    /// ordinary sweep. Zero for every bar that has nothing to celebrate.
     let celebrationToken: Int
+    /// The final remaining percentage observed before this window reset.
+    let celebrationStartPercent: Double?
 
     @Environment(\.displayScale) private var displayScale
 
@@ -48,7 +50,8 @@ struct UsageProgressBar: View {
         paceIsDeficit: Bool = false,
         presentationToken: Int = 0,
         animatesFill: Bool = true,
-        celebrationToken: Int = 0
+        celebrationToken: Int = 0,
+        celebrationStartPercent: Double? = nil
     ) {
         self.percent = percent
         self.tint = tint
@@ -57,6 +60,7 @@ struct UsageProgressBar: View {
         self.presentationToken = presentationToken
         self.animatesFill = animatesFill
         self.celebrationToken = celebrationToken
+        self.celebrationStartPercent = celebrationStartPercent
         self._displayedPercent = State(initialValue: animatesFill ? 0 : min(100, max(0, percent)))
     }
 
@@ -135,7 +139,13 @@ struct UsageProgressBar: View {
         // Outside the bar and unscaled: the sparks are in the card's space, not the pill's.
         .overlay {
             if let time = self.celebration.elapsed {
-                QuotaCelebrationLayer(elapsed: time, tint: self.tint, inset: Self.celebrationInset)
+                QuotaCelebrationLayer(
+                    elapsed: time,
+                    tint: self.tint,
+                    startPercent: self.celebrationStartPercent ?? 0,
+                    targetPercent: self.clamped,
+                    inset: Self.celebrationInset
+                )
                     .frame(height: Self.celebrationHeight)
                     .padding(.horizontal, -Self.celebrationInset)
             }
@@ -172,7 +182,11 @@ struct UsageProgressBar: View {
     /// the rest of the time.
     private var fillPercent: Double {
         guard let time = self.celebration.elapsed else { return self.displayedPercent }
-        return QuotaCelebration.fillFraction(at: time) * self.clamped
+        return QuotaCelebration.fillPercent(
+            at: time,
+            from: self.celebrationStartPercent ?? 0,
+            to: self.clamped
+        )
     }
 
     private var barScale: CGSize {
@@ -183,15 +197,18 @@ struct UsageProgressBar: View {
     /// Returns whether a celebration was started, so the caller knows to skip the ordinary sweep.
     @discardableResult
     private func startCelebrationIfWanted() -> Bool {
-        guard self.celebrationToken != 0, self.animatesFill else { return false }
+        guard self.celebrationToken != 0,
+              self.celebrationStartPercent != nil,
+              self.animatesFill
+        else { return false }
         // Reduce Motion turns the whole thing off: sparks flying out of the menu bar are exactly
         // what that setting exists to stop.
         guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
             self.apply(UsageBarFillPolicy.onPresentation())
             return true
         }
-        // Whatever the bar shows now is irrelevant — the sequence starts from empty — but the
-        // handoff when the clock stops has to land on the real value.
+        // The clock owns the visible fill from the persisted pre-reset value to the new reading.
+        // The handoff when it stops lands on that real value without a snap.
         var snap = Transaction()
         snap.disablesAnimations = true
         withTransaction(snap) { self.displayedPercent = self.clamped }

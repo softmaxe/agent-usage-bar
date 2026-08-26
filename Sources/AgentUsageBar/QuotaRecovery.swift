@@ -1,93 +1,107 @@
 import AgentUsageBarCore
 import Foundation
 
-/// Decides what a single quota reading means for the celebration: a window that has run dry is
-/// remembered, and the next reading that comes back full is the one worth celebrating. Kept
-/// separate from the tracker so the three transitions can be asserted without UserDefaults.
-enum QuotaRecoveryPolicy {
-    /// At or below this the window counts as empty. Not exactly zero: the providers report a
-    /// percentage they have already rounded, and a window with 0.2% left is dry in practice.
-    static let drainedCeiling: Double = 0.5
-    /// A window that rolled over reads as full. The floor is short of 100 because the first poll
-    /// after a reset can already have a little spending on it.
-    static let recoveredFloor: Double = 95
-
-    enum Action: Equatable {
-        /// Empty: remember it, so the rollover can be recognised whenever it comes.
-        case arm
-        /// Full, and it was empty when we last looked. This is the one that celebrates.
-        case celebrate
-        /// Full, but it was not empty before — including every poll *after* a celebration was
-        /// queued, which must leave that queued celebration alone until the card has shown it.
-        case hold
-        /// Somewhere in between: the window is being spent, and there is nothing to show.
-        case clear
-    }
-
-    static func action(wasDrained: Bool, remainingPercent: Double) -> Action {
-        if remainingPercent <= Self.drainedCeiling { return .arm }
-        if remainingPercent >= Self.recoveredFloor { return wasDrained ? .celebrate : .hold }
-        return .clear
-    }
+/// The value a reset animation resumes from. The destination stays the provider's new reading,
+/// which is normally 100%, while this captures the final reading observed before the reset.
+struct QuotaRecoveryEvent: Equatable {
+    let fromRemainingPercent: Double
 }
 
-/// Remembers which windows ran dry and which ones have come back but not been shown yet.
-///
-/// The empty flag is persisted: a window can sit at 0% for hours, and the app being restarted in
-/// the meantime should not cost the user the one moment the animation exists for. The queued
-/// celebration itself is not persisted — it is re-derived from the flag on the next refresh.
+/// Detects real window rollovers from the provider's reset identity and remembers the animation
+/// until the card claims it. Both the last reading and the pending event are persisted, so a
+/// restart on either side of the rollover does not lose the transition.
 @MainActor
 final class QuotaRecoveryTracker {
     private let defaults: UserDefaults
-    /// Recovered windows the card has not celebrated yet, by provider.
-    private var pending: [Provider: Set<QuotaWindowKind>] = [:]
+
+    private enum Field: String {
+        case lastReset
+        case lastRemaining
+        case pendingFrom
+    }
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
     }
 
-    private static func key(_ provider: Provider, _ kind: QuotaWindowKind) -> String {
-        "quota.drained.\(provider.rawValue).\(kind.rawValue)"
+    private static func key(_ provider: Provider, _ kind: QuotaWindowKind, _ field: Field) -> String {
+        "quota.rollover.\(provider.rawValue).\(kind.rawValue).\(field.rawValue)"
     }
 
     func observe(provider: Provider, snapshot: UsageSnapshot) {
         if let session = snapshot.session {
-            self.observe(provider: provider, kind: .session, remainingPercent: session.remainingPercent)
+            self.observe(provider: provider, kind: .session, window: session)
         }
         if let weekly = snapshot.weekly {
-            self.observe(provider: provider, kind: .weekly, remainingPercent: weekly.remainingPercent)
+            self.observe(provider: provider, kind: .weekly, window: weekly)
         }
     }
 
-    func observe(provider: Provider, kind: QuotaWindowKind, remainingPercent: Double) {
-        let key = Self.key(provider, kind)
-        let wasDrained = self.defaults.bool(forKey: key)
-        switch QuotaRecoveryPolicy.action(wasDrained: wasDrained, remainingPercent: remainingPercent) {
-        case .arm:
-            self.defaults.set(true, forKey: key)
-            self.pending[provider]?.remove(kind)
-        case .celebrate:
-            self.defaults.set(false, forKey: key)
-            self.pending[provider, default: []].insert(kind)
-        case .hold:
-            self.defaults.set(false, forKey: key)
-        case .clear:
-            self.defaults.set(false, forKey: key)
-            self.pending[provider]?.remove(kind)
-        }
+    func observe(provider: Provider, kind: QuotaWindowKind, window: UsageWindow) {
+        self.observe(
+            provider: provider,
+            kind: kind,
+            remainingPercent: window.remainingPercent,
+            resetsAt: window.resetsAt
+        )
     }
 
-    /// Hands over the windows this provider should celebrate and forgets them, so the animation
-    /// plays on the first card that shows it and never again.
-    func consumePending(for provider: Provider) -> Set<QuotaWindowKind> {
-        let kinds = self.pending[provider] ?? []
-        self.pending[provider] = []
-        return kinds
+    func observe(
+        provider: Provider,
+        kind: QuotaWindowKind,
+        remainingPercent: Double,
+        resetsAt: Date?
+    ) {
+        let remaining = min(100, max(0, remainingPercent))
+        let resetKey = Self.key(provider, kind, .lastReset)
+        let remainingKey = Self.key(provider, kind, .lastRemaining)
+
+        if let resetsAt {
+            let currentReset = resetsAt.timeIntervalSince1970
+            if let previousReset = (self.defaults.object(forKey: resetKey) as? NSNumber)?.doubleValue {
+                // A reset identity only moves forward. Ignore an older response rather than
+                // downgrading the baseline and inventing a reset on the next good refresh.
+                if currentReset < previousReset - 1 { return }
+                if currentReset > previousReset + 1,
+                   let previousRemaining = (self.defaults.object(forKey: remainingKey) as? NSNumber)?.doubleValue {
+                    self.defaults.set(
+                        min(100, max(0, previousRemaining)),
+                        forKey: Self.key(provider, kind, .pendingFrom)
+                    )
+                }
+            }
+            self.defaults.set(currentReset, forKey: resetKey)
+        }
+
+        self.defaults.set(remaining, forKey: remainingKey)
+    }
+
+    /// Hands over every reset this provider has not shown yet. Session and weekly can both be
+    /// present after the same refresh, and each carries its own pre-reset starting percentage.
+    func consumePending(for provider: Provider) -> [QuotaWindowKind: QuotaRecoveryEvent] {
+        var events: [QuotaWindowKind: QuotaRecoveryEvent] = [:]
+        for kind in QuotaWindowKind.allCases {
+            let key = Self.key(provider, kind, .pendingFrom)
+            guard let value = (self.defaults.object(forKey: key) as? NSNumber)?.doubleValue else {
+                continue
+            }
+            events[kind] = QuotaRecoveryEvent(fromRemainingPercent: min(100, max(0, value)))
+            self.defaults.removeObject(forKey: key)
+        }
+        return events
     }
 
 #if DEBUG
-    func pendingWindows(for provider: Provider) -> Set<QuotaWindowKind> {
-        self.pending[provider] ?? []
+    func pendingRecoveries(for provider: Provider) -> [QuotaWindowKind: QuotaRecoveryEvent] {
+        var events: [QuotaWindowKind: QuotaRecoveryEvent] = [:]
+        for kind in QuotaWindowKind.allCases {
+            let key = Self.key(provider, kind, .pendingFrom)
+            guard let value = (self.defaults.object(forKey: key) as? NSNumber)?.doubleValue else {
+                continue
+            }
+            events[kind] = QuotaRecoveryEvent(fromRemainingPercent: min(100, max(0, value)))
+        }
+        return events
     }
 #endif
 }

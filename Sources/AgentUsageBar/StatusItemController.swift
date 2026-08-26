@@ -22,10 +22,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     /// Only true between menuWillOpen and menuDidClose: a celebration is claimed when a card is
     /// there to play it, never while the menu is closed.
     private var isMenuOpen = false
-    /// The windows the open menu is celebrating, and the token that replays them. Both are per
+    /// The resets the open menu is animating, and the token that replays them. Both are per
     /// provider, so switching providers mid-menu cannot replay the other one's animation.
-    private var celebrating: [Provider: Set<QuotaWindowKind>] = [:]
-    private var celebrationTokens: [Provider: Int] = [:]
+    private var recoveries: [Provider: [QuotaWindowKind: QuotaRecoveryEvent]] = [:]
+    private var celebrationTokens: [Provider: [QuotaWindowKind: Int]] = [:]
     /// "Updated 2m ago" and "Resets in 4h 53m" are strings built at render time, so an open menu
     /// needs its own clock; nothing else publishes between two scheduled refreshes.
     private var openMenuClock: Timer?
@@ -258,8 +258,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             display: display,
             isRefreshing: self.store.isRefreshing,
             presentationToken: self.presentationToken,
-            celebrating: self.celebrating[provider] ?? [],
-            celebrationToken: self.celebrationTokens[provider] ?? 0
+            recoveries: self.recoveries[provider] ?? [:],
+            celebrationTokens: self.celebrationTokens[provider] ?? [:]
         )
         // The card's height depends on how many windows the provider reported, so resize to fit.
         let height = hosting.fittingSize.height
@@ -272,10 +272,12 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     /// does not restart an animation halfway through.
     private func claimCelebrations(for provider: Provider) {
         guard self.isMenuOpen else { return }
-        let kinds = self.store.consumeCelebrations(for: provider)
-        guard !kinds.isEmpty else { return }
-        self.celebrating[provider, default: []].formUnion(kinds)
-        self.celebrationTokens[provider, default: 0] += 1
+        let events = self.store.consumeCelebrations(for: provider)
+        guard !events.isEmpty else { return }
+        self.recoveries[provider, default: [:]].merge(events) { _, newest in newest }
+        for kind in events.keys {
+            self.celebrationTokens[provider, default: [:]][kind, default: 0] += 1
+        }
     }
 
     /// The card's bottom edge and the menu's frame, both in screen coordinates. nil when no menu
@@ -331,7 +333,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         self.presentationToken += 1
         self.isMenuOpen = true
         // A celebration belongs to one viewing of the card. Whatever the last one played is over.
-        self.celebrating = [:]
+        self.recoveries = [:]
         self.refreshOpenCard()
         self.startOpenMenuClock()
     }
