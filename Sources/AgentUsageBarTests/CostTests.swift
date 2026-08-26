@@ -205,3 +205,51 @@ enum CostTests {
         Harness.expectEqual(codexGrown?.windowTokens, 400_000, "appended turns are picked up incrementally")
     }
 }
+
+/// Rate-limit gate checks. The quota endpoints are shared with the CLIs, so a 429 has to stop
+/// further requests until the window passes.
+enum RateLimitTests {
+    static func run() async {
+        let gate = UsageRateLimitGate()
+        let now = Date()
+
+        Harness.expect(await gate.blocked(.claude, now: now) == nil, "a fresh gate blocks nothing")
+
+        // No Retry-After: fall back to the default backoff.
+        await gate.recordRateLimit(.claude, retryAfter: nil, now: now)
+        let blocked = await gate.blocked(.claude, now: now)
+        Harness.expect(blocked != nil, "a recorded 429 blocks the provider")
+        Harness.expectEqual(
+            blocked.map { Int($0.timeIntervalSince(now).rounded()) },
+            300,
+            "default backoff is five minutes"
+        )
+
+        // The other provider must be unaffected.
+        Harness.expect(await gate.blocked(.codex, now: now) == nil, "the gate is per provider")
+
+        // The window lifts on its own once it passes.
+        Harness.expect(
+            await gate.blocked(.claude, now: now.addingTimeInterval(301)) == nil,
+            "the block expires after its window"
+        )
+
+        // A longer server-supplied window is honoured; a shorter one is floored at the default,
+        // because we only get here by having asked too often already.
+        await gate.recordRateLimit(.claude, retryAfter: now.addingTimeInterval(1800), now: now)
+        Harness.expectEqual(
+            (await gate.blocked(.claude, now: now)).map { Int($0.timeIntervalSince(now).rounded()) },
+            1800,
+            "a longer Retry-After is honoured"
+        )
+        await gate.recordRateLimit(.codex, retryAfter: now.addingTimeInterval(30), now: now)
+        Harness.expectEqual(
+            (await gate.blocked(.codex, now: now)).map { Int($0.timeIntervalSince(now).rounded()) },
+            300,
+            "a shorter Retry-After is floored at the default backoff"
+        )
+
+        await gate.recordSuccess(.claude)
+        Harness.expect(await gate.blocked(.claude, now: now) == nil, "a success clears the block")
+    }
+}

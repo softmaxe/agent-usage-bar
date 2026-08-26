@@ -16,45 +16,33 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         self.store = store
         super.init()
 
-        self.store.$states
-            .receive(on: RunLoop.main)
-            .sink { [weak self] states in self?.apply(states: states) }
+        // Cost scanning finishes well after the quota fetch, so both publishers drive a redraw.
+        self.store.$displays
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] displays in self?.apply(displays: displays) }
             .store(in: &self.cancellables)
 
         self.store.$isRefreshing
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in self?.refreshOpenCards() }
-            .store(in: &self.cancellables)
-
-        // Cost scanning finishes after the quota fetch, so the card has to redraw again.
-        self.store.$costs
-            .receive(on: RunLoop.main)
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.refreshOpenCards() }
             .store(in: &self.cancellables)
     }
 
     // MARK: - Status items
 
-    private func apply(states: [Provider: ProviderState]) {
+    private func apply(displays: [Provider: ProviderDisplay]) {
         // Keep a stable left-to-right order by rebuilding in declaration order.
         for provider in Provider.allCases {
-            let state = states[provider]
-
-            guard let state, !Self.isSignedOut(state) else {
+            guard let display = displays[provider], !display.isSignedOut else {
                 self.removeStatusItem(for: provider)
                 continue
             }
 
             let item = self.statusItem(for: provider)
-            item.button?.image = Self.icon(for: provider, state: state)
-            item.button?.toolTip = Self.toolTip(for: provider, state: state)
-            self.updateCard(for: provider, state: state)
+            item.button?.image = Self.icon(for: provider, display: display)
+            item.button?.toolTip = Self.toolTip(for: provider, display: display)
+            self.updateCard(for: provider, display: display)
         }
-    }
-
-    private static func isSignedOut(_ state: ProviderState) -> Bool {
-        if case .signedOut = state { return true }
-        return false
     }
 
     private func statusItem(for provider: Provider) -> NSStatusItem {
@@ -72,39 +60,29 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         self.hostingViews.removeValue(forKey: provider)
     }
 
-    private static func icon(for provider: Provider, state: ProviderState) -> NSImage {
-        switch state {
-        case .signedOut, .failed:
-            // Stale styling dims the icon so a failing provider reads as "no fresh data".
-            return IconRenderer.makeIcon(
-                provider: provider,
-                primaryRemaining: nil,
-                weeklyRemaining: nil,
-                stale: true
-            )
-        case let .loaded(snapshot):
-            return IconRenderer.makeIcon(
-                provider: provider,
-                primaryRemaining: snapshot.session?.remainingPercent,
-                weeklyRemaining: snapshot.weekly?.remainingPercent,
-                stale: false
-            )
-        }
+    /// A failed refresh keeps the last good percentages but dims them, so the icon still carries
+    /// information instead of collapsing to an empty track.
+    private static func icon(for provider: Provider, display: ProviderDisplay) -> NSImage {
+        IconRenderer.makeIcon(
+            provider: provider,
+            primaryRemaining: display.snapshot?.session?.remainingPercent,
+            weeklyRemaining: display.snapshot?.weekly?.remainingPercent,
+            stale: display.isStale
+        )
     }
 
-    private static func toolTip(for provider: Provider, state: ProviderState) -> String {
-        switch state {
-        case let .signedOut(reason), let .failed(reason):
-            "\(provider.displayName): \(reason)"
-        case let .loaded(snapshot):
-            [
-                provider.displayName,
-                snapshot.session.map { "session \(Formatters.percent($0.remainingPercent)) left" },
-                snapshot.weekly.map { "weekly \(Formatters.percent($0.remainingPercent)) left" },
-            ]
-            .compactMap { $0 }
-            .joined(separator: " · ")
+    private static func toolTip(for provider: Provider, display: ProviderDisplay) -> String {
+        var parts = [provider.displayName]
+        if let snapshot = display.snapshot {
+            if let session = snapshot.session {
+                parts.append("session \(Formatters.percent(session.remainingPercent)) left")
+            }
+            if let weekly = snapshot.weekly {
+                parts.append("weekly \(Formatters.percent(weekly.remainingPercent)) left")
+            }
         }
+        if let error = display.error { parts.append(error) }
+        return parts.joined(separator: " · ")
     }
 
     // MARK: - Menu
@@ -117,8 +95,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         let cardItem = NSMenuItem()
         let hosting = NSHostingView(rootView: MenuCardView(
             provider: provider,
-            state: .signedOut(""),
-            cost: nil,
+            display: ProviderDisplay(),
             isRefreshing: false
         ))
         hosting.frame = NSRect(x: 0, y: 0, width: 280, height: 200)
@@ -154,12 +131,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         return menu
     }
 
-    private func updateCard(for provider: Provider, state: ProviderState) {
+    private func updateCard(for provider: Provider, display: ProviderDisplay) {
         guard let hosting = self.hostingViews[provider] else { return }
         hosting.rootView = MenuCardView(
             provider: provider,
-            state: state,
-            cost: self.store.costs[provider],
+            display: display,
             isRefreshing: self.store.isRefreshing
         )
         // The card's height depends on how many windows the provider reported, so resize to fit.
@@ -168,8 +144,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     private func refreshOpenCards() {
-        for (provider, state) in self.store.states {
-            self.updateCard(for: provider, state: state)
+        for (provider, display) in self.store.displays {
+            self.updateCard(for: provider, display: display)
         }
     }
 
@@ -180,8 +156,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     // MARK: - NSMenuDelegate
 
     func menuWillOpen(_: NSMenu) {
-        // Opening the menu is an explicit "show me now", so force a refresh.
-        self.store.refresh()
+        // Opening the menu is an explicit "show me now", but it is debounced: the quota endpoints
+        // rate-limit, and a menu can be opened many times a minute.
+        self.store.refreshIfStale()
         self.refreshOpenCards()
     }
 }

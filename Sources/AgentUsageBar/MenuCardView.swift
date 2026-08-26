@@ -5,8 +5,7 @@ import SwiftUI
 /// M1 renders the header and the two quota windows; cost, tokens and the chart arrive in M2.
 struct MenuCardView: View {
     let provider: Provider
-    let state: ProviderState
-    let cost: CostSnapshot?
+    let display: ProviderDisplay
     let isRefreshing: Bool
 
     /// Notches segmenting each bar into thirds, matching CodexBar's default quota markers.
@@ -46,34 +45,24 @@ struct MenuCardView: View {
 
     private var statusLine: String {
         if self.isRefreshing { return "Refreshing…" }
-        switch self.state {
-        case .signedOut:
-            return "Not signed in"
-        case .failed:
-            return "Refresh failed"
-        case let .loaded(snapshot):
-            return "Updated \(Formatters.relativeAge(since: snapshot.fetchedAt))"
+        if self.display.isSignedOut { return "Not signed in" }
+        guard let snapshot = self.display.snapshot else {
+            return self.display.error == nil ? "No data yet" : "Refresh failed"
         }
+        // Even after a failed refresh the age of the data on screen is what matters.
+        return "Updated \(Formatters.relativeAge(since: snapshot.fetchedAt))"
     }
 
     private var planLabel: String? {
-        guard case let .loaded(snapshot) = self.state else { return nil }
-        return snapshot.planLabel
+        self.display.snapshot?.planLabel
     }
 
     // MARK: - Body
 
     @ViewBuilder
     private var content: some View {
-        switch self.state {
-        case let .signedOut(reason), let .failed(reason):
-            Text(reason)
-                .font(.system(size: 11))
-                .foregroundStyle(.red)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.bottom, 6)
-        case let .loaded(snapshot):
-            VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 12) {
+            if let snapshot = self.display.snapshot {
                 if let session = snapshot.session {
                     self.window(title: "Session", window: session)
                 }
@@ -86,7 +75,7 @@ struct MenuCardView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                if let cost = self.cost {
+                if let cost = self.display.cost {
                     CostSectionView(provider: self.provider, snapshot: cost)
                 }
 
@@ -97,8 +86,17 @@ struct MenuCardView: View {
                     CreditsSectionView(credits: credits)
                 }
             }
-            .padding(.bottom, 6)
+
+            // The error is appended, never a replacement: a rate-limited refresh should not blank
+            // out numbers that were correct a minute ago.
+            if let error = self.display.error {
+                Text(error)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
+        .padding(.bottom, 6)
     }
 
     private func window(title: String, window: UsageWindow) -> some View {

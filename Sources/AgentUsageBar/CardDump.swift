@@ -39,8 +39,8 @@ enum CardDump {
             .codex: sampleCost(.codex, peak: 176, values: [18, 22, 12, 20, 24, 176], top: "gpt-5.6-sol"),
         ]
 
-        let cases: [(String, Provider, ProviderState)] = [
-            ("codex-loaded", .codex, .loaded(UsageSnapshot(
+        let cases: [(String, Provider, UsageSnapshot?)] = [
+            ("codex-loaded", .codex, (UsageSnapshot(
                 provider: .codex,
                 session: UsageWindow(usedPercent: 0, resetsAt: Date().addingTimeInterval(5 * 3600), windowSeconds: 18_000),
                 weekly: UsageWindow(usedPercent: 14, resetsAt: Date().addingTimeInterval(6 * 86_400 + 6 * 3600), windowSeconds: 604_800),
@@ -48,7 +48,7 @@ enum CardDump {
                 credits: CreditsSnapshot(hasCredits: false, unlimited: false, balance: 0),
                 fetchedAt: now
             ))),
-            ("claude-loaded", .claude, .loaded(UsageSnapshot(
+            ("claude-loaded", .claude, (UsageSnapshot(
                 provider: .claude,
                 session: UsageWindow(usedPercent: 29, resetsAt: Date().addingTimeInterval(4 * 3600 + 19 * 60), windowSeconds: nil),
                 weekly: UsageWindow(usedPercent: 3, resetsAt: Date().addingTimeInterval(6 * 86_400 + 10 * 3600), windowSeconds: nil),
@@ -56,14 +56,26 @@ enum CardDump {
                 credits: nil,
                 fetchedAt: now
             ))),
-            ("claude-failed", .claude, .failed("Claude OAuth request unauthorized. Run `claude` to re-authenticate.")),
+            // A rate-limited refresh keeps the numbers on screen and appends the error.
+            ("claude-rate-limited", .claude, (UsageSnapshot(
+                provider: .claude,
+                session: UsageWindow(usedPercent: 65, resetsAt: Date().addingTimeInterval(3 * 3600 + 51 * 60), windowSeconds: nil),
+                weekly: UsageWindow(usedPercent: 7, resetsAt: Date().addingTimeInterval(6 * 86_400 + 9 * 3600), windowSeconds: nil),
+                planLabel: "Pro",
+                credits: nil,
+                fetchedAt: now
+            ))),
         ]
+        let errors = ["claude-rate-limited": "Claude usage API rate-limited. Try again after 4:24 PM."]
 
-        for (name, provider, state) in cases {
+        for (name, provider, snapshot) in cases {
             let view = MenuCardView(
                 provider: provider,
-                state: state,
-                cost: name.hasSuffix("loaded") ? costs[provider] : nil,
+                display: ProviderDisplay(
+                    snapshot: snapshot,
+                    cost: costs[provider],
+                    error: errors[name]
+                ),
                 isRefreshing: false
             )
             let hosting = NSHostingView(rootView: view)

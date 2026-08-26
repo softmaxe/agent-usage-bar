@@ -4,8 +4,14 @@ import Foundation
 public enum CodexProvider {
     public static func fetch(
         env: [String: String] = ProcessInfo.processInfo.environment,
-        transport: any HTTPTransport = URLSessionTransport()
+        transport: any HTTPTransport = URLSessionTransport(),
+        gate: UsageRateLimitGate = .shared
     ) async -> ProviderState {
+        if let until = await gate.blocked(.codex) {
+            return .failed("Codex usage API rate-limited. Try again after "
+                + until.formatted(date: .omitted, time: .shortened) + ".")
+        }
+
         var credentials: CodexCredentials
         do {
             credentials = try CodexCredentialsStore.load(env: env)
@@ -38,7 +44,11 @@ public enum CodexProvider {
                 env: env,
                 transport: transport
             )
+            await gate.recordSuccess(.codex)
             return .loaded(Self.snapshot(from: response))
+        } catch CodexFetchError.serverError(429, _) {
+            await gate.recordRateLimit(.codex, retryAfter: nil)
+            return .failed("Codex usage API rate-limited. Try again in a few minutes.")
         } catch CodexFetchError.unauthorized where !credentials.refreshToken.isEmpty {
             // The stored token was stale after all — refresh once, then retry.
             do {

@@ -6,12 +6,16 @@ import Foundation
 /// refresh whenever a menu opens.
 @MainActor
 final class UsageStore: ObservableObject {
-    @Published private(set) var states: [Provider: ProviderState] = [:]
-    @Published private(set) var costs: [Provider: CostSnapshot] = [:]
+    @Published private(set) var displays: [Provider: ProviderDisplay] = [:]
     @Published private(set) var isRefreshing = false
 
-    /// Fixed poll interval. Becomes a setting in M3.
-    var refreshInterval: TimeInterval = 60
+    /// Fixed poll interval. Becomes a setting in M3. The quota endpoints are shared with the
+    /// CLIs themselves and rate-limit aggressively, so this stays well clear of once a minute.
+    var refreshInterval: TimeInterval = 5 * 60
+
+    /// Opening a menu forces a refresh, but not more often than this.
+    private static let menuRefreshDebounce: TimeInterval = 30
+    private var lastRefreshStartedAt: Date?
 
     private var timer: Timer?
     private var refreshTask: Task<Void, Never>?
@@ -20,9 +24,13 @@ final class UsageStore: ObservableObject {
 
     func start() {
         self.refresh()
-        self.timer = Timer.scheduledTimer(withTimeInterval: self.refreshInterval, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: self.refreshInterval, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
         }
+        // Common modes, so polling keeps running while a menu is open; the default mode alone
+        // stops during menu tracking.
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
     }
 
     func stop() {
@@ -32,10 +40,21 @@ final class UsageStore: ObservableObject {
         self.costTask?.cancel()
     }
 
+    /// Called when a menu opens. Debounced so repeatedly opening the menu cannot hammer the
+    /// quota endpoints into a 429.
+    func refreshIfStale() {
+        if let last = self.lastRefreshStartedAt,
+           Date().timeIntervalSince(last) < Self.menuRefreshDebounce {
+            return
+        }
+        self.refresh()
+    }
+
     func refresh() {
         // Coalesce: a menu opening during a poll should not start a second round of requests.
         guard self.refreshTask == nil else { return }
         self.isRefreshing = true
+        self.lastRefreshStartedAt = Date()
 
         self.refreshTask = Task { [weak self] in
             async let codex = CodexProvider.fetch()
@@ -44,12 +63,12 @@ final class UsageStore: ObservableObject {
 
             await MainActor.run {
                 guard let self else { return }
-                self.states = results
-                self.isRefreshing = false
-                self.refreshTask = nil
                 for (provider, state) in results {
+                    self.apply(state: state, to: provider)
                     Self.log(provider: provider, state: state)
                 }
+                self.isRefreshing = false
+                self.refreshTask = nil
             }
         }
 
@@ -70,10 +89,32 @@ final class UsageStore: ObservableObject {
             }
             await MainActor.run {
                 guard let self else { return }
-                self.costs = scanned
+                for (provider, snapshot) in scanned {
+                    self.displays[provider, default: ProviderDisplay()].cost = snapshot
+                }
                 self.costTask = nil
             }
         }
+    }
+
+    /// A failed refresh keeps whatever snapshot we already had: showing yesterday's numbers with
+    /// an error line beats blanking a working card because one request was rate-limited.
+    private func apply(state: ProviderState, to provider: Provider) {
+        var display = self.displays[provider] ?? ProviderDisplay()
+        switch state {
+        case .signedOut:
+            display.snapshot = nil
+            display.error = nil
+            display.isSignedOut = true
+        case let .failed(reason):
+            display.error = reason
+            display.isSignedOut = false
+        case let .loaded(snapshot):
+            display.snapshot = snapshot
+            display.error = nil
+            display.isSignedOut = false
+        }
+        self.displays[provider] = display
     }
 
     private static func log(provider: Provider, state: ProviderState) {
