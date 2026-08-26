@@ -5,18 +5,29 @@ public struct TokenTotals: Sendable, Equatable {
     /// Fresh input tokens (Codex: `input_tokens` minus `cached_input_tokens`).
     public var input: Int
     public var output: Int
-    /// Tokens written into the prompt cache.
+    /// Tokens written into the prompt cache, both TTLs together.
     public var cacheWrite: Int
+    /// The subset of `cacheWrite` written with a one-hour TTL, which Anthropic prices higher.
+    /// Always zero for Codex, which offers no choice of cache lifetime.
+    public var cacheWrite1h: Int
     /// Tokens served from the prompt cache.
     public var cacheRead: Int
 
-    public init(input: Int = 0, output: Int = 0, cacheWrite: Int = 0, cacheRead: Int = 0) {
+    public init(
+        input: Int = 0,
+        output: Int = 0,
+        cacheWrite: Int = 0,
+        cacheWrite1h: Int = 0,
+        cacheRead: Int = 0
+    ) {
         self.input = input
         self.output = output
         self.cacheWrite = cacheWrite
+        self.cacheWrite1h = min(cacheWrite1h, cacheWrite)
         self.cacheRead = cacheRead
     }
 
+    /// `cacheWrite1h` is a subset of `cacheWrite`, so counting it here would double it.
     public var total: Int { self.input + self.output + self.cacheWrite + self.cacheRead }
 
     public static func + (lhs: Self, rhs: Self) -> Self {
@@ -24,6 +35,7 @@ public struct TokenTotals: Sendable, Equatable {
             input: lhs.input + rhs.input,
             output: lhs.output + rhs.output,
             cacheWrite: lhs.cacheWrite + rhs.cacheWrite,
+            cacheWrite1h: lhs.cacheWrite1h + rhs.cacheWrite1h,
             cacheRead: lhs.cacheRead + rhs.cacheRead
         )
     }

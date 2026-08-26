@@ -3,7 +3,8 @@
 //
 // Field shapes verified against real transcripts: assistant lines carry `message.model`,
 // `message.id`, `message.usage.{input_tokens,output_tokens,cache_creation_input_tokens,
-// cache_read_input_tokens}`, plus a top-level `requestId` and `timestamp`.
+// cache_read_input_tokens}` and `usage.cache_creation.{ephemeral_5m,ephemeral_1h}_input_tokens`,
+// plus a top-level `requestId` and `timestamp`.
 
 import Foundation
 
@@ -96,10 +97,16 @@ enum ClaudeLogScanner {
         // one model rather than competing for the top-model slot.
         let model = CostPricing.normalizeClaudeModel(rawModel)
 
+        // Anthropic reports input_tokens already net of both cache buckets, so unlike Codex
+        // nothing has to be peeled out of it here.
+        let cacheWrite = Self.int(usage["cache_creation_input_tokens"])
+        let cacheCreation = usage["cache_creation"] as? [String: Any]
         let totals = TokenTotals(
             input: Self.int(usage["input_tokens"]),
             output: Self.int(usage["output_tokens"]),
-            cacheWrite: Self.int(usage["cache_creation_input_tokens"]),
+            cacheWrite: cacheWrite,
+            // The two TTLs are billed differently, and the 1h bucket dominates on long sessions.
+            cacheWrite1h: min(Self.int(cacheCreation?["ephemeral_1h_input_tokens"]), cacheWrite),
             cacheRead: Self.int(usage["cache_read_input_tokens"])
         )
         guard totals.total > 0 else { return }

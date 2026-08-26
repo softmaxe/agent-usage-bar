@@ -41,6 +41,9 @@ public struct ModelPricing: Sendable, Equatable {
         self.cacheReadAbove = cacheReadAbove
     }
 
+    /// Anthropic's published ratio between a one-hour cache write and the base input rate.
+    static let oneHourCacheWriteMultiplier = 2.0
+
     /// Cost in USD for one bucket of tokens, at either the base or the long-context tier.
     public func cost(for totals: TokenTotals, longContext: Bool) -> Double {
         let million = 1_000_000.0
@@ -50,9 +53,16 @@ public struct ModelPricing: Sendable, Equatable {
         let cacheWriteRate = (longContext ? self.cacheWriteAbove : nil) ?? self.cacheWrite ?? inputRate
         let cacheReadRate = (longContext ? self.cacheReadAbove : nil) ?? self.cacheRead ?? inputRate
 
+        // Anthropic prices a one-hour cache write at twice the input rate, against 1.25x for the
+        // five-minute default. The table's cache-write column is the five-minute rate, so the
+        // longer TTL is derived from the input rate the way Anthropic publishes it.
+        let write1h = Double(min(totals.cacheWrite1h, totals.cacheWrite))
+        let write5m = Double(totals.cacheWrite) - write1h
+
         return (Double(totals.input) * inputRate
             + Double(totals.output) * outputRate
-            + Double(totals.cacheWrite) * cacheWriteRate
+            + write5m * cacheWriteRate
+            + write1h * inputRate * Self.oneHourCacheWriteMultiplier
             + Double(totals.cacheRead) * cacheReadRate) / million
     }
 }

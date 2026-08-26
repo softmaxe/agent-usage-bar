@@ -231,9 +231,47 @@ enum CostTests {
         Harness.expectEqual(modelUsage.first?.model, "gpt-5.6-luna", "pricing models sort by token usage")
         Harness.expectEqual(modelUsage.first?.tokens, 400_000, "pricing model usage carries token totals")
 
+        await Self.claudeOneHourCacheWritesCostDouble(root: root)
         await Self.codexSkipsReEmittedTokenCounts(root: root)
         await Self.codexCacheBucketsAreCarvedOutOfInput(root: root)
         await Self.pricingChangesOnlyAffectNewUsage(root: root)
+    }
+
+    /// Anthropic bills a one-hour cache write at twice the input rate and a five-minute one at
+    /// 1.25x, so the two TTLs cannot share the table's single cache-write column.
+    private static func claudeOneHourCacheWritesCostDouble(root: URL) async {
+        let projects = root.appendingPathComponent("ttl-claude/projects/app")
+        try? FileManager.default.createDirectory(at: projects, withIntermediateDirectories: true)
+        let file = projects.appendingPathComponent("session.jsonl")
+
+        func line(_ id: String, fiveMinute: Int, oneHour: Int) -> String {
+            #"{"type":"assistant","timestamp":"2026-08-26T14:00:00.000Z","requestId":"req-\#(id)","message":{"id":"msg-\#(id)","model":"ttl-model","usage":{"input_tokens":0,"output_tokens":0,"cache_creation_input_tokens":\#(fiveMinute + oneHour),"cache_creation":{"ephemeral_5m_input_tokens":\#(fiveMinute),"ephemeral_1h_input_tokens":\#(oneHour)},"cache_read_input_tokens":0}}}"#
+        }
+        let lines = [
+            line("a", fiveMinute: 1_000_000, oneHour: 0),
+            line("b", fiveMinute: 0, oneHour: 1_000_000),
+        ]
+        try? (lines.joined(separator: "\n") + "\n").write(to: file, atomically: true, encoding: .utf8)
+
+        let service = CostService(
+            databaseURL: root.appendingPathComponent("ttl-cache.sqlite"),
+            env: ["CLAUDE_CONFIG_DIR": root.appendingPathComponent("ttl-claude").path],
+            pricingOverlay: PricingOverlay(userOverrides: [
+                "ttl-model": ModelPricing(input: 10, output: 0, cacheWrite: 12.5, cacheRead: 0),
+            ])
+        )
+        let snapshot = await service.refresh(.claude)
+        // 1M at the 12.5 five-minute rate + 1M at 2x the 10 input rate = $32.50.
+        Harness.expectClose(
+            snapshot?.windowCostUSD,
+            32.5,
+            "a one-hour cache write costs twice input while a five-minute one uses the table rate"
+        )
+        Harness.expectEqual(
+            snapshot?.windowTokens,
+            2_000_000,
+            "the one-hour subset is not counted a second time in the token total"
+        )
     }
 
     /// Codex re-emits a token_count when its rate-limit block refreshes. The replay repeats the

@@ -38,7 +38,7 @@ final class CostCache {
     /// Bumped whenever a scan would write different numbers for the same bytes — a parser change,
     /// a different token split, a change in what a stored cost means. The rows are a derivative of
     /// the scanner, and costs are frozen at scan time, so neither can be corrected in place.
-    private static let scanSemanticsVersion = 3
+    private static let scanSemanticsVersion = 4
 
     deinit {
         if let db = self.db { sqlite3_close(db) }
@@ -96,6 +96,11 @@ final class CostCache {
         try self.addColumnIfMissing(table: "codex_day", name: "unpriced_tokens", definition: "INTEGER")
         try self.addColumnIfMissing(table: "claude_message", name: "cost_usd", definition: "REAL")
         try self.addColumnIfMissing(table: "claude_message", name: "unpriced_tokens", definition: "INTEGER")
+
+        // The one-hour cache-write subset, split out once Anthropic's higher rate for it was
+        // applied. Zero for Codex, which offers no choice of cache lifetime.
+        try self.addColumnIfMissing(table: "codex_day", name: "cache_write_1h", definition: "INTEGER NOT NULL DEFAULT 0")
+        try self.addColumnIfMissing(table: "claude_message", name: "cache_write_1h", definition: "INTEGER NOT NULL DEFAULT 0")
     }
 
     /// Throws away the parsed rows and every cursor when the scanner's semantics have moved on,
@@ -227,13 +232,14 @@ final class CostCache {
             self.db,
             """
             INSERT INTO codex_day
-                (path, day, model, long_context, input, output, cache_write, cache_read,
-                 cost_usd, unpriced_tokens)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (path, day, model, long_context, input, output, cache_write, cache_write_1h,
+                 cache_read, cost_usd, unpriced_tokens)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(path, day, model, long_context) DO UPDATE SET
                 input = input + excluded.input,
                 output = output + excluded.output,
                 cache_write = cache_write + excluded.cache_write,
+                cache_write_1h = cache_write_1h + excluded.cache_write_1h,
                 cache_read = cache_read + excluded.cache_read,
                 cost_usd = COALESCE(cost_usd, 0) + excluded.cost_usd,
                 unpriced_tokens = COALESCE(unpriced_tokens, 0) + excluded.unpriced_tokens
@@ -249,9 +255,10 @@ final class CostCache {
         sqlite3_bind_int64(stmt, 5, Int64(totals.input))
         sqlite3_bind_int64(stmt, 6, Int64(totals.output))
         sqlite3_bind_int64(stmt, 7, Int64(totals.cacheWrite))
-        sqlite3_bind_int64(stmt, 8, Int64(totals.cacheRead))
-        sqlite3_bind_double(stmt, 9, costUSD ?? 0)
-        sqlite3_bind_int64(stmt, 10, Int64(costUSD == nil ? totals.total : 0))
+        sqlite3_bind_int64(stmt, 8, Int64(totals.cacheWrite1h))
+        sqlite3_bind_int64(stmt, 9, Int64(totals.cacheRead))
+        sqlite3_bind_double(stmt, 10, costUSD ?? 0)
+        sqlite3_bind_int64(stmt, 11, Int64(costUSD == nil ? totals.total : 0))
         guard sqlite3_step(stmt) == SQLITE_DONE else {
             throw CostCacheError.statementFailed(self.lastErrorMessage)
         }
@@ -272,9 +279,9 @@ final class CostCache {
             self.db,
             """
             INSERT OR IGNORE INTO claude_message
-                (key, path, day, model, long_context, input, output, cache_write, cache_read,
-                 cost_usd, unpriced_tokens)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (key, path, day, model, long_context, input, output, cache_write, cache_write_1h,
+                 cache_read, cost_usd, unpriced_tokens)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             -1,
             &stmt,
@@ -288,9 +295,10 @@ final class CostCache {
         sqlite3_bind_int64(stmt, 6, Int64(totals.input))
         sqlite3_bind_int64(stmt, 7, Int64(totals.output))
         sqlite3_bind_int64(stmt, 8, Int64(totals.cacheWrite))
-        sqlite3_bind_int64(stmt, 9, Int64(totals.cacheRead))
-        sqlite3_bind_double(stmt, 10, costUSD ?? 0)
-        sqlite3_bind_int64(stmt, 11, Int64(costUSD == nil ? totals.total : 0))
+        sqlite3_bind_int64(stmt, 9, Int64(totals.cacheWrite1h))
+        sqlite3_bind_int64(stmt, 10, Int64(totals.cacheRead))
+        sqlite3_bind_double(stmt, 11, costUSD ?? 0)
+        sqlite3_bind_int64(stmt, 12, Int64(costUSD == nil ? totals.total : 0))
         guard sqlite3_step(stmt) == SQLITE_DONE else {
             throw CostCacheError.statementFailed(self.lastErrorMessage)
         }
@@ -318,7 +326,7 @@ final class CostCache {
         guard sqlite3_prepare_v2(
             self.db,
             """
-            SELECT rowid, model, long_context, input, output, cache_write, cache_read
+            SELECT rowid, model, long_context, input, output, cache_write, cache_write_1h, cache_read
             FROM \(table)
             WHERE cost_usd IS NULL OR unpriced_tokens IS NULL
             """,
@@ -336,7 +344,8 @@ final class CostCache {
                 input: Int(sqlite3_column_int64(select, 3)),
                 output: Int(sqlite3_column_int64(select, 4)),
                 cacheWrite: Int(sqlite3_column_int64(select, 5)),
-                cacheRead: Int(sqlite3_column_int64(select, 6))
+                cacheWrite1h: Int(sqlite3_column_int64(select, 6)),
+                cacheRead: Int(sqlite3_column_int64(select, 7))
             )
             let cost = CostPricing.cost(
                 totals: totals,
@@ -378,7 +387,7 @@ final class CostCache {
             self.db,
             """
             SELECT day, model, long_context,
-                   SUM(input), SUM(output), SUM(cache_write), SUM(cache_read),
+                   SUM(input), SUM(output), SUM(cache_write), SUM(cache_write_1h), SUM(cache_read),
                    SUM(COALESCE(cost_usd, 0)), SUM(COALESCE(unpriced_tokens, 0))
             FROM \(table)
             WHERE day >= ?
@@ -401,12 +410,13 @@ final class CostCache {
                 input: Int(sqlite3_column_int64(stmt, 3)),
                 output: Int(sqlite3_column_int64(stmt, 4)),
                 cacheWrite: Int(sqlite3_column_int64(stmt, 5)),
-                cacheRead: Int(sqlite3_column_int64(stmt, 6))
+                cacheWrite1h: Int(sqlite3_column_int64(stmt, 6)),
+                cacheRead: Int(sqlite3_column_int64(stmt, 7))
             )
             result[day, default: [:]][key] = StoredUsage(
                 tokens: totals,
-                costUSD: sqlite3_column_double(stmt, 7),
-                unpricedTokens: Int(sqlite3_column_int64(stmt, 8))
+                costUSD: sqlite3_column_double(stmt, 8),
+                unpricedTokens: Int(sqlite3_column_int64(stmt, 9))
             )
         }
         return result
