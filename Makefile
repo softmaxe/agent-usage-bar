@@ -51,6 +51,7 @@ test:
 	$(BUILD_DIR)/debug/$(APP_NAME) --verify-icon-rendering
 	$(BUILD_DIR)/debug/$(APP_NAME) --verify-menu-pointer-follow
 	$(BUILD_DIR)/debug/$(APP_NAME) --verify-quota-recovery
+	$(BUILD_DIR)/debug/$(APP_NAME) --verify-relative-time
 
 clean:
 	swift package clean

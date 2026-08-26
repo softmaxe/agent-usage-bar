@@ -122,6 +122,12 @@ final class UsageStore: ObservableObject {
         self.recovery.consumePending(for: provider)
     }
 
+#if DEBUG
+    func debugSetDisplay(_ display: ProviderDisplay, for provider: Provider) {
+        self.displays[provider] = display
+    }
+#endif
+
     /// A failed refresh keeps whatever snapshot we already had: showing yesterday's numbers with
     /// an error line beats blanking a working card because one request was rate-limited.
     private func apply(state: ProviderState, to provider: Provider) {
