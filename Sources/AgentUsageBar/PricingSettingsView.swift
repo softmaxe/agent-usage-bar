@@ -5,8 +5,11 @@ import SwiftUI
 /// is a correction rather than a blank form.
 struct PricingSettingsView: View {
     @ObservedObject var model: PricingEditorModel
+    @State private var expandedGroups = Set(PricingGroup.allCases)
 
     private static let rateColumnWidth: CGFloat = 68
+    private static let claudePricingURL = URL(string: "https://platform.claude.com/docs/en/about-claude/pricing")!
+    private static let openAIPricingURL = URL(string: "https://developers.openai.com/api/docs/pricing")!
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -34,6 +37,17 @@ struct PricingSettingsView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+                Link(destination: Self.claudePricingURL) {
+                    Label("Claude API pricing", systemImage: "arrow.up.right.square")
+                }
+                Link(destination: Self.openAIPricingURL) {
+                    Label("OpenAI API pricing", systemImage: "arrow.up.right.square")
+                }
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .padding(.top, 4)
         }
         .padding(12)
     }
@@ -42,15 +56,59 @@ struct PricingSettingsView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
                 Section {
-                    ForEach(self.model.rows) { row in
-                        self.row(row)
-                        Divider()
+                    ForEach(PricingGroup.allCases) { group in
+                        self.group(group)
                     }
                 } header: {
                     self.columnHeader
                 }
             }
         }
+    }
+
+    private func group(_ group: PricingGroup) -> some View {
+        let rows = self.model.rows(in: group)
+        return DisclosureGroup(isExpanded: self.expansionBinding(for: group)) {
+            if rows.isEmpty {
+                Text("No models")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 28)
+                    .padding(.vertical, 8)
+            } else {
+                ForEach(rows) { row in
+                    self.row(row)
+                    Divider().padding(.leading, 28)
+                }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Text(group.rawValue)
+                    .font(.system(size: 12, weight: .semibold))
+                Text("\(rows.count)")
+                    .font(.system(size: 10, weight: .medium, design: .rounded))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 1)
+                    .background(.quaternary, in: Capsule())
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 5)
+    }
+
+    private func expansionBinding(for group: PricingGroup) -> Binding<Bool> {
+        Binding(
+            get: { self.expandedGroups.contains(group) },
+            set: { expanded in
+                if expanded {
+                    self.expandedGroups.insert(group)
+                } else {
+                    self.expandedGroups.remove(group)
+                }
+            }
+        )
     }
 
     private var columnHeader: some View {
@@ -77,8 +135,11 @@ struct PricingSettingsView: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                 HStack(spacing: 6) {
-                    Text(row.provider.displayName)
-                    if row.seenInLogs { Text("· in your logs") }
+                    if row.usageTokens > 0 {
+                        Text("\(Formatters.tokens(row.usageTokens)) tokens")
+                    } else {
+                        Text("Not used locally")
+                    }
                     // The rows that actually change a number on screen.
                     if row.seenInLogs, !row.isPriced {
                         Text("· unpriced").foregroundStyle(.orange)

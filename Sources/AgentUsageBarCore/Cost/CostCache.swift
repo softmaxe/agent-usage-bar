@@ -384,8 +384,8 @@ final class CostCache {
         return result
     }
 
-    /// Distinct model names recorded for a provider, most-used first.
-    func distinctModels(provider: Provider) throws -> [String] {
+    /// Distinct model names and token totals recorded for a provider, most-used first.
+    func distinctModelUsage(provider: Provider) throws -> [(model: String, tokens: Int)] {
         let table = provider == .codex ? "codex_day" : "claude_message"
         var stmt: OpaquePointer?
         defer { sqlite3_finalize(stmt) }
@@ -402,9 +402,12 @@ final class CostCache {
             nil
         ) == SQLITE_OK else { throw CostCacheError.statementFailed(self.lastErrorMessage) }
 
-        var models: [String] = []
+        var models: [(model: String, tokens: Int)] = []
         while sqlite3_step(stmt) == SQLITE_ROW {
-            models.append(String(cString: sqlite3_column_text(stmt, 0)))
+            models.append((
+                model: String(cString: sqlite3_column_text(stmt, 0)),
+                tokens: Int(sqlite3_column_int64(stmt, 1))
+            ))
         }
         return models
     }

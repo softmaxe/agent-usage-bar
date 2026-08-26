@@ -3,15 +3,35 @@ import Combine
 import Foundation
 import SwiftUI
 
+enum PricingGroup: String, CaseIterable, Identifiable, Hashable {
+    case claude = "Claude"
+    case codex = "Codex"
+    case others = "Others"
+
+    var id: String { self.rawValue }
+
+    static func classify(model: String) -> PricingGroup {
+        let name = model.lowercased()
+        if name.hasPrefix("claude-") { return .claude }
+        if ["gpt-", "chatgpt-", "codex-", "o1", "o3", "o4"].contains(where: name.hasPrefix) {
+            return .codex
+        }
+        return .others
+    }
+}
+
 /// One editable row of the pricing table. Rates are USD per million tokens, matching how
 /// providers publish them.
 struct PricingRow: Identifiable, Equatable {
     let provider: Provider
+    let group: PricingGroup
     let model: String
     /// True when the model appears in the local logs, which is what makes a row worth editing.
     let seenInLogs: Bool
     /// True when the built-in table or the models.dev catalog already prices this model.
     let hasDefault: Bool
+    /// Total tokens seen in local logs. The settings list uses this to put active models first.
+    let usageTokens: Int
 
     var input: String
     var output: String
@@ -53,17 +73,26 @@ final class PricingEditorModel: ObservableObject {
         // were removed, which is what the Reset button has to restore.
         let fallback = PricingOverlay(userOverrides: [:], modelsDev: overlay.modelsDev)
 
+        var usageByProvider: [Provider: [ModelUsageTotal]] = [:]
+        for provider in Provider.allCases {
+            usageByProvider[provider] = await self.costService.knownModelUsage(provider: provider)
+        }
+
         var built: [PricingRow] = []
         var defaults: [String: ModelPricing] = [:]
 
         for provider in Provider.allCases {
-            let seen = await self.costService.knownModels(provider: provider)
+            let usage = usageByProvider[provider] ?? []
+            let seen = usage.map(\.model)
             let builtIn = provider == .codex ? CostPricing.codex : CostPricing.claude
 
             // Normalized names, because that is the key everything else is looked up by.
             var names: [String] = []
             var included: Set<String> = []
-            for raw in seen + builtIn.keys.sorted() + overrides.keys.sorted() {
+            let providerOverrides = overrides.keys.filter { name in
+                Self.provider(forOverride: name, usageByProvider: usageByProvider) == provider
+            }
+            for raw in seen + builtIn.keys.sorted() + providerOverrides.sorted() {
                 let name = CostPricing.normalize(raw, provider: provider)
                 guard !name.isEmpty, name != CostPricing.unknownModel, included.insert(name).inserted else {
                     continue
@@ -72,6 +101,9 @@ final class PricingEditorModel: ObservableObject {
             }
 
             let seenSet = Set(seen.map { CostPricing.normalize($0, provider: provider) })
+            let usageTokens = Dictionary(uniqueKeysWithValues: usage.map {
+                (CostPricing.normalize($0.model, provider: provider), $0.tokens)
+            })
 
             for name in names {
                 let fallbackPricing = CostPricing.pricing(for: name, provider: provider, overlay: fallback)
@@ -84,9 +116,11 @@ final class PricingEditorModel: ObservableObject {
                 let effective = overrides[name] ?? fallbackPricing
                 built.append(PricingRow(
                     provider: provider,
+                    group: PricingGroup.classify(model: name),
                     model: name,
                     seenInLogs: seenSet.contains(name),
                     hasDefault: fallbackPricing != nil,
+                    usageTokens: usageTokens[name] ?? 0,
                     input: Self.text(effective?.input),
                     output: Self.text(effective?.output),
                     cacheWrite: Self.text(effective?.cacheWrite),
@@ -95,12 +129,14 @@ final class PricingEditorModel: ObservableObject {
             }
         }
 
-        // Unpriced models the logs actually contain come first: those are the rows that change
-        // a number on screen. Everything else keeps provider order.
+        // Provider sections stay stable; active models rise within their section by actual usage.
         built.sort { lhs, rhs in
+            let lhsGroup = PricingGroup.allCases.firstIndex(of: lhs.group) ?? .max
+            let rhsGroup = PricingGroup.allCases.firstIndex(of: rhs.group) ?? .max
+            if lhsGroup != rhsGroup { return lhsGroup < rhsGroup }
+            if lhs.usageTokens != rhs.usageTokens { return lhs.usageTokens > rhs.usageTokens }
             if lhs.seenInLogs != rhs.seenInLogs { return lhs.seenInLogs }
             if lhs.seenInLogs, lhs.isPriced != rhs.isPriced { return !lhs.isPriced }
-            if lhs.provider != rhs.provider { return lhs.provider == .codex }
             return lhs.model < rhs.model
         }
 
@@ -109,6 +145,10 @@ final class PricingEditorModel: ObservableObject {
         self.originalRows = Dictionary(uniqueKeysWithValues: built.map { ($0.id, $0) })
         self.hasUnsavedChanges = false
         self.isLoading = false
+    }
+
+    func rows(in group: PricingGroup) -> [PricingRow] {
+        self.rows.filter { $0.group == group }
     }
 
     func binding(for id: String, keyPath: WritableKeyPath<PricingRow, String>) -> Binding<String> {
@@ -183,5 +223,17 @@ final class PricingEditorModel: ObservableObject {
             ? String(format: "%.0f", value)
             : String(format: "%g", value)
     }
-}
 
+    private static func provider(
+        forOverride model: String,
+        usageByProvider: [Provider: [ModelUsageTotal]]
+    ) -> Provider {
+        for provider in Provider.allCases where usageByProvider[provider]?.contains(where: {
+            CostPricing.normalize($0.model, provider: provider)
+                == CostPricing.normalize(model, provider: provider)
+        }) == true {
+            return provider
+        }
+        return PricingGroup.classify(model: model) == .claude ? .claude : .codex
+    }
+}

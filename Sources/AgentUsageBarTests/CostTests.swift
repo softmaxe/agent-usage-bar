@@ -227,6 +227,9 @@ enum CostTests {
             0.08,
             "a resumed scan attributes the appended turn to the last announced model"
         )
+        let modelUsage = await service.knownModelUsage(provider: .codex)
+        Harness.expectEqual(modelUsage.first?.model, "gpt-5.6-luna", "pricing models sort by token usage")
+        Harness.expectEqual(modelUsage.first?.tokens, 400_000, "pricing model usage carries token totals")
 
         await Self.pricingChangesOnlyAffectNewUsage(root: root)
     }

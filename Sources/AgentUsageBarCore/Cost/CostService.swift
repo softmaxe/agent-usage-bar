@@ -1,5 +1,15 @@
 import Foundation
 
+public struct ModelUsageTotal: Sendable, Equatable {
+    public let model: String
+    public let tokens: Int
+
+    public init(model: String, tokens: Int) {
+        self.model = model
+        self.tokens = tokens
+    }
+}
+
 /// Owns the scan cache and produces cost snapshots. An actor because the SQLite connection is
 /// single-writer and scans run off the main thread.
 public actor CostService {
@@ -58,12 +68,14 @@ public actor CostService {
         }
     }
 
-    /// Models seen in the local logs, most-used first. These are the rows a pricing editor
-    /// actually needs, including the ones with no built-in rate.
-    public func knownModels(provider: Provider) -> [String] {
+    /// Models seen in local logs with their cumulative token totals, most-used first.
+    public func knownModelUsage(provider: Provider) -> [ModelUsageTotal] {
         guard let cache = try? self.openCache(),
-              let models = try? cache.distinctModels(provider: provider) else { return [] }
-        return models.filter { $0 != CostPricing.unknownModel }
+              let models = try? cache.distinctModelUsage(provider: provider) else { return [] }
+        return models.compactMap { entry in
+            guard entry.model != CostPricing.unknownModel else { return nil }
+            return ModelUsageTotal(model: entry.model, tokens: entry.tokens)
+        }
     }
 
     /// Drops the cached price layers so the next refresh picks up an edited override file.
