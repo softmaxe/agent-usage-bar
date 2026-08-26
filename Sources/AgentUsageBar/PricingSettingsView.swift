@@ -101,6 +101,10 @@ struct PricingSettingsView: View {
                     .padding(.vertical, 1)
                     .background(.quaternary, in: Capsule())
             }
+            // Keep the native disclosure control while making the full header row clickable.
+            .frame(maxWidth: .infinity, minHeight: Self.disclosureHitSize.height, alignment: .leading)
+            .contentShape(Rectangle())
+            .onTapGesture { self.expansionBinding(for: group).wrappedValue.toggle() }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 5)
