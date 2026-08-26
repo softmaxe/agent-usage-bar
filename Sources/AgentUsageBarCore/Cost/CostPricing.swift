@@ -91,8 +91,43 @@ public enum CostPricing {
 
     // MARK: - Built-in table
 
-    /// Codex / OpenAI rates, USD per million tokens.
+    /// Codex / OpenAI rates, USD per million tokens, checked against
+    /// https://developers.openai.com/api/docs/pricing on 2026-08-26.
+    ///
+    /// OpenAI prices a separate cache write only for the gpt-5.6 family; for every other model
+    /// it publishes a cached-input rate alone, so those cache writes fall through to the input
+    /// rate, which is how they are billed.
+    ///
+    /// The models above the marker are the ones that page still prices. The rest were on it
+    /// once and are kept so historical transcripts stay priced; a scan freezes each row's cost
+    /// at the rates in force when it ran, so these only apply to logs scanned before the model
+    /// went away.
     public static let codex: [String: ModelPricing] = [
+        // -- Priced on the live page --------------------------------------------------------
+        // Sol runs a promotion the page commits to "at least through November 21, 2026"; the
+        // standard rates it replaces are $5 / $30 with a $6.25 cache write and $0.50 read.
+        "gpt-5.6-sol": ModelPricing(
+            input: 4, output: 20, cacheWrite: 5, cacheRead: 0.4,
+            thresholdTokens: 270_000,
+            inputAbove: 8, outputAbove: 30, cacheWriteAbove: 10, cacheReadAbove: 0.8
+        ),
+        "gpt-5.6-terra": ModelPricing(
+            input: 2, output: 12, cacheWrite: 2.5, cacheRead: 0.2,
+            thresholdTokens: 270_000,
+            inputAbove: 4, outputAbove: 18, cacheWriteAbove: 5, cacheReadAbove: 0.4
+        ),
+        "gpt-5.6-luna": ModelPricing(
+            input: 0.2, output: 1.2, cacheWrite: 0.25, cacheRead: 0.02,
+            thresholdTokens: 270_000,
+            inputAbove: 0.4, outputAbove: 1.8, cacheWriteAbove: 0.5, cacheReadAbove: 0.04
+        ),
+        // Daybreak security model, aliased daybreak-red-latest. No long-context tier.
+        "gpt-5.6-cyber": ModelPricing(input: 12.5, output: 75, cacheWrite: 15.625, cacheRead: 1.25),
+        // The page also lists a costlier Fast mode for this model; the transcripts carry no
+        // mode, so the standard row is the one that can be applied.
+        "gpt-5.3-codex": ModelPricing(input: 1.75, output: 14, cacheRead: 0.175),
+
+        // -- Retired or no longer published; last known rates -------------------------------
         "gpt-5": ModelPricing(input: 1.25, output: 10, cacheRead: 0.125),
         "gpt-5-codex": ModelPricing(input: 1.25, output: 10, cacheRead: 0.125),
         "gpt-5-mini": ModelPricing(input: 0.25, output: 2, cacheRead: 0.025),
@@ -105,7 +140,6 @@ public enum CostPricing {
         "gpt-5.2": ModelPricing(input: 1.75, output: 14, cacheRead: 0.175),
         "gpt-5.2-codex": ModelPricing(input: 1.75, output: 14, cacheRead: 0.175),
         "gpt-5.2-pro": ModelPricing(input: 21, output: 168),
-        "gpt-5.3-codex": ModelPricing(input: 1.75, output: 14, cacheRead: 0.175),
         // Research preview: free while it lasts.
         "gpt-5.3-codex-spark": ModelPricing(input: 0, output: 0, cacheWrite: 0, cacheRead: 0),
         "gpt-5.4": ModelPricing(
@@ -120,28 +154,19 @@ public enum CostPricing {
             thresholdTokens: 272_000, inputAbove: 10, outputAbove: 45, cacheReadAbove: 1
         ),
         "gpt-5.5-pro": ModelPricing(input: 30, output: 180),
-        "gpt-5.6-sol": ModelPricing(
-            input: 5, output: 30, cacheWrite: 6.25, cacheRead: 0.5,
-            thresholdTokens: 272_000,
-            inputAbove: 10, outputAbove: 45, cacheWriteAbove: 12.5, cacheReadAbove: 1
-        ),
-        "gpt-5.6-terra": ModelPricing(
-            input: 2, output: 12, cacheWrite: 2.5, cacheRead: 0.2,
-            thresholdTokens: 272_000,
-            inputAbove: 4, outputAbove: 18, cacheWriteAbove: 5, cacheReadAbove: 0.4
-        ),
-        "gpt-5.6-luna": ModelPricing(
-            input: 0.2, output: 1.2, cacheWrite: 0.25, cacheRead: 0.02,
-            thresholdTokens: 272_000,
-            inputAbove: 0.4, outputAbove: 1.8, cacheWriteAbove: 0.5, cacheReadAbove: 0.04
-        ),
     ]
 
-    /// Anthropic rates, USD per million tokens. Cache write is 1.25x input and cache read 0.1x
-    /// input across the family, which is how the derived columns below are set.
+    /// Anthropic rates, USD per million tokens, checked against
+    /// https://platform.claude.com/docs/en/about-claude/pricing on 2026-08-26.
     ///
-    /// `claude-opus-5`, `claude-sonnet-5` and `claude-mythos-5` are absent from CodexBar's table;
-    /// their rates come from the published Anthropic price list.
+    /// That page still states the family-wide ratios: a five-minute cache write is 1.25x the
+    /// base input rate, a one-hour write 2x, and a cache read 0.1x. The cache-write column below
+    /// is the five-minute rate; the one-hour rate stays derived from input rather than repeated
+    /// per model.
+    ///
+    /// No model on that page carries a long-context tier any more: 4.6 and later, and Mythos,
+    /// bill their full 1M window at the standard rate, and Sonnet 4.5 is back to a 200K window
+    /// priced flat.
     public static let claude: [String: ModelPricing] = [
         "claude-fable-5": ModelPricing(input: 10, output: 50, cacheWrite: 12.5, cacheRead: 1),
         "claude-mythos-5": ModelPricing(input: 10, output: 50, cacheWrite: 12.5, cacheRead: 1),
@@ -154,22 +179,18 @@ public enum CostPricing {
         "claude-opus-4": ModelPricing(input: 15, output: 75, cacheWrite: 18.75, cacheRead: 1.5),
         "claude-sonnet-5": ModelPricing(input: 2, output: 10, cacheWrite: 2.5, cacheRead: 0.2),
         "claude-sonnet-4-6": ModelPricing(input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.3),
-        "claude-sonnet-4-5": ModelPricing(
-            input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.3,
-            thresholdTokens: 200_000,
-            inputAbove: 6, outputAbove: 22.5, cacheWriteAbove: 7.5, cacheReadAbove: 0.6
-        ),
-        "claude-sonnet-4": ModelPricing(
-            input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.3,
-            thresholdTokens: 200_000,
-            inputAbove: 6, outputAbove: 22.5, cacheWriteAbove: 7.5, cacheReadAbove: 0.6
-        ),
+        // Both carried a 2x tier above 200K while the 1M context beta ran; the price list no
+        // longer publishes one, and Sonnet 4.5's window is back to 200K, so the tier could not
+        // be reached even if it were still in force.
+        "claude-sonnet-4-5": ModelPricing(input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.3),
+        "claude-sonnet-4": ModelPricing(input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.3),
         "claude-haiku-4-5": ModelPricing(input: 1, output: 5, cacheWrite: 1.25, cacheRead: 0.1),
     ]
 
     // MARK: - Normalization
 
-    /// `openai/gpt-5.1-2026-01-01` -> `gpt-5.1`, and the sol alias CodexBar carries.
+    /// `openai/gpt-5.1-2026-01-01` -> `gpt-5.1`. Bare `gpt-5.6` is OpenAI's own alias for
+    /// `gpt-5.6-sol`, which is how the model catalog lists it.
     public static func normalizeCodexModel(_ raw: String) -> String {
         var name = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if let slash = name.lastIndex(of: "/") { name = String(name[name.index(after: slash)...]) }

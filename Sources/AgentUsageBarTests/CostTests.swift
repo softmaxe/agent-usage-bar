@@ -75,7 +75,7 @@ enum CostTests {
     }
 
     private static func longContextTiering() {
-        // gpt-5.6-sol charges double above 272k tokens in one request.
+        // gpt-5.6-sol charges double above 270k tokens in one request.
         let below = TokenTotals(input: 100_000)
         let above = TokenTotals(input: 300_000)
         Harness.expect(
@@ -98,8 +98,8 @@ enum CostTests {
             provider: .codex,
             longContext: true
         )
-        Harness.expectEqual(baseCost, 5.0, "sol base input rate")
-        Harness.expectEqual(longCost, 10.0, "sol long-context input rate")
+        Harness.expectEqual(baseCost, 4.0, "sol base input rate")
+        Harness.expectEqual(longCost, 8.0, "sol long-context input rate")
     }
 
     private static func overlayParsing() {
@@ -254,10 +254,10 @@ enum CostTests {
         )
 
         let codex = await service.refresh(.codex)
-        // 200k input tokens stays under sol's 272k long-context threshold, so the base rate
-        // applies: 200k at $5/M for sol plus 200k at $0.20/M for luna.
+        // 200k input tokens stays under sol's 270k long-context threshold, so the base rate
+        // applies: 200k at $4/M for sol plus 200k at $0.20/M for luna.
         Harness.expectEqual(codex?.windowTokens, 400_000, "codex tokens scanned")
-        Harness.expectClose(codex?.windowCostUSD, 1.04, "codex cost across two models")
+        Harness.expectClose(codex?.windowCostUSD, 0.84, "codex cost across two models")
         Harness.expectEqual(codex?.topModel, "gpt-5.6-sol", "codex top model")
 
         // The hover breakdown needs each model's own share, ranked by cost.
@@ -268,7 +268,7 @@ enum CostTests {
             "gpt-5.6-sol",
             "the costlier model ranks first"
         )
-        Harness.expectClose(breakdown?.rankedModels.first?.usage.costUSD, 1.0, "per-model cost for sol")
+        Harness.expectClose(breakdown?.rankedModels.first?.usage.costUSD, 0.8, "per-model cost for sol")
         Harness.expectClose(breakdown?.rankedModels.last?.usage.costUSD, 0.04, "per-model cost for luna")
 
         let claude = await service.refresh(.claude)
