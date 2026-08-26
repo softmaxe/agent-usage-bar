@@ -1,25 +1,27 @@
 import AgentUsageBarCore
 import AppKit
 
-/// Pixel checks for the status-item quota meters. These exercise the final bitmap rather than
+/// Pixel checks for the status-item icons. These exercise the final bitmap rather than
 /// duplicating the renderer's geometry in a policy test.
 enum IconRenderingVerifier {
     @MainActor
     static func run() -> Never {
         var failures: [String] = []
 
-        Self.expectSolidCodexMeter(
+        Self.expectCodexFace(
             primaryRemaining: 100,
             weeklyRemaining: nil,
-            sample: (x: 10, y: 14),
+            eyeSample: (x: 10, y: 14),
+            hatSample: (x: 18, y: 8),
             label: "single-window",
             failures: &failures
         )
-        Self.expectSolidCodexMeter(
+        Self.expectCodexFace(
             primaryRemaining: 100,
             weeklyRemaining: 100,
-            sample: (x: 10, y: 11),
-            label: "dual-window primary",
+            eyeSample: (x: 10, y: 11),
+            hatSample: (x: 18, y: 7),
+            label: "dual-window",
             failures: &failures
         )
 
@@ -29,14 +31,15 @@ enum IconRenderingVerifier {
             }
             exit(1)
         }
-        print("status-item quota meter continuity checks passed")
+        print("status-item icon rendering checks passed")
         exit(0)
     }
 
-    private static func expectSolidCodexMeter(
+    private static func expectCodexFace(
         primaryRemaining: Double,
         weeklyRemaining: Double?,
-        sample: (x: Int, y: Int),
+        eyeSample: (x: Int, y: Int),
+        hatSample: (x: Int, y: Int),
         label: String,
         failures: inout [String]
     ) {
@@ -47,15 +50,16 @@ enum IconRenderingVerifier {
             stale: false
         )
         guard let bitmap = image.representations.compactMap({ $0 as? NSBitmapImageRep }).first,
-              let color = bitmap.colorAt(x: sample.x, y: sample.y) else {
-            failures.append("\(label) icon did not expose its bitmap sample")
+              let eye = bitmap.colorAt(x: eyeSample.x, y: eyeSample.y),
+              let hat = bitmap.colorAt(x: hatSample.x, y: hatSample.y) else {
+            failures.append("\(label) Codex face did not expose its bitmap samples")
             return
         }
-        if color.alphaComponent < 0.99 {
-            failures.append(
-                "\(label) meter contained a transparent break "
-                    + "(alpha \(color.alphaComponent), bitmap \(bitmap.pixelsWide)x\(bitmap.pixelsHigh))"
-            )
+        if eye.alphaComponent > 0.01 {
+            failures.append("\(label) Codex eye was not visible (alpha \(eye.alphaComponent))")
+        }
+        if hat.alphaComponent < 0.99 {
+            failures.append("\(label) Codex cap was missing (alpha \(hat.alphaComponent))")
         }
     }
 }
