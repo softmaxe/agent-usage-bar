@@ -18,6 +18,11 @@ probe:
 	swift build -c $(CONFIG) --product $(APP_NAME)Probe
 	$(BUILD_DIR)/$(CONFIG)/$(APP_NAME)Probe
 
+## Rescan the local logs and print cost totals. No credentials, no network.
+probe-cost:
+	swift build -c $(CONFIG) --product $(APP_NAME)Probe
+	$(BUILD_DIR)/$(CONFIG)/$(APP_NAME)Probe --cost-only
+
 ## Stream os.Logger output. Use this when the app was not started from a terminal.
 logs:
 	log stream --level debug --predicate 'subsystem == "$(LOG_SUBSYSTEM)"'

@@ -47,12 +47,20 @@ func reportCost(_ provider: Provider, _ snapshot: CostSnapshot?) {
 }
 
 let costService = CostService()
+// Scanning the logs needs no credentials and no network, so it can be checked on its own.
+let costOnly = CommandLine.arguments.contains("--cost-only")
 
-let codex = await CodexProvider.fetch()
-report(.codex, codex)
-reportCost(.codex, await costService.refresh(.codex))
-print("")
-
-let claude = await ClaudeProvider.fetch()
-report(.claude, claude)
-reportCost(.claude, await costService.refresh(.claude))
+for provider in Provider.allCases {
+    if !costOnly {
+        switch provider {
+        case .codex: report(.codex, await CodexProvider.fetch())
+        case .claude: report(.claude, await ClaudeProvider.fetch())
+        }
+    } else {
+        print("[\(provider.displayName)]")
+    }
+    let started = Date()
+    reportCost(provider, await costService.refresh(provider))
+    print(String(format: "  scan took %.1fs", Date().timeIntervalSince(started)))
+    print("")
+}
