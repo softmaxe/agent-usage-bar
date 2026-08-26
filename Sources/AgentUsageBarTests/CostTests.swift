@@ -231,7 +231,46 @@ enum CostTests {
         Harness.expectEqual(modelUsage.first?.model, "gpt-5.6-luna", "pricing models sort by token usage")
         Harness.expectEqual(modelUsage.first?.tokens, 400_000, "pricing model usage carries token totals")
 
+        await Self.codexCacheBucketsAreCarvedOutOfInput(root: root)
         await Self.pricingChangesOnlyAffectNewUsage(root: root)
+    }
+
+    /// Codex counts cached reads and cache writes inside input_tokens, so a turn that reports all
+    /// three must not be billed for the same token twice.
+    private static func codexCacheBucketsAreCarvedOutOfInput(root: URL) async {
+        let home = root.appendingPathComponent("carve-codex")
+        let file = home.appendingPathComponent("sessions/2026/08/26/rollout-carve.jsonl")
+        try? FileManager.default.createDirectory(
+            at: file.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+
+        let timestamp = "2026-08-26T12:00:00.000Z"
+        let context = #"{"type":"turn_context","timestamp":"\#(timestamp)","payload":{"model":"carve-model"}}"#
+        // 1,000,000 prompt tokens: 600k served from cache, 100k written to it, 300k fresh.
+        let usage = #"{"type":"event_msg","timestamp":"\#(timestamp)","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":1000000,"cached_input_tokens":600000,"cache_write_input_tokens":100000,"output_tokens":0}}}}"#
+        try? ([context, usage].joined(separator: "\n") + "\n")
+            .write(to: file, atomically: true, encoding: .utf8)
+
+        let service = CostService(
+            databaseURL: root.appendingPathComponent("carve-cache.sqlite"),
+            env: ["CODEX_HOME": home.path],
+            pricingOverlay: PricingOverlay(userOverrides: [
+                "carve-model": ModelPricing(input: 10, output: 0, cacheWrite: 1, cacheRead: 0),
+            ])
+        )
+        let snapshot = await service.refresh(.codex)
+        // 300k fresh at $10/M + 100k written at $1/M + 600k read at $0/M = $3.10.
+        Harness.expectClose(
+            snapshot?.windowCostUSD,
+            3.1,
+            "cached reads and cache writes are peeled out of input_tokens before pricing"
+        )
+        Harness.expectEqual(
+            snapshot?.windowTokens,
+            1_000_000,
+            "peeling the buckets apart preserves the turn's total token count"
+        )
     }
 
     /// Editing a custom rate is prospective: usage already scanned keeps the price that was in

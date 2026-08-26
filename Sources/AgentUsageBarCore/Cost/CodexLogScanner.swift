@@ -115,15 +115,17 @@ enum CodexLogScanner {
               let info = payload["info"] as? [String: Any],
               let usage = info["last_token_usage"] as? [String: Any] else { return }
 
-        let rawInput = Self.int(usage["input_tokens"])
-        let cachedInput = Self.int(usage["cached_input_tokens"])
+        // Codex reports input_tokens as the whole prompt, with the cached reads and the cache
+        // writes both carved out of it. Peel them off in turn so each bucket is priced once.
+        let rawInput = max(0, Self.int(usage["input_tokens"]))
+        let cacheRead = min(max(0, Self.int(usage["cached_input_tokens"])), rawInput)
+        let cacheWrite = min(max(0, Self.int(usage["cache_write_input_tokens"])), rawInput - cacheRead)
         let totals = TokenTotals(
-            // Codex reports cached tokens as a subset of input_tokens, so split them apart to
-            // price the cheap and the full-rate halves separately.
-            input: max(0, rawInput - cachedInput),
+            input: rawInput - cacheRead - cacheWrite,
+            // reasoning_output_tokens is a subset of output_tokens, which is what OpenAI bills.
             output: Self.int(usage["output_tokens"]),
-            cacheWrite: Self.int(usage["cache_write_input_tokens"]),
-            cacheRead: cachedInput
+            cacheWrite: cacheWrite,
+            cacheRead: cacheRead
         )
         guard totals.total > 0 else { return }
 
