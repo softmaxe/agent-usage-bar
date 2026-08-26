@@ -1,6 +1,6 @@
 // Adapted from CodexBar (MIT, © 2026 Peter Steinberger): Sources/CodexBar/IconRenderer.swift
 // Kept: the 18pt @2x pixel grid, the capsule track/fill/stroke bar, the dual- and single-lane
-// layouts, and the Codex "face" and Claude "crab" decorations.
+// layouts, and the provider-specific Codex and Claude decorations.
 // Dropped: the Gemini/Antigravity/Factory/Warp decorations, blink/wiggle/tilt animation,
 // status overlays, and the morph cache.
 
@@ -10,7 +10,6 @@ import AppKit
 enum IconRenderer {
     private static let outputSize = NSSize(width: 18, height: 18)
     private static let outputScale: CGFloat = 2
-    private static let canvasPx = Int(outputSize.width * outputScale)
 
     /// Everything is laid out in device pixels on a 2× grid, then converted to points, so
     /// edges land on pixel boundaries and the icon stays crisp at menu bar size.
@@ -31,8 +30,6 @@ enum IconRenderer {
         let y: Int
         let w: Int
         let h: Int
-
-        var midXPx: Int { self.x + self.w / 2 }
 
         func rect() -> CGRect { IconRenderer.grid.rect(x: self.x, y: self.y, w: self.w, h: self.h) }
     }
@@ -123,16 +120,16 @@ enum IconRenderer {
             let baseFill = NSColor.labelColor
             let trackFillAlpha: CGFloat = stale ? 0.18 : 0.28
             let trackStrokeAlpha: CGFloat = stale ? 0.28 : 0.44
-            let fillColor = baseFill.withAlphaComponent(stale ? 0.55 : 1.0)
+            let fillAlpha: CGFloat = stale ? 0.55 : 1.0
 
-            // 15pt wide: uses the menu bar slot without touching its edges.
-            let barWidthPx = 30
-            let barXPx = (Self.canvasPx - barWidthPx) / 2
-
-            func drawBar(rectPx: RectPx, remaining: Double?, alpha: CGFloat = 1.0, decoration: Decoration = .none) {
+            func drawBar(
+                rectPx: RectPx,
+                remaining: Double?,
+                alpha: CGFloat = 1.0,
+                square: Bool = false
+            ) {
                 let rect = rectPx.rect()
-                // Claude reads better as a blocky critter; Codex stays a capsule.
-                let cornerRadiusPx = decoration == .crab ? 0 : rectPx.h / 2
+                let cornerRadiusPx = square ? 0 : rectPx.h / 2
                 let radius = Self.grid.pt(cornerRadiusPx)
 
                 let trackPath = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
@@ -163,7 +160,7 @@ enum IconRenderer {
                     if fillWidthPx > 0 {
                         NSGraphicsContext.current?.cgContext.saveGState()
                         trackPath.addClip()
-                        fillColor.withAlphaComponent(alpha).setFill()
+                        baseFill.withAlphaComponent(fillAlpha * alpha).setFill()
                         NSBezierPath(rect: Self.grid.rect(
                             x: rectPx.x,
                             y: rectPx.y,
@@ -173,121 +170,112 @@ enum IconRenderer {
                         NSGraphicsContext.current?.cgContext.restoreGState()
                     }
                 }
+            }
 
-                switch decoration {
-                case .none:
-                    break
-                case .face:
-                    self.drawFace(rectPx: rectPx, fillColor: fillColor, alpha: alpha)
-                case .crab:
-                    self.drawCrab(rectPx: rectPx, fillColor: fillColor, alpha: alpha)
+            let hasWeeklyMeter = weeklyRemaining.map { $0 > 0 } ?? false
+            let hasAnyData = primaryRemaining != nil || hasWeeklyMeter
+            let decorationAlpha: CGFloat = (hasAnyData ? 1 : 0.45) * fillAlpha
+
+            switch provider {
+            case .codex:
+                self.drawCodexBlossom(baseFill: baseFill, alpha: decorationAlpha)
+                if hasWeeklyMeter {
+                    drawBar(rectPx: RectPx(x: 8, y: 12, w: 20, h: 5), remaining: primaryRemaining)
+                    drawBar(rectPx: RectPx(x: 9, y: 6, w: 18, h: 3), remaining: weeklyRemaining)
+                } else {
+                    // Keep a single quota visually honest instead of reserving an empty weekly lane.
+                    drawBar(
+                        rectPx: RectPx(x: 8, y: 8, w: 20, h: 6),
+                        remaining: primaryRemaining,
+                        alpha: hasAnyData ? 1 : 0.45
+                    )
+                }
+            case .claude:
+                self.drawClaudeCrab(baseFill: baseFill, alpha: decorationAlpha)
+                if hasWeeklyMeter {
+                    drawBar(
+                        rectPx: RectPx(x: 6, y: 13, w: 24, h: 6),
+                        remaining: primaryRemaining,
+                        square: true
+                    )
+                    drawBar(
+                        rectPx: RectPx(x: 6, y: 8, w: 24, h: 3),
+                        remaining: weeklyRemaining,
+                        square: true
+                    )
+                } else {
+                    drawBar(
+                        rectPx: RectPx(x: 6, y: 9, w: 24, h: 7),
+                        remaining: primaryRemaining,
+                        alpha: hasAnyData ? 1 : 0.45,
+                        square: true
+                    )
                 }
             }
-
-            let decoration: Decoration = provider == .codex ? .face : .crab
-            let topRectPx = RectPx(x: barXPx, y: 19, w: barWidthPx, h: 12)
-            let bottomRectPx = RectPx(x: barXPx, y: 5, w: barWidthPx, h: 8)
-            // One meaningful quota should read as one meter: reserving an unusable second lane
-            // would make 46% remaining look like roughly 23% of the icon.
-            let singleRectPx = RectPx(x: barXPx, y: 14, w: barWidthPx, h: 16)
-
-            if let weeklyRemaining, weeklyRemaining > 0 {
-                drawBar(rectPx: topRectPx, remaining: primaryRemaining, decoration: decoration)
-                drawBar(rectPx: bottomRectPx, remaining: weeklyRemaining)
-            } else if let primaryRemaining {
-                drawBar(rectPx: singleRectPx, remaining: primaryRemaining, decoration: decoration)
-            } else {
-                // No data at all: an empty track, so the icon still shows the app is alive.
-                drawBar(rectPx: singleRectPx, remaining: nil, alpha: 0.45, decoration: decoration)
-            }
         }
-    }
-
-    private enum Decoration: Equatable {
-        case none
-        /// Codex: square eye cutouts plus a small cap.
-        case face
-        /// Claude: side arms, four legs, tall vertical eye cutouts.
-        case crab
     }
 
     // MARK: - Decorations
 
-    private static func drawFace(rectPx: RectPx, fillColor: NSColor, alpha: CGFloat) {
-        let ctx = NSGraphicsContext.current?.cgContext
-        let eyeSizePx = 4
-        let eyeOffsetPx = 7
-        let eyeCenterYPx = rectPx.y + rectPx.h / 2
-        let centerXPx = rectPx.midXPx
+    private static func drawCodexBlossom(baseFill: NSColor, alpha: CGFloat) {
+        let p = Self.grid.pt
+        let outline = NSBezierPath()
+        // An eight-lobed radial outline preserves the selected Blossom silhouette at 18pt.
+        let center = CGPoint(x: p(18), y: p(18))
+        let sampleCount = 96
+        for index in 0...sampleCount {
+            let angle = (Double(index) / Double(sampleCount)) * .pi * 2
+            let radiusPx = 14.5 + 2.0 * cos(angle * 8)
+            let point = NSPoint(
+                x: center.x + p(Int((radiusPx * cos(angle) * 100).rounded())) / 100,
+                y: center.y + p(Int((radiusPx * sin(angle) * 100).rounded())) / 100
+            )
+            if index == 0 {
+                outline.move(to: point)
+            } else {
+                outline.line(to: point)
+            }
+        }
+        outline.close()
+        outline.lineWidth = p(2)
+        baseFill.withAlphaComponent(alpha).setStroke()
+        outline.stroke()
 
-        // Punch the eyes out of the bar rather than painting over it, so they read on
-        // both a filled and an empty track.
-        ctx?.saveGState()
-        ctx?.setShouldAntialias(false)
-        ctx?.clear(Self.grid.rect(
-            x: centerXPx - eyeOffsetPx - eyeSizePx / 2,
-            y: eyeCenterYPx - eyeSizePx / 2,
-            w: eyeSizePx,
-            h: eyeSizePx
-        ))
-        ctx?.clear(Self.grid.rect(
-            x: centerXPx + eyeOffsetPx - eyeSizePx / 2,
-            y: eyeCenterYPx - eyeSizePx / 2,
-            w: eyeSizePx,
-            h: eyeSizePx
-        ))
-        ctx?.restoreGState()
+        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
+        ctx.saveGState()
+        ctx.setShouldAntialias(true)
+        ctx.setStrokeColor(baseFill.withAlphaComponent(alpha).cgColor)
+        ctx.setLineWidth(p(3))
+        ctx.setLineCap(.round)
+        ctx.setLineJoin(.round)
+        ctx.move(to: CGPoint(x: p(11), y: p(27)))
+        ctx.addLine(to: CGPoint(x: p(15), y: p(23)))
+        ctx.addLine(to: CGPoint(x: p(11), y: p(19)))
+        ctx.strokePath()
+        ctx.restoreGState()
 
-        let hatWidthPx = 18
-        let hatHeightPx = 4
-        fillColor.withAlphaComponent(alpha).setFill()
-        NSBezierPath(rect: Self.grid.rect(
-            x: centerXPx - hatWidthPx / 2,
-            y: rectPx.y + rectPx.h - hatHeightPx,
-            w: hatWidthPx,
-            h: hatHeightPx
-        )).fill()
+        baseFill.withAlphaComponent(alpha).setFill()
+        NSBezierPath(roundedRect: Self.grid.rect(x: 19, y: 20, w: 7, h: 3), xRadius: p(1), yRadius: p(1)).fill()
     }
 
-    private static func drawCrab(rectPx: RectPx, fillColor: NSColor, alpha: CGFloat) {
+    private static func drawClaudeCrab(baseFill: NSColor, alpha: CGFloat) {
         let ctx = NSGraphicsContext.current?.cgContext
-        fillColor.withAlphaComponent(alpha).setFill()
+        baseFill.withAlphaComponent(alpha).setFill()
 
-        // Arms: barX is 3px, so 3px arms reach the canvas edge without clipping.
-        let armWidthPx = 3
-        let armHeightPx = max(0, rectPx.h - 6)
-        let armYPx = rectPx.y + 3
-        NSBezierPath(rect: Self.grid.rect(
-            x: rectPx.x - armWidthPx, y: armYPx, w: armWidthPx, h: armHeightPx
-        )).fill()
-        NSBezierPath(rect: Self.grid.rect(
-            x: rectPx.x + rectPx.w, y: armYPx, w: armWidthPx, h: armHeightPx
-        )).fill()
+        NSBezierPath(rect: Self.grid.rect(x: 3, y: 21, w: 30, h: 10)).fill()
+        NSBezierPath(rect: Self.grid.rect(x: 0, y: 23, w: 3, h: 4)).fill()
+        NSBezierPath(rect: Self.grid.rect(x: 33, y: 23, w: 3, h: 4)).fill()
 
-        let legCount = 4
-        let legWidthPx = 2
-        let legHeightPx = 3
-        let legYPx = rectPx.y - legHeightPx
-        let stepPx = max(1, rectPx.w / (legCount + 1))
-        for index in 0..<legCount {
-            let centerXPx = rectPx.x + stepPx * (index + 1)
+        for x in [9, 14, 20, 25] {
             NSBezierPath(rect: Self.grid.rect(
-                x: centerXPx - legWidthPx / 2, y: legYPx, w: legWidthPx, h: legHeightPx
+                x: x, y: 4, w: 2, h: 4
             )).fill()
         }
 
-        let eyeWidthPx = 2
-        let eyeHeightPx = 5
-        let eyeOffsetPx = 6
-        let eyeYPx = rectPx.y + rectPx.h - eyeHeightPx - 2
         ctx?.saveGState()
         ctx?.setShouldAntialias(false)
-        ctx?.clear(Self.grid.rect(
-            x: rectPx.midXPx - eyeOffsetPx - eyeWidthPx / 2, y: eyeYPx, w: eyeWidthPx, h: eyeHeightPx
-        ))
-        ctx?.clear(Self.grid.rect(
-            x: rectPx.midXPx + eyeOffsetPx - eyeWidthPx / 2, y: eyeYPx, w: eyeWidthPx, h: eyeHeightPx
-        ))
+        ctx?.clear(Self.grid.rect(x: 10, y: 24, w: 2, h: 5))
+        ctx?.clear(Self.grid.rect(x: 24, y: 24, w: 2, h: 5))
         ctx?.restoreGState()
     }
 
