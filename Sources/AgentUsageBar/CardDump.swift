@@ -6,6 +6,39 @@ import SwiftUI
 /// Lets the card layout be checked without opening the real menu.
 @MainActor
 enum CardDump {
+    /// Renders the settings window's content off screen too, so its layout can be checked
+    /// without opening a real window.
+    static func dumpSettings(directory: String) {
+        let root = URL(fileURLWithPath: (directory as NSString).expandingTildeInPath)
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        // A throwaway defaults domain keeps the dump from touching real preferences.
+        let defaults = UserDefaults(suiteName: "AgentUsageBarSettingsDump") ?? .standard
+        defaults.removePersistentDomain(forName: "AgentUsageBarSettingsDump")
+        let settings = SettingsStore(defaults: defaults)
+
+        let hosting = NSHostingView(rootView: SettingsView(settings: settings))
+        hosting.frame = NSRect(origin: .zero, size: hosting.fittingSize)
+        let window = NSWindow(
+            contentRect: hosting.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.appearance = NSAppearance(named: .darkAqua)
+        window.contentView = hosting
+        hosting.layoutSubtreeIfNeeded()
+
+        guard let rep = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else { return }
+        hosting.cacheDisplay(in: hosting.bounds, to: rep)
+        guard let data = rep.representation(using: NSBitmapImageRep.FileType.png, properties: [:]) else {
+            return
+        }
+        let url = root.appendingPathComponent("settings.png")
+        try? data.write(to: url)
+        print("wrote \(url.path) (\(Int(hosting.frame.width))x\(Int(hosting.frame.height)))")
+    }
+
     static func run(directory: String) {
         let root = URL(fileURLWithPath: (directory as NSString).expandingTildeInPath)
         try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

@@ -9,9 +9,6 @@ final class UsageStore: ObservableObject {
     @Published private(set) var displays: [Provider: ProviderDisplay] = [:]
     @Published private(set) var isRefreshing = false
 
-    /// Fixed poll interval. Becomes a setting in M3. The quota endpoints are shared with the
-    /// CLIs themselves and rate-limit aggressively, so this stays well clear of once a minute.
-    var refreshInterval: TimeInterval = 5 * 60
 
     /// Opening a menu forces a refresh, but not more often than this.
     private static let menuRefreshDebounce: TimeInterval = 30
@@ -21,10 +18,30 @@ final class UsageStore: ObservableObject {
     private var refreshTask: Task<Void, Never>?
     private var costTask: Task<Void, Never>?
     private let costService = CostService()
+    private let settings: SettingsStore
+    private var settingsObserver: AnyCancellable?
+
+    init(settings: SettingsStore) {
+        self.settings = settings
+    }
 
     func start() {
         self.refresh()
-        let timer = Timer(timeInterval: self.refreshInterval, repeats: true) { [weak self] _ in
+        self.rescheduleTimer()
+        self.settingsObserver = self.settings.$refreshFrequency
+            .removeDuplicates()
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.rescheduleTimer() }
+    }
+
+    /// Rebuilt whenever the cadence changes; `.manual` leaves no timer at all.
+    private func rescheduleTimer() {
+        self.timer?.invalidate()
+        self.timer = nil
+
+        guard let interval = self.settings.refreshFrequency.seconds else { return }
+        let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
         }
         // Common modes, so polling keeps running while a menu is open; the default mode alone
@@ -38,6 +55,7 @@ final class UsageStore: ObservableObject {
         self.timer = nil
         self.refreshTask?.cancel()
         self.costTask?.cancel()
+        self.settingsObserver = nil
     }
 
     /// Called when a menu opens. Debounced so repeatedly opening the menu cannot hammer the

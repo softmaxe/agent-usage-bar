@@ -3,11 +3,12 @@ import AppKit
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private let store = UsageStore()
+    private let settings = SettingsStore()
+    private lazy var store = UsageStore(settings: self.settings)
     private var controller: StatusItemController?
 
     func applicationDidFinishLaunching(_: Notification) {
-        self.controller = StatusItemController(store: self.store)
+        self.controller = StatusItemController(store: self.store, settings: self.settings)
         self.store.start()
         Log.ui.info("AgentUsageBar launched")
         print("AgentUsageBar launched — use the Quit menu item or Ctrl-C to stop.")
@@ -30,6 +31,11 @@ enum AgentUsageBarApp {
         if let index = CommandLine.arguments.firstIndex(of: "--dump-card"),
            index + 1 < CommandLine.arguments.count {
             CardDump.run(directory: CommandLine.arguments[index + 1])
+            return
+        }
+        if let index = CommandLine.arguments.firstIndex(of: "--dump-settings"),
+           index + 1 < CommandLine.arguments.count {
+            CardDump.dumpSettings(directory: CommandLine.arguments[index + 1])
             return
         }
 

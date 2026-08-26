@@ -253,3 +253,33 @@ enum RateLimitTests {
         Harness.expect(await gate.blocked(.claude, now: now) == nil, "a success clears the block")
     }
 }
+
+/// Settings persistence and the refresh cadence table.
+enum SettingsTests {
+    @MainActor
+    static func run() {
+        let suite = "AgentUsageBarTests-\(ProcessInfo.processInfo.processIdentifier)"
+        let defaults = UserDefaults(suiteName: suite) ?? .standard
+        defaults.removePersistentDomain(forName: suite)
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        // Five minutes by default: the quota endpoints rate-limit, so a faster default would
+        // reintroduce the 429 this cadence exists to avoid.
+        let store = SettingsStore(defaults: defaults)
+        Harness.expectEqual(store.refreshFrequency, .fiveMinutes, "default cadence")
+        Harness.expect(store.isEnabled(.codex) && store.isEnabled(.claude), "both providers default on")
+
+        Harness.expectEqual(RefreshFrequency.manual.seconds, nil, "manual runs no timer")
+        Harness.expectEqual(RefreshFrequency.oneMinute.seconds, 60, "one minute in seconds")
+        Harness.expectEqual(RefreshFrequency.thirtyMinutes.seconds, 1800, "thirty minutes in seconds")
+        Harness.expectEqual(RefreshFrequency.allCases.count, 6, "six cadence options")
+
+        store.refreshFrequency = .fifteenMinutes
+        store.setEnabled(false, for: .codex)
+
+        let reloaded = SettingsStore(defaults: defaults)
+        Harness.expectEqual(reloaded.refreshFrequency, .fifteenMinutes, "cadence survives a reload")
+        Harness.expect(!reloaded.isEnabled(.codex), "a disabled provider survives a reload")
+        Harness.expect(reloaded.isEnabled(.claude), "the other provider is untouched")
+    }
+}

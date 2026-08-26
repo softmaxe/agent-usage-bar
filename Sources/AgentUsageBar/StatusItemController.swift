@@ -8,13 +8,27 @@ import SwiftUI
 @MainActor
 final class StatusItemController: NSObject, NSMenuDelegate {
     private let store: UsageStore
+    private let settings: SettingsStore
+    private let settingsWindow: SettingsWindowController
     private var statusItems: [Provider: NSStatusItem] = [:]
     private var hostingViews: [Provider: NSHostingView<MenuCardView>] = [:]
     private var cancellables: Set<AnyCancellable> = []
 
-    init(store: UsageStore) {
+    init(store: UsageStore, settings: SettingsStore) {
         self.store = store
+        self.settings = settings
+        self.settingsWindow = SettingsWindowController(settings: settings)
         super.init()
+
+        self.settings.$enabledProviders
+            .removeDuplicates()
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                self.apply(displays: self.store.displays)
+            }
+            .store(in: &self.cancellables)
 
         // Cost scanning finishes well after the quota fetch, so both publishers drive a redraw.
         self.store.$displays
@@ -33,7 +47,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private func apply(displays: [Provider: ProviderDisplay]) {
         // Keep a stable left-to-right order by rebuilding in declaration order.
         for provider in Provider.allCases {
-            guard let display = displays[provider], !display.isSignedOut else {
+            guard self.settings.isEnabled(provider),
+                  let display = displays[provider],
+                  !display.isSignedOut else {
                 self.removeStatusItem(for: provider)
                 continue
             }
@@ -114,10 +130,13 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         refresh.target = self
         menu.addItem(refresh)
 
-        // Settings lands in M3; the slot is here so the menu shape does not move later.
-        let settings = NSMenuItem(title: "Settings…", action: nil, keyEquivalent: ",")
+        let settings = NSMenuItem(
+            title: "Settings…",
+            action: #selector(self.settingsClicked),
+            keyEquivalent: ","
+        )
         settings.keyEquivalentModifierMask = [.command]
-        settings.isEnabled = false
+        settings.target = self
         menu.addItem(settings)
 
         let quit = NSMenuItem(
@@ -151,6 +170,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     @objc private func refreshClicked() {
         self.store.refresh()
+    }
+
+    @objc private func settingsClicked() {
+        self.settingsWindow.show()
     }
 
     // MARK: - NSMenuDelegate
