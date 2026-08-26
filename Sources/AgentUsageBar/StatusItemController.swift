@@ -13,6 +13,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private var hostingViews: [Provider: NSHostingView<MenuCardView>] = [:]
     private var cancellables: Set<AnyCancellable> = []
 
+    /// "Updated 2m ago" and "Resets in 4h 53m" are strings built at render time, so an open menu
+    /// needs its own clock; nothing else publishes between two scheduled refreshes.
+    private var openMenuClock: Timer?
+    private static let openMenuClockInterval: TimeInterval = 15
+
     init(store: UsageStore, settings: SettingsStore, pricing: PricingEditorModel) {
         self.store = store
         self.settings = settings
@@ -219,9 +224,29 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     // MARK: - NSMenuDelegate
 
     func menuWillOpen(_: NSMenu) {
-        // Opening the menu is an explicit "show me now", but it is debounced: the quota endpoints
-        // rate-limit, and a menu can be opened many times a minute.
+        // Opening the menu is an explicit "show me now", but it is debounced to the configured
+        // cadence: the quota endpoints rate-limit, and a menu can be opened many times a minute.
         self.store.refreshIfStale()
         self.refreshOpenCards()
+        self.startOpenMenuClock()
+    }
+
+    func menuDidClose(_: NSMenu) {
+        self.stopOpenMenuClock()
+    }
+
+    private func startOpenMenuClock() {
+        self.stopOpenMenuClock()
+        let timer = Timer(timeInterval: Self.openMenuClockInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.refreshOpenCards() }
+        }
+        // Menu tracking runs the run loop in its own mode, so the default mode would never fire.
+        RunLoop.main.add(timer, forMode: .common)
+        self.openMenuClock = timer
+    }
+
+    private func stopOpenMenuClock() {
+        self.openMenuClock?.invalidate()
+        self.openMenuClock = nil
     }
 }
