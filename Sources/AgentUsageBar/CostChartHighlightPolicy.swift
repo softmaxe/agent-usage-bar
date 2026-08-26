@@ -10,8 +10,11 @@ enum CostChartHighlightPolicy {
         return availableDayKeys.contains(todayDayKey) ? todayDayKey : nil
     }
 
-    static func hoveredDayKey(afterMovingTo dayKey: String?, currentDayKey _: String?) -> String? {
-        dayKey
+    /// Moving between two bars crosses the spacing between them, where hit testing finds no bar.
+    /// Holding the current selection there keeps the price label on the bar being left instead of
+    /// flashing today's label for the frames the pointer spends in the gap.
+    static func hoveredDayKey(afterMovingTo dayKey: String?, currentDayKey: String?) -> String? {
+        dayKey ?? currentDayKey
     }
 
     static func opacity(dayKey: String, selectedDayKey: String?, valueRatio _: Double) -> Double {

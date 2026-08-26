@@ -240,11 +240,9 @@ struct CostSectionView: View {
 
     private func updateHover(at location: CGPoint?, width: CGFloat) {
         // Leaving the chart clears hover selection, which restores today's default highlight.
+        // Inside the chart the policy decides, so a gap between bars holds the current day.
         guard let location, !self.bars.isEmpty, width > 0 else {
-            self.hoveredDayKey = CostChartHighlightPolicy.hoveredDayKey(
-                afterMovingTo: nil,
-                currentDayKey: self.hoveredDayKey
-            )
+            if self.hoveredDayKey != nil { self.hoveredDayKey = nil }
             return
         }
         let index = CostChartHighlightPolicy.barIndex(

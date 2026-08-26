@@ -26,12 +26,20 @@ enum CostChartHighlightVerifier {
             failures.append("hover selection expected yesterday, got \(hoverSelection ?? "nil")")
         }
 
-        let afterExit = CostChartHighlightPolicy.hoveredDayKey(
+        let acrossGap = CostChartHighlightPolicy.hoveredDayKey(
             afterMovingTo: nil,
             currentDayKey: yesterday
         )
-        if afterExit != nil {
-            failures.append("pointer exit expected hover to clear, got \(afterExit ?? "nil")")
+        if acrossGap != yesterday {
+            failures.append("gap between bars expected hover to hold, got \(acrossGap ?? "nil")")
+        }
+
+        let ontoNextBar = CostChartHighlightPolicy.hoveredDayKey(
+            afterMovingTo: today,
+            currentDayKey: yesterday
+        )
+        if ontoNextBar != today {
+            failures.append("moving onto a bar expected it to take hover, got \(ontoNextBar ?? "nil")")
         }
 
         let shortInactive = CostChartHighlightPolicy.opacity(
