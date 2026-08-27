@@ -228,8 +228,8 @@ struct CostSectionView: View {
 
     private static func breakdownValue(_ usage: ModelDayUsage) -> String {
         let tokens = Formatters.tokens(usage.tokens.total)
-        guard let cost = usage.costUSD else { return "no price · \(tokens)" }
-        return "\(Formatters.cost(cost)) · \(tokens)"
+        guard let cost = usage.costUSD else { return "\(tokens) · no price" }
+        return "\(tokens) · \(Formatters.cost(cost))"
     }
 
     /// The selected day total, defaulting to today when the pointer is outside the chart.
@@ -288,12 +288,12 @@ struct CostSectionView: View {
     private var disclaimer: String {
         var text = switch self.provider {
         case .claude:
-            "Estimated from local Claude logs at API rates; token totals include cache read/write tokens."
+            "Local-log estimate at API rates · cache tokens included"
         case .codex:
             "Estimated from token usage · not a subscription bill"
         }
         if self.snapshot.hasUnpricedTokens {
-            text += " Some models have no price and are excluded from cost."
+            text += " · unpriced models excluded"
         }
         return text
     }
