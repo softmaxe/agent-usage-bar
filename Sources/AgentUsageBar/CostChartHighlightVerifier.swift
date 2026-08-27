@@ -29,13 +29,15 @@ enum CostChartHighlightVerifier {
             todayDayKey: today,
             availableDayKeys: Set(visibleWithoutToday.map(\.dayKey))
         )
-        let emptyTodayLabel = CostChartHighlightPolicy.labelCost(
+        let emptyTodayLabel = CostChartHighlightPolicy.labelText(
             dayKey: today,
             selectedDayKey: emptyTodaySelection,
+            selectedMode: .tokens,
+            tokens: visibleWithoutToday.last?.tokens.total ?? -1,
             costUSD: visibleWithoutToday.last?.costUSD
         )
-        if emptyTodayLabel != 0 {
-            failures.append("an empty today bar expected its default $0 label")
+        if emptyTodayLabel != "0" {
+            failures.append("an empty today bar expected its default 0 token label")
         }
 
         let todayDay = CostDay(
@@ -118,40 +120,80 @@ enum CostChartHighlightVerifier {
             failures.append("inactive opacity varied by bar height: \(shortInactive) vs \(tallInactive)")
         }
 
-        let defaultLabel = CostChartHighlightPolicy.labelCost(
+        let defaultLabel = CostChartHighlightPolicy.labelText(
             dayKey: today,
             selectedDayKey: defaultSelection,
+            selectedMode: .tokens,
+            tokens: 231_000_000,
             costUSD: 231
         )
-        if defaultLabel != 231 {
-            failures.append("default today bar expected its $231 label, got \(String(describing: defaultLabel))")
+        if defaultLabel != "231M" {
+            failures.append("default today bar expected its 231M token label, got \(String(describing: defaultLabel))")
         }
 
-        let hoveredLabel = CostChartHighlightPolicy.labelCost(
+        let clickedMode = CostChartHighlightPolicy.labelMode(
+            afterClicking: yesterday,
+            selectedDayKey: hoverSelection,
+            currentMode: .tokens
+        )
+        let hoveredLabel = CostChartHighlightPolicy.labelText(
             dayKey: yesterday,
             selectedDayKey: hoverSelection,
+            selectedMode: clickedMode,
+            tokens: 17_000_000,
             costUSD: 17
         )
-        if hoveredLabel != 17 {
-            failures.append("hovered bar expected its own $17 label, got \(String(describing: hoveredLabel))")
+        if hoveredLabel != "$17" {
+            failures.append("clicked hovered bar expected its $17 label, got \(String(describing: hoveredLabel))")
         }
 
-        let otherBarLabel = CostChartHighlightPolicy.labelCost(
+        let clickedAgainMode = CostChartHighlightPolicy.labelMode(
+            afterClicking: yesterday,
+            selectedDayKey: hoverSelection,
+            currentMode: clickedMode
+        )
+        if clickedAgainMode != .tokens {
+            failures.append("clicking the selected bar again expected its token label")
+        }
+
+        let otherBarLabel = CostChartHighlightPolicy.labelText(
             dayKey: today,
             selectedDayKey: hoverSelection,
+            selectedMode: clickedMode,
+            tokens: 231_000_000,
             costUSD: 231
         )
         if otherBarLabel != nil {
-            failures.append("a non-hovered bar displayed a cost label")
+            failures.append("a non-hovered bar displayed a label")
         }
 
-        let unpricedLabel = CostChartHighlightPolicy.labelCost(
+        let zeroCostLabel = CostChartHighlightPolicy.labelText(
             dayKey: yesterday,
             selectedDayKey: hoverSelection,
+            selectedMode: .cost,
+            tokens: 0,
             costUSD: nil
         )
-        if unpricedLabel != nil {
-            failures.append("an unpriced hovered bar displayed a dollar label")
+        if zeroCostLabel != "$0.00" {
+            failures.append("a selected day with missing cost data expected $0.00")
+        }
+
+        let ignoredClickMode = CostChartHighlightPolicy.labelMode(
+            afterClicking: today,
+            selectedDayKey: hoverSelection,
+            currentMode: .tokens
+        )
+        if ignoredClickMode != .tokens {
+            failures.append("clicking a non-selected bar changed the selected label mode")
+        }
+
+        let changedSelectionMode = CostChartHighlightPolicy.labelMode(
+            afterSelecting: today,
+            previously: yesterday,
+            currentMode: .cost
+        )
+        if changedSelectionMode != .tokens {
+            failures.append("moving to another selected bar did not restore the token label")
         }
 
         let firstBar = CostChartHighlightPolicy.barIndex(atX: 47, width: 100, barCount: 2, spacing: 4)
@@ -172,7 +214,7 @@ enum CostChartHighlightVerifier {
             exit(1)
         }
 
-        print("cost chart selection, hover label, hit testing, and opacity checks passed")
+        print("cost chart selection, click label toggle, hit testing, and opacity checks passed")
         exit(0)
     }
 }

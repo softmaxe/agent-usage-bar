@@ -11,22 +11,30 @@ import SwiftUI
 @MainActor
 struct MouseLocationReader: NSViewRepresentable {
     let onMoved: (CGPoint?) -> Void
+    let onClicked: (CGPoint) -> Void
 
     func makeNSView(context _: Context) -> TrackingView {
         let view = TrackingView()
         view.onMoved = self.onMoved
+        view.onClicked = self.onClicked
         return view
     }
 
     func updateNSView(_ nsView: TrackingView, context _: Context) {
         nsView.onMoved = self.onMoved
+        nsView.onClicked = self.onClicked
     }
 
     final class TrackingView: NSView {
         var onMoved: ((CGPoint?) -> Void)?
+        var onClicked: ((CGPoint) -> Void)?
         private var trackingArea: NSTrackingArea?
 
         override var isFlipped: Bool { true }
+
+        override var acceptsFirstResponder: Bool { false }
+
+        override func acceptsFirstMouse(for _: NSEvent?) -> Bool { true }
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
@@ -63,6 +71,16 @@ struct MouseLocationReader: NSViewRepresentable {
         override func mouseExited(with event: NSEvent) {
             super.mouseExited(with: event)
             self.onMoved?(nil)
+        }
+
+        override func mouseDown(with _: NSEvent) {
+            // Keep the menu open and complete the click on mouse up, matching native menu rows.
+        }
+
+        override func mouseUp(with event: NSEvent) {
+            let location = self.convert(event.locationInWindow, from: nil)
+            guard self.bounds.contains(location) else { return }
+            self.onClicked?(location)
         }
     }
 }

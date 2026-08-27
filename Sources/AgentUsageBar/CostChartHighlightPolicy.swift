@@ -1,5 +1,10 @@
 import AgentUsageBarCore
 
+enum CostChartLabelMode {
+    case tokens
+    case cost
+}
+
 enum CostChartHighlightPolicy {
     static func visibleDays(
         from days: [CostDay],
@@ -36,7 +41,7 @@ enum CostChartHighlightPolicy {
     }
 
     /// Moving between two bars crosses the spacing between them, where hit testing finds no bar.
-    /// Holding the current selection there keeps the price label on the bar being left instead of
+    /// Holding the current selection there keeps the label on the bar being left instead of
     /// flashing today's label for the frames the pointer spends in the gap.
     static func hoveredDayKey(afterMovingTo dayKey: String?, currentDayKey: String?) -> String? {
         dayKey ?? currentDayKey
@@ -46,10 +51,39 @@ enum CostChartHighlightPolicy {
         dayKey == selectedDayKey ? 1.0 : 0.55
     }
 
-    /// The price label follows the selected bar: the hovered day while the pointer is over a bar,
-    /// then today when there is no hover selection.
-    static func labelCost(dayKey: String, selectedDayKey: String?, costUSD: Double?) -> Double? {
-        dayKey == selectedDayKey ? costUSD : nil
+    /// Only the selected bar has a label. Token count is the default; cost mode still renders
+    /// missing cost data as zero so a selected zero-height day never loses its label.
+    static func labelText(
+        dayKey: String,
+        selectedDayKey: String?,
+        selectedMode: CostChartLabelMode,
+        tokens: Int,
+        costUSD: Double?
+    ) -> String? {
+        guard dayKey == selectedDayKey else { return nil }
+        switch selectedMode {
+        case .tokens:
+            return Formatters.tokens(tokens)
+        case .cost:
+            return Formatters.compactCost(costUSD ?? 0)
+        }
+    }
+
+    static func labelMode(
+        afterClicking dayKey: String?,
+        selectedDayKey: String?,
+        currentMode: CostChartLabelMode
+    ) -> CostChartLabelMode {
+        guard dayKey == selectedDayKey else { return currentMode }
+        return currentMode == .tokens ? .cost : .tokens
+    }
+
+    static func labelMode(
+        afterSelecting dayKey: String?,
+        previously previousDayKey: String?,
+        currentMode: CostChartLabelMode
+    ) -> CostChartLabelMode {
+        dayKey == previousDayKey ? currentMode : .tokens
     }
 
     /// Mirrors the HStack's equal-width bars and explicit spacing. Pointer movement through a gap

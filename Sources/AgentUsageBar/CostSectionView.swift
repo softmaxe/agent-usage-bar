@@ -20,6 +20,8 @@ struct CostSectionView: View {
 
     /// Which day the pointer is over. Nil falls back to today's bar.
     @State private var hoveredDayKey: String?
+    /// The selected bar starts with tokens and toggles to cost when clicked.
+    @State private var selectedLabelMode = CostChartLabelMode.tokens
     private let todayDayKey: String
 
     /// Seeds the hover state so `--dump-card` can capture what hovering looks like.
@@ -114,9 +116,14 @@ struct CostSectionView: View {
         .padding(.top, 14)
         .overlay {
             GeometryReader { geometry in
-                MouseLocationReader { location in
-                    self.updateHover(at: location, width: geometry.size.width)
-                }
+                MouseLocationReader(
+                    onMoved: { location in
+                        self.updateHover(at: location, width: geometry.size.width)
+                    },
+                    onClicked: { location in
+                        self.toggleLabel(at: location, width: geometry.size.width)
+                    }
+                )
             }
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
@@ -136,9 +143,11 @@ struct CostSectionView: View {
             selectedDayKey: selectedDayKey,
             valueRatio: ratio
         )
-        let labelCost = CostChartHighlightPolicy.labelCost(
+        let labelText = CostChartHighlightPolicy.labelText(
             dayKey: day.dayKey,
             selectedDayKey: selectedDayKey,
+            selectedMode: self.selectedLabelMode,
+            tokens: day.tokens.total,
             costUSD: day.costUSD
         )
         return RoundedRectangle(cornerRadius: 2)
@@ -147,8 +156,8 @@ struct CostSectionView: View {
             .frame(height: max(4, Self.chartHeight * ratio))
             .frame(maxWidth: .infinity)
             .overlay(alignment: .top) {
-                if let labelCost {
-                    Text(Formatters.compactCost(labelCost))
+                if let labelText {
+                    Text(labelText)
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(.primary)
                         .fixedSize()
@@ -246,8 +255,10 @@ struct CostSectionView: View {
     private func updateHover(at location: CGPoint?, width: CGFloat) {
         // Leaving the chart clears hover selection, which restores today's default highlight.
         // Inside the chart the policy decides, so a gap between bars holds the current day.
+        let previousSelection = self.selectedDayKey
         guard let location, !self.bars.isEmpty, width > 0 else {
             if self.hoveredDayKey != nil { self.hoveredDayKey = nil }
+            self.resetLabelMode(after: previousSelection)
             return
         }
         let index = CostChartHighlightPolicy.barIndex(
@@ -262,6 +273,38 @@ struct CostSectionView: View {
             currentDayKey: self.hoveredDayKey
         )
         if self.hoveredDayKey != nextKey { self.hoveredDayKey = nextKey }
+        self.resetLabelMode(after: previousSelection)
+    }
+
+    private var selectedDayKey: String? {
+        CostChartHighlightPolicy.selectedDayKey(
+            hoveredDayKey: self.hoveredDayKey,
+            todayDayKey: self.todayDayKey,
+            availableDayKeys: Set(self.bars.map(\.dayKey))
+        )
+    }
+
+    private func resetLabelMode(after previousSelection: String?) {
+        self.selectedLabelMode = CostChartHighlightPolicy.labelMode(
+            afterSelecting: self.selectedDayKey,
+            previously: previousSelection,
+            currentMode: self.selectedLabelMode
+        )
+    }
+
+    private func toggleLabel(at location: CGPoint, width: CGFloat) {
+        let index = CostChartHighlightPolicy.barIndex(
+            atX: location.x,
+            width: width,
+            barCount: self.bars.count,
+            spacing: Self.barSpacing
+        )
+        let clickedDayKey = index.map { self.bars[$0].dayKey }
+        self.selectedLabelMode = CostChartHighlightPolicy.labelMode(
+            afterClicking: clickedDayKey,
+            selectedDayKey: self.selectedDayKey,
+            currentMode: self.selectedLabelMode
+        )
     }
 
     private static func dayKey(for date: Date, calendar: Calendar = .current) -> String {
