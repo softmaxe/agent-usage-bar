@@ -8,8 +8,8 @@ enum UsageBarFillVerifier {
     static func run() -> Never {
         var failures: [String] = []
 
-        if case .glide = UsageBarFillPolicy.onPresentation() {
-            failures.append("opening the card glided instead of sweeping in from empty")
+        if UsageBarFillPolicy.onPresentation() != .snap {
+            failures.append("opening the card did not show the existing reading statically")
         }
 
         // A window rollover: the provider hands back a full quota in one step.
@@ -18,8 +18,8 @@ enum UsageBarFillVerifier {
             failures.append("a 2% -> 100% rollover did not sweep, got \(rollover)")
             return Self.finish(failures)
         }
-        if duration <= UsageBarFillPolicy.sweepDuration {
-            failures.append("the rollover sweep was not slower than an ordinary presentation")
+        if duration <= UsageBarFillPolicy.glideDuration {
+            failures.append("the rollover sweep was not slower than ordinary value drift")
         }
 
         // Spending only ever moves the remaining percentage down, which must not restart the bar.
@@ -45,7 +45,6 @@ enum UsageBarFillVerifier {
             percent: 50,
             tint: .cyan,
             pacePercent: 50,
-            presentationToken: 0,
             animatesFill: false
         )
         .frame(width: 100, height: 6)
@@ -75,7 +74,7 @@ enum UsageBarFillVerifier {
             }
             exit(1)
         }
-        print("usage bar presentation, rollover, and drift fill checks passed")
+        print("usage bar static presentation, rollover, and drift fill checks passed")
         exit(0)
     }
 }

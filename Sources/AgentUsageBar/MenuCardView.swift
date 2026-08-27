@@ -7,10 +7,7 @@ struct MenuCardView: View {
     let provider: Provider
     let display: ProviderDisplay
     let isRefreshing: Bool
-    /// Bumped by the controller each time this provider's menu opens, so the quota bars replay
-    /// their sweep on every viewing rather than only on the app's first paint.
-    let presentationToken: Int
-    /// False for the offscreen card dump, which captures one frame and would catch empty bars.
+    /// False for the offscreen card dump, which captures a stable frame without transitions.
     var animatesFill = true
     /// Windows that reset and the final remaining percentage observed before each reset.
     var recoveries: [QuotaWindowKind: QuotaRecoveryEvent] = [:]
@@ -147,7 +144,6 @@ struct MenuCardView: View {
                 // The bar shows what is left, so the pace tip marks the remaining side too.
                 pacePercent: pace?.expectedRemainingPercent,
                 paceIsDeficit: pace?.stage.isAhead ?? false,
-                presentationToken: self.presentationToken,
                 animatesFill: self.animatesFill,
                 celebrationToken: self.recoveries[kind] == nil ? 0 : self.celebrationTokens[kind] ?? 0,
                 celebrationStartPercent: self.recoveries[kind]?.fromRemainingPercent
