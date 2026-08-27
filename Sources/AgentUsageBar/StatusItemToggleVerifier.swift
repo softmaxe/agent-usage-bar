@@ -7,11 +7,17 @@ import Foundation
 /// hammers that switch to prove the item is reused rather than torn down and rebuilt.
 @MainActor
 enum StatusItemToggleVerifier {
+    /// One fixed domain rather than one per process: every exit here goes through `exit()`, which
+    /// unwinds nothing, so a PID-stamped name would strand a fresh plist in ~/Library/Preferences
+    /// on every run. The runs are serial, and the domain is emptied on both ends regardless.
+    private static let suite = "AgentUsageBarToggleVerifier"
+    /// Held so the exit path can reach the domain this run wrote to.
+    private static var defaults: UserDefaults?
+
     static func run() -> Never {
-        let suite = "AgentUsageBarToggleVerifier-\(ProcessInfo.processInfo.processIdentifier)"
-        let defaults = UserDefaults(suiteName: suite) ?? .standard
-        defaults.removePersistentDomain(forName: suite)
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = UserDefaults(suiteName: Self.suite) ?? .standard
+        Self.defaults = defaults
+        defaults.removePersistentDomain(forName: Self.suite)
 
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
@@ -55,7 +61,14 @@ enum StatusItemToggleVerifier {
         }
 
         print("1,000 rapid provider switches passed on a single status item")
-        exit(0)
+        Self.finish(0)
+    }
+
+    /// The only way out, so the throwaway domain is dropped on the failing paths too. `defer`
+    /// cannot do this job: `exit()` terminates the process without unwinding the stack.
+    private static func finish(_ code: Int32) -> Never {
+        Self.defaults?.removePersistentDomain(forName: Self.suite)
+        exit(code)
     }
 
     private static func requireItem(
@@ -78,7 +91,7 @@ enum StatusItemToggleVerifier {
 
     private static func fail(_ message: String) -> Never {
         fputs("menu switch verification failed: \(message)\n", stderr)
-        exit(1)
+        Self.finish(1)
     }
 }
 #endif

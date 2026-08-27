@@ -572,7 +572,9 @@ enum RateLimitTests {
 enum SettingsTests {
     @MainActor
     static func run() {
-        let suite = "AgentUsageBarTests-\(ProcessInfo.processInfo.processIdentifier)"
+        // Fixed rather than PID-stamped: a name that changes per run leaves a new plist behind
+        // in ~/Library/Preferences every time, since emptying a domain does not remove its file.
+        let suite = "AgentUsageBarTests"
         let defaults = UserDefaults(suiteName: suite) ?? .standard
         defaults.removePersistentDomain(forName: suite)
         defer { defaults.removePersistentDomain(forName: suite) }

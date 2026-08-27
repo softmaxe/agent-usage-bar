@@ -6,11 +6,15 @@ import Foundation
 /// Proves an open menu advances its relative timestamp while no provider refresh is published.
 @MainActor
 enum RelativeTimeVerifier {
+    /// Fixed, not PID-stamped, for the reason spelled out in `finish`.
+    private static let suite = "AgentUsageBarRelativeTimeVerifier"
+    /// Held so the exit path can reach the domain this run wrote to.
+    private static var defaults: UserDefaults?
+
     static func run() -> Never {
-        let suite = "AgentUsageBarRelativeTimeVerifier-\(ProcessInfo.processInfo.processIdentifier)"
-        let defaults = UserDefaults(suiteName: suite) ?? .standard
-        defaults.removePersistentDomain(forName: suite)
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = UserDefaults(suiteName: Self.suite) ?? .standard
+        Self.defaults = defaults
+        defaults.removePersistentDomain(forName: Self.suite)
 
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
@@ -59,13 +63,20 @@ enum RelativeTimeVerifier {
         )
 
         print("Open-menu relative time advanced without a provider refresh")
-        exit(0)
+        Self.finish(0)
+    }
+
+    /// The only way out, so the throwaway domain is dropped on the failing paths too. `defer`
+    /// cannot do this job: `exit()` terminates the process without unwinding the stack.
+    private static func finish(_ code: Int32) -> Never {
+        Self.defaults?.removePersistentDomain(forName: Self.suite)
+        exit(code)
     }
 
     private static func require(_ condition: @autoclosure () -> Bool, _ message: String) {
         guard condition() else {
             fputs("relative-time verification failed: \(message)\n", stderr)
-            exit(1)
+            Self.finish(1)
         }
     }
 }
