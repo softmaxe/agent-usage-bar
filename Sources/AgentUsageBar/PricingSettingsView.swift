@@ -1,4 +1,5 @@
 import AgentUsageBarCore
+import AppKit
 import SwiftUI
 
 /// Editable rate table. Rows are pre-filled with the rates currently in force, so editing one
@@ -8,7 +9,16 @@ struct PricingSettingsView: View {
     @ObservedObject var model: PricingEditorModel
     @State private var expandedGroups = Set(PricingGroup.allCases)
 
+    private static let paneWidth: CGFloat = 620
     private static let rateColumnWidth: CGFloat = 68
+    /// A vertical scroll view only reserves room for its indicator once the content is tall
+    /// enough to scroll. Folding a group crosses that line, so the table keeps the gutter in
+    /// both states instead of letting every trailing column slide over by its width.
+    private static let scrollerGutter = NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy)
+    private static let tableContentWidth = Self.paneWidth - Self.scrollerGutter
+    /// Folding from the row rather than the native chevron went through unanimated, so the same
+    /// click read as a jump in one spot and as motion in the other.
+    private static let fold = Animation.easeInOut(duration: 0.22)
     /// Click target for the per-row disclosure chevron, sized to the row rather than the glyph.
     private static let disclosureHitSize = CGSize(width: 22, height: 28)
     private static let detailLabelWidth: CGFloat = 138
@@ -28,7 +38,7 @@ struct PricingSettingsView: View {
             Divider()
             self.footer
         }
-        .frame(width: 620, height: 460)
+        .frame(width: Self.paneWidth, height: 460)
         .task { await self.model.load() }
     }
 
@@ -68,6 +78,11 @@ struct PricingSettingsView: View {
                     self.columnHeader
                 }
             }
+            // Hold the columns at one width and pin them left, so the gutter the scroll view
+            // takes back when the table stops scrolling turns into empty space instead of a
+            // sideways jump.
+            .frame(width: Self.tableContentWidth, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -104,7 +119,9 @@ struct PricingSettingsView: View {
             // Keep the native disclosure control while making the full header row clickable.
             .frame(maxWidth: .infinity, minHeight: Self.disclosureHitSize.height, alignment: .leading)
             .contentShape(Rectangle())
-            .onTapGesture { self.expansionBinding(for: group).wrappedValue.toggle() }
+            .onTapGesture {
+                withAnimation(Self.fold) { self.expansionBinding(for: group).wrappedValue.toggle() }
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 5)
