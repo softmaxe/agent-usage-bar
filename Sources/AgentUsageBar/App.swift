@@ -54,6 +54,9 @@ enum AgentUsageBarApp {
         if CommandLine.arguments.contains("--verify-pricing-sort") {
             PricingSortVerifier.run()
         }
+        if CommandLine.arguments.contains("--verify-pricing-model-filter") {
+            PricingModelFilterVerifier.run()
+        }
         if CommandLine.arguments.contains("--demo-celebration") {
             CelebrationDemo.run()
         }

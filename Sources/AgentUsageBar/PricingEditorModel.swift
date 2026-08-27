@@ -10,13 +10,37 @@ enum PricingGroup: String, CaseIterable, Identifiable, Hashable {
 
     var id: String { self.rawValue }
 
-    static func classify(model: String) -> PricingGroup {
-        let name = model.lowercased()
-        if name.hasPrefix("claude-") { return .claude }
-        if ["gpt-", "chatgpt-", "codex-", "o1", "o3", "o4"].contains(where: name.hasPrefix) {
-            return .codex
+    static func whitelist(for provider: Provider) -> [String] {
+        switch provider {
+        case .codex: ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]
+        case .claude: ["claude-fable-5", "claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"]
         }
+    }
+
+    static func classify(model: String) -> PricingGroup {
+        let name = model.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if self.whitelist(for: .claude).contains(name) { return .claude }
+        if self.whitelist(for: .codex).contains(name) { return .codex }
         return .others
+    }
+}
+
+/// The settings pane keeps the current API models visible and only exposes an unpriced model
+/// from the local logs when every pricing layer has failed to resolve it.
+enum PricingModelFilterPolicy {
+    static func visibleModels(
+        provider: Provider,
+        usage: [ModelUsageTotal],
+        overlay: PricingOverlay
+    ) -> [String] {
+        let whitelist = PricingGroup.whitelist(for: provider)
+        let seen = usage.map { CostPricing.normalize($0.model, provider: provider) }
+        let seenSet = Set(seen.filter { !$0.isEmpty && $0 != CostPricing.unknownModel })
+        let unpriced = seenSet.filter { name in
+            !whitelist.contains(name)
+                && CostPricing.pricing(for: name, provider: provider, overlay: overlay) == nil
+        }
+        return whitelist + unpriced.sorted()
     }
 }
 
@@ -95,6 +119,8 @@ final class PricingEditorModel: ObservableObject {
     private var indexByID: [String: Int] = [:]
     /// Rates from the built-in table plus models.dev, i.e. what a row falls back to.
     private var defaults: [String: ModelPricing] = [:]
+    /// User overrides loaded with the current overlay, including models hidden from the table.
+    private var loadedUserOverrides: [String: ModelPricing] = [:]
     private let costService: CostService
     /// Called after a successful save so the cards can re-price without waiting for a poll.
     var onSaved: (() -> Void)?
@@ -127,7 +153,7 @@ final class PricingEditorModel: ObservableObject {
         // nothing to show meanwhile.
         self.isLoading = self.rows.isEmpty
 
-        let overrides = overlay.userOverrides
+        self.loadedUserOverrides = overlay.userOverrides
         // The overlay minus the user layer is what a row would fall back to if its override
         // were removed, which is what the Reset button has to restore.
         let fallback = PricingOverlay(userOverrides: [:], modelsDev: overlay.modelsDev)
@@ -152,21 +178,11 @@ final class PricingEditorModel: ObservableObject {
         for provider in Provider.allCases {
             let usage = usageByProvider[provider] ?? []
             let seen = usage.map(\.model)
-            let builtIn = provider == .codex ? CostPricing.codex : CostPricing.claude
-
-            // Normalized names, because that is the key everything else is looked up by.
-            var names: [String] = []
-            var included: Set<String> = []
-            let providerOverrides = overrides.keys.filter { name in
-                Self.provider(forOverride: name, usageByProvider: usageByProvider) == provider
-            }
-            for raw in seen + builtIn.keys.sorted() + providerOverrides.sorted() {
-                let name = CostPricing.normalize(raw, provider: provider)
-                guard !name.isEmpty, name != CostPricing.unknownModel, included.insert(name).inserted else {
-                    continue
-                }
-                names.append(name)
-            }
+            let names = PricingModelFilterPolicy.visibleModels(
+                provider: provider,
+                usage: usage,
+                overlay: overlay
+            )
 
             let seenSet = Set(seen.map { CostPricing.normalize($0, provider: provider) })
             let usageTokens = Dictionary(uniqueKeysWithValues: usage.map {
@@ -175,13 +191,9 @@ final class PricingEditorModel: ObservableObject {
 
             for name in names {
                 let fallbackPricing = CostPricing.pricing(for: name, provider: provider, overlay: fallback)
-                // Only list a model under the provider that knows it, unless the logs saw it.
-                guard seenSet.contains(name) || fallbackPricing != nil || overrides[name] != nil else {
-                    continue
-                }
                 defaults["\(provider.rawValue)|\(name)"] = fallbackPricing
 
-                let effective = overrides[name] ?? fallbackPricing
+                let effective = CostPricing.pricing(for: name, provider: provider, overlay: overlay)
                 built.append(PricingRow(
                     provider: provider,
                     group: PricingGroup.classify(model: name),
@@ -293,15 +305,17 @@ final class PricingEditorModel: ObservableObject {
     /// Writes only the rows that differ from their fallback, so the override file stays small
     /// and future built-in updates still reach the untouched models.
     ///
+    /// Rows hidden by the settings filter are kept in the file. A visible row is the only row
+    /// allowed to update or remove its own override.
+    ///
     /// Usage already recorded keeps the cost it was scanned with: the service prices everything
     /// on disk at the old rates first, and the new rates only reach what is logged afterwards.
     func save() async {
-        var overrides: [String: ModelPricing] = [:]
-        for row in self.rows {
-            guard let pricing = Self.pricing(from: row) else { continue }
-            if let fallback = self.defaults[row.id] ?? nil, pricing == fallback { continue }
-            overrides[row.model] = pricing
-        }
+        let overrides = Self.mergedUserOverrides(
+            existing: self.loadedUserOverrides,
+            rows: self.rows,
+            defaults: self.defaults
+        )
 
         do {
             try await self.costService.freezeCurrentPrices()
@@ -310,11 +324,34 @@ final class PricingEditorModel: ObservableObject {
             self.saveError = nil
             self.hasUnsavedChanges = false
             self.lastSavedAt = Date()
+            self.loadedUserOverrides = overrides
             self.originalRows = Dictionary(uniqueKeysWithValues: self.rows.map { ($0.id, $0) })
             self.onSaved?()
         } catch {
             self.saveError = error.localizedDescription
         }
+    }
+
+    /// Merges visible edits into the loaded user layer without deleting overrides for hidden rows.
+    /// A missing row price or a value equal to its fallback removes that row's override.
+    static func mergedUserOverrides(
+        existing: [String: ModelPricing],
+        rows: [PricingRow],
+        defaults: [String: ModelPricing]
+    ) -> [String: ModelPricing] {
+        var overrides = existing
+        for row in rows {
+            guard let pricing = Self.pricing(from: row) else {
+                overrides.removeValue(forKey: row.model)
+                continue
+            }
+            if let fallback = defaults[row.id], pricing == fallback {
+                overrides.removeValue(forKey: row.model)
+            } else {
+                overrides[row.model] = pricing
+            }
+        }
+        return overrides
     }
 
     /// A row with no base rates is not priced at all, which is how a model gets removed from the
@@ -355,18 +392,5 @@ final class PricingEditorModel: ObservableObject {
 
     private static func integerText(_ value: Int?) -> String {
         value.map(String.init) ?? ""
-    }
-
-    private static func provider(
-        forOverride model: String,
-        usageByProvider: [Provider: [ModelUsageTotal]]
-    ) -> Provider {
-        for provider in Provider.allCases where usageByProvider[provider]?.contains(where: {
-            CostPricing.normalize($0.model, provider: provider)
-                == CostPricing.normalize(model, provider: provider)
-        }) == true {
-            return provider
-        }
-        return PricingGroup.classify(model: model) == .claude ? .claude : .codex
     }
 }
