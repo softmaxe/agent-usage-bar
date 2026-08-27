@@ -252,6 +252,10 @@ enum QuotaRecoveryVerifier {
     // MARK: - Choreography
 
     private static func choreographyFailures() -> [String] {
+        Self.fillFailures() + Self.landingFailures() + Self.replayFailures()
+    }
+
+    private static func fillFailures() -> [String] {
         var failures: [String] = []
         let start = 37.0
 
@@ -285,49 +289,68 @@ enum QuotaRecoveryVerifier {
         if QuotaCelebration.fillFraction(at: QuotaCelebration.landing * 0.2) < 0.6 {
             failures.append("the continuous curve did not start fast enough")
         }
+        return failures
+    }
 
-        let synchronized = QuotaCelebration.landing + 0.02
-        if QuotaCelebration.flashOpacity(at: synchronized) <= 0 {
+    /// The bar is 252 pt wide inside a 280 pt card, so it has 14 pt of margin on each side.
+    private static let barWidth: CGFloat = 252
+    private static let cardMargin: CGFloat = 14
+
+    /// What the landing owes the card: nothing before the head arrives, the pop, flash and glow
+    /// all on the beat it does, nothing left when the clock stops, and a glow already invisible
+    /// where the card cuts it off.
+    private static func landingFailures() -> [String] {
+        var failures: [String] = []
+        let landing = QuotaCelebration.landing
+        let beat = landing + 0.02
+
+        if QuotaCelebration.flashOpacity(at: beat) <= 0 {
             failures.append("the landing flash did not share the final beat")
         }
-        if QuotaCelebration.rings(at: synchronized).isEmpty {
-            failures.append("the landing rings did not share the final beat")
-        }
-        if QuotaCelebration.core(at: synchronized) == nil {
-            failures.append("the firework core did not share the final beat")
-        }
-        if QuotaCelebration.barScale(at: synchronized).height <= 1 {
+        if QuotaCelebration.barScale(at: beat).height <= 1 {
             failures.append("the bar did not start enlarging on the final beat")
         }
-
-        let width: CGFloat = 252
-        let originX = width * QuotaCelebration.originX
-        if !QuotaCelebration.rays(at: QuotaCelebration.landing - 0.01, barWidth: width).isEmpty {
-            failures.append("the firework appeared before the 100% landing")
+        if QuotaCelebration.glows(at: beat, barWidth: Self.barWidth).count < 2 {
+            failures.append("both glows did not rise on the beat the head arrived")
+        }
+        if !QuotaCelebration.glows(at: landing - 0.01, barWidth: Self.barWidth).isEmpty {
+            failures.append("the glow appeared before the head reached 100%")
+        }
+        if QuotaCelebration.head(at: landing) != nil {
+            failures.append("the charging head outlived the sweep that carried it")
+        }
+        if QuotaCelebration.head(at: landing - 0.01)?.coreOpacity ?? 1 > 0.1 {
+            failures.append("the charging head switched off instead of fading into the landing")
         }
 
-        let burst = QuotaCelebration.rays(at: synchronized, barWidth: width)
-        if burst.count < 40 {
-            failures.append("the only firework did not go off at the synchronized 100% landing")
+        let duration = QuotaCelebration.duration
+        if !QuotaCelebration.glows(at: duration, barWidth: Self.barWidth).isEmpty
+            || QuotaCelebration.flashOpacity(at: duration) > 0
+            || QuotaCelebration.barScale(at: duration) != CGSize(width: 1, height: 1) {
+            failures.append("the landing was still on screen when the clock stopped")
         }
-        // A circle, not a fan: every spoke leaves the same point, none of them reaches further
-        // than the card can hold, and all four quadrants are covered.
-        var quadrants = Set<Int>()
-        for ray in burst {
-            let dx = ray.outer.x - originX
-            let dy = ray.outer.y
-            if (dx * dx + dy * dy).squareRoot() > Double(QuotaCelebration.maxRadius) {
-                failures.append("a firework spoke reached past the width the card can show")
-                break
+
+        // A glow has no edge, so what matters is that it is already invisible where the card
+        // stops rather than that it fits inside it.
+        var time = landing
+        while time <= duration {
+            for glow in QuotaCelebration.glows(at: time, barWidth: Self.barWidth) {
+                for edge in [-Double(Self.cardMargin), Double(Self.barWidth + Self.cardMargin)] {
+                    let distance = abs(edge - Double(glow.centre.x))
+                    let alpha = glow.opacity * max(0, 1 - distance / Double(glow.radiusX))
+                    if alpha > 0.05 {
+                        failures.append("a glow was still visible where the card cuts it off")
+                    }
+                }
             }
-            quadrants.insert((dx >= 0 ? 1 : 0) << 1 | (dy >= 0 ? 1 : 0))
+            time += 0.01
         }
-        if quadrants.count < 4 {
-            failures.append("the firework did not open as a full circle")
-        }
-        if !QuotaCelebration.rays(at: QuotaCelebration.duration, barWidth: width).isEmpty {
-            failures.append("the firework was still on screen when the clock stopped")
-        }
+        return Array(Set(failures)).sorted()
+    }
+
+    private static func replayFailures() -> [String] {
+        var failures: [String] = []
+        let start = 37.0
 
         if QuotaCelebrationReplay.fillPercent(at: 0, from: start, to: start) != start {
             failures.append("the five-click replay did not start at the live reading")

@@ -50,107 +50,73 @@ final class CelebrationClock: ObservableObject {
     }
 }
 
-/// Everything the reset animation draws outside the bar: a glowing head while the fill charges,
-/// then one large circular firework on the landing point — core, shockwaves, and corona.
-/// One Canvas, no compositing modifiers.
+/// Everything the reset animation draws outside the bar: the head riding the fill while it
+/// charges, then the two glows that rise under it on the landing. One Canvas, no compositing
+/// modifiers.
 struct QuotaCelebrationLayer: View {
     let elapsed: TimeInterval
     let tint: Color
     let startPercent: Double
     let targetPercent: Double
-    /// How far the canvas reaches past each end of the bar, so the shell has room to open.
+    /// How far the canvas reaches past each end of the bar, so the glow has room to open.
     let inset: CGFloat
-
-    private static let warm = Color(red: 1, green: 0.83, blue: 0.42)
 
     var body: some View {
         Canvas { context, size in
             let barWidth = max(0, size.width - self.inset * 2)
             let centre = CGPoint(x: self.inset, y: size.height / 2)
 
-            if self.elapsed < QuotaCelebration.landing {
-                let headPercent = QuotaCelebration.fillPercent(
-                    at: self.elapsed,
-                    from: self.startPercent,
-                    to: self.targetPercent
-                )
-                let headX = centre.x + barWidth * min(100, max(0, headPercent)) / 100
-                let pulse = 0.82 + 0.18 * sin(self.elapsed * 22)
-                context.fill(
-                    Path(ellipseIn: CGRect(x: headX - 8, y: centre.y - 8, width: 16, height: 16)),
-                    with: .color(self.tint.opacity(0.12 * pulse))
-                )
-                context.fill(
-                    Path(ellipseIn: CGRect(x: headX - 2.8, y: centre.y - 2.8, width: 5.6, height: 5.6)),
-                    with: .color(.white.opacity(0.82 * pulse))
-                )
-            }
-
-            let origin = CGPoint(x: centre.x + barWidth * QuotaCelebration.originX, y: centre.y)
-
-            if let core = QuotaCelebration.core(at: self.elapsed) {
-                context.fill(
-                    Path(ellipseIn: Self.box(around: origin, radius: core.glowRadius)),
-                    with: .radialGradient(
-                        Gradient(colors: [
-                            self.tint.opacity(0.35 * core.opacity),
-                            self.tint.opacity(0),
-                        ]),
-                        center: origin,
-                        startRadius: 0,
-                        endRadius: core.glowRadius
-                    )
-                )
-                context.fill(
-                    Path(ellipseIn: Self.box(around: origin, radius: core.radius)),
-                    with: .color(.white.opacity(core.opacity))
-                )
-            }
-
-            for ring in QuotaCelebration.rings(at: self.elapsed) {
-                context.stroke(
-                    Path(ellipseIn: Self.box(around: origin, radius: ring.radius)),
-                    with: .color(self.tint.opacity(ring.opacity)),
-                    lineWidth: ring.lineWidth
-                )
-            }
-
-            for ray in QuotaCelebration.rays(at: self.elapsed, barWidth: barWidth) {
-                let color = self.color(for: ray.tone)
-                let inner = CGPoint(x: centre.x + ray.inner.x, y: centre.y + ray.inner.y)
-                let outer = CGPoint(x: centre.x + ray.outer.x, y: centre.y + ray.outer.y)
-
-                // The streak fades out towards the centre, so the eye follows the heads outwards.
-                var streak = Path()
-                streak.move(to: inner)
-                streak.addLine(to: outer)
-                context.stroke(
-                    streak,
-                    with: .linearGradient(
-                        Gradient(colors: [color.opacity(0), color.opacity(ray.opacity * 0.75)]),
-                        startPoint: inner,
-                        endPoint: outer
-                    ),
-                    style: StrokeStyle(lineWidth: ray.width, lineCap: .round)
-                )
-                context.fill(
-                    Path(ellipseIn: Self.box(around: outer, radius: ray.headRadius)),
-                    with: .color(color.opacity(ray.opacity))
-                )
-            }
+            self.drawHead(in: &context, centre: centre, barWidth: barWidth)
+            self.drawGlows(in: &context, centre: centre, barWidth: barWidth)
         }
         .allowsHitTesting(false)
     }
 
-    private static func box(around point: CGPoint, radius: CGFloat) -> CGRect {
-        CGRect(x: point.x - radius, y: point.y - radius, width: radius * 2, height: radius * 2)
+    private func drawHead(in context: inout GraphicsContext, centre: CGPoint, barWidth: CGFloat) {
+        guard let head = QuotaCelebration.head(at: self.elapsed) else { return }
+        let headPercent = QuotaCelebration.fillPercent(
+            at: self.elapsed,
+            from: self.startPercent,
+            to: self.targetPercent
+        )
+        let headX = centre.x + barWidth * min(100, max(0, headPercent)) / 100
+        let point = CGPoint(x: headX, y: centre.y)
+        context.fill(
+            Path(ellipseIn: Self.box(around: point, radius: head.glowRadius)),
+            with: .color(self.tint.opacity(head.glowOpacity))
+        )
+        context.fill(
+            Path(ellipseIn: Self.box(around: point, radius: head.coreRadius)),
+            with: .color(.white.opacity(head.coreOpacity))
+        )
     }
 
-    private func color(for tone: QuotaCelebration.Tone) -> Color {
-        switch tone {
-        case .tint: self.tint
-        case .warm: Self.warm
-        case .white: .white
+    /// Canvas radial gradients are circular, so the layer is scaled to get an ellipse instead of
+    /// the falloff being faked with concentric fills.
+    private func drawGlows(in context: inout GraphicsContext, centre: CGPoint, barWidth: CGFloat) {
+        for glow in QuotaCelebration.glows(at: self.elapsed, barWidth: barWidth) {
+            guard glow.radiusX > 0, glow.radiusY > 0 else { continue }
+            let point = CGPoint(x: centre.x + glow.centre.x, y: centre.y + glow.centre.y)
+            context.drawLayer { layer in
+                layer.translateBy(x: point.x, y: point.y)
+                layer.scaleBy(x: 1, y: glow.radiusY / glow.radiusX)
+                layer.fill(
+                    Path(ellipseIn: Self.box(around: .zero, radius: glow.radiusX)),
+                    with: .radialGradient(
+                        Gradient(colors: [
+                            self.tint.opacity(glow.opacity),
+                            self.tint.opacity(0),
+                        ]),
+                        center: .zero,
+                        startRadius: 0,
+                        endRadius: glow.radiusX
+                    )
+                )
+            }
         }
+    }
+
+    private static func box(around point: CGPoint, radius: CGFloat) -> CGRect {
+        CGRect(x: point.x - radius, y: point.y - radius, width: radius * 2, height: radius * 2)
     }
 }

@@ -9,8 +9,9 @@ enum QuotaWindowKind: String, Hashable, CaseIterable {
 
 /// Choreography for a quota reset: the fill resumes from the last pre-reset reading and
 /// continuously slows into 100%. Nothing trails the head on the way there — the landing is the
-/// whole event, synchronizing the bar pop, flash, and one large circular firework centred just
-/// short of the 100% point.
+/// whole event, synchronizing the bar pop, the flash, and a soft glow rising under the bar. The
+/// landing has no edges anywhere: what says the quota is full is the whole bar going warm, not a
+/// shape drawn on the point where the head stopped.
 enum QuotaCelebration {
     // MARK: - Timeline
 
@@ -18,18 +19,21 @@ enum QuotaCelebration {
     static let landing: TimeInterval = 2.8
     static let sweepDuration = Self.landing
     /// How long the bar keeps springing after the head lands.
-    static let popDuration: TimeInterval = 0.78
+    static let popDuration: TimeInterval = 0.8
     /// The fill washes bright at the moment of landing and cools back to the tint.
-    static let flashDuration: TimeInterval = 0.48
-    static let ringDuration: TimeInterval = 0.7
-    /// The white heart of the shell, at the instant of landing.
-    static let coreDuration: TimeInterval = 0.26
-    /// Longest a spoke of the shell can live.
-    static let burstLife: TimeInterval = 0.95
+    static let flashDuration: TimeInterval = 0.55
+    /// The wide glow, and therefore the last thing left on screen.
+    static let bloomDuration: TimeInterval = 0.9
 
-    /// When the last spoke of the shell has faded, and therefore when the clock stops.
+    /// A beat of slack on the end, so the last frame the clock runs is genuinely empty whatever
+    /// floating point does to the sum below.
+    private static let coolDown: TimeInterval = 0.02
+
+    /// When the landing has cooled off completely, and therefore when the clock stops.
     static var duration: TimeInterval {
-        Self.landing + max(Self.popDuration, max(Self.burstLife, Self.ringDuration))
+        Self.landing
+            + max(Self.popDuration, max(Self.flashDuration, Self.bloomDuration))
+            + Self.coolDown
     }
 
 #if DEBUG
@@ -62,14 +66,14 @@ enum QuotaCelebration {
         let fadeIn = min(1, time / 0.05)
         let remaining = Self.landing - time
         guard remaining > 0 else { return 0 }
-        return 0.64 * fadeIn * min(1, remaining / 0.22)
+        return 0.5 * fadeIn * min(1, remaining / 0.22)
     }
 
     /// The whole fill washing white at the moment of landing.
     static func flashOpacity(at time: TimeInterval) -> Double {
         let age = time - Self.landing
         guard age >= 0, age < Self.flashDuration else { return 0 }
-        return 0.3 * pow(1 - age / Self.flashDuration, 1.7)
+        return 0.26 * pow(1 - age / Self.flashDuration, 1.6)
     }
 
     // MARK: - Pop
@@ -80,172 +84,104 @@ enum QuotaCelebration {
         let age = time - Self.landing
         guard age >= 0, age < Self.popDuration else { return CGSize(width: 1, height: 1) }
         // A damped sine: zero at the landing, one overshoot, then it settles instead of snapping.
-        let pulse = exp(-5.7 * age) * sin(2 * .pi * 1.72 * age)
-        return CGSize(width: 1 + 0.035 * pulse, height: 1 + 0.7 * pulse)
+        let pulse = exp(-5.4 * age) * sin(2 * .pi * 1.3 * age)
+        return CGSize(width: 1 + 0.02 * pulse, height: 1 + 0.5 * pulse)
     }
 
     // MARK: - Origin
 
-    /// Where along the bar the whole landing event is centred, as a fraction of the bar width.
-    /// Short of the very end on purpose: the bar stops 14 pt from the card's right edge, and a
-    /// burst centred on the last pixel would have half of itself cut away by that edge.
+    /// Where along the bar the landing event is centred, as a fraction of the bar width. Short of
+    /// the very end on purpose: the bar stops 14 pt from the card's right edge, and anything
+    /// centred on the last pixel would have half of itself cut away by that edge.
     static let originX: Double = 0.92
 
-    /// How far the shell reaches at its widest. Sized so a burst on `originX` stays inside the
-    /// 280 pt card instead of being clipped by it.
-    static let maxRadius: CGFloat = 34
+    // MARK: - Head
 
-    // MARK: - Core
-
-    struct Core: Equatable {
-        let radius: CGFloat
+    /// The bright mote riding the head of the fill, drawn outside the pill.
+    struct Head: Equatable {
+        let coreRadius: CGFloat
+        let coreOpacity: Double
         let glowRadius: CGFloat
-        let opacity: Double
+        let glowOpacity: Double
     }
 
-    /// The white heart of the shell at the instant of landing.
-    static func core(at time: TimeInterval) -> Core? {
-        let age = time - Self.landing
-        guard age >= 0, age < Self.coreDuration else { return nil }
-        let progress = age / Self.coreDuration
-        let eased = 1 - pow(1 - progress, 3)
-        return Core(
-            radius: 1.6 + 6 * (1 - progress),
-            glowRadius: 5 + 18 * eased,
-            opacity: pow(1 - progress, 1.6)
+    /// The head fades out into the landing rather than switching off on it. Nothing in this
+    /// choreography has a hard edge, and that includes the way things stop.
+    private static let headFadeOut: TimeInterval = 0.2
+
+    static func head(at time: TimeInterval) -> Head? {
+        guard time >= 0, time < Self.landing else { return nil }
+        let pulse = 0.9 + 0.1 * sin(time * 14)
+        let level = pulse * min(1, (Self.landing - time) / Self.headFadeOut)
+        return Head(
+            coreRadius: 2.4,
+            coreOpacity: 0.7 * level,
+            glowRadius: 9,
+            glowOpacity: 0.14 * level
         )
     }
 
-    // MARK: - Rings
+    // MARK: - Glow
 
-    struct Ring: Equatable {
-        let radius: CGFloat
-        let lineWidth: CGFloat
+    /// A soft ellipse with no edge of its own. Bar-local: `centre.x` measured from the bar's left
+    /// edge, `centre.y` from its middle, positive downwards.
+    struct Glow: Equatable {
+        let centre: CGPoint
+        let radiusX: CGFloat
+        let radiusY: CGFloat
         let opacity: Double
     }
 
-    /// Two concentric shockwaves leaving the landing point, the second a beat behind the first.
-    static func rings(at time: TimeInterval) -> [Ring] {
-        [(0.0, 30.0, 2.4, 0.5), (0.12, 19.0, 1.3, 0.3)].compactMap { delay, reach, weight, peak in
-            let age = time - Self.landing - delay
-            guard age >= 0, age < Self.ringDuration else { return nil }
-            let progress = age / Self.ringDuration
-            let eased = 1 - pow(1 - progress, 2.6)
-            return Ring(
-                radius: 3 + reach * eased,
-                lineWidth: weight * (1 - progress) + 0.3,
-                opacity: peak * pow(1 - progress, 1.6)
-            )
-        }
+    private struct Bloom {
+        let duration: TimeInterval
+        /// Centre on the whole bar, or on the landing point.
+        let spansBar: Bool
+        /// Added to half the bar width when `spansBar`, the whole radius otherwise.
+        let radiusX: CGFloat
+        let radiusY: CGFloat
+        let peak: Double
+        /// Both glows swell rather than appearing at full size, which is what keeps a shape this
+        /// large from reading as a flash of its own.
+        let startScale: Double
     }
 
-    // MARK: - Corona
-
-    enum Tone: Equatable {
-        /// The provider's own accent, so the burst still belongs to the card.
-        case tint
-        case warm
-        case white
-    }
-
-    /// One spark of the shell: the streak it has swept, plus the bright head leading it.
-    /// Bar-local: `x` measured from the bar's left edge, `y` from its centre, positive downwards.
-    struct Ray: Equatable {
-        let inner: CGPoint
-        let outer: CGPoint
-        let width: CGFloat
-        let opacity: Double
-        /// Radius of the bright head; the streak behind it is drawn faded.
-        let headRadius: CGFloat
-        let tone: Tone
-    }
-
-    /// Evenly spaced spokes are what keep the shell round; a small per-spoke speed jitter is what
-    /// keeps it from reading as a gear. Three layers give the burst a fast white fringe, a body in
-    /// the card's own tint, and a slow warm centre.
-    private struct Layer {
-        let count: Int
-        /// Radians, so the layers interleave instead of sitting on top of each other.
-        let offset: Double
-        let speed: Double
-        /// Fraction of `speed` a spoke may deviate by, so the rim is a ring and not a stencil.
-        let jitter: Double
-        let width: CGFloat
-        let life: TimeInterval
-        let tone: Tone
-        let seed: UInt64
-    }
-
-    private static let layers: [Layer] = [
-        Layer(count: 34, offset: 0, speed: 118, jitter: 0.2, width: 1.9,
-              life: Self.burstLife, tone: .tint, seed: 0x9E37_79B9),
-        Layer(count: 26, offset: .pi / 26, speed: 74, jitter: 0.26, width: 1.5,
-              life: Self.burstLife * 0.86, tone: .warm, seed: 0x51ED_2701),
-        Layer(count: 13, offset: .pi / 13, speed: 122, jitter: 0.14, width: 1.1,
-              life: Self.burstLife * 0.53, tone: .white, seed: 0xC2B2_AE35),
+    /// The wide one says the whole bar is warm again; the tight one keeps the landing point
+    /// legible without drawing anything there that has an outline.
+    private static let blooms: [Bloom] = [
+        Bloom(
+            duration: Self.bloomDuration,
+            spansBar: true,
+            radiusX: 26,
+            radiusY: 24,
+            peak: 0.3,
+            startScale: 0.72
+        ),
+        Bloom(
+            duration: 0.6,
+            spansBar: false,
+            radiusX: 34,
+            radiusY: 16,
+            peak: 0.34,
+            startScale: 0.5
+        ),
     ]
 
-    /// Radial drag, so every spoke eases out instead of flying off in a straight line.
-    private static let drag: Double = 3.6
-    /// A hint of gravity: enough for the shell to sag as it dies, not enough to break the circle.
-    private static let gravity: Double = 30
-    /// How much of the streak trails behind each head.
-    private static let tailSeconds: TimeInterval = 0.16
-
-    /// The one firework, centred on `originX` and opening as a circle.
-    static func rays(at time: TimeInterval, barWidth: CGFloat) -> [Ray] {
-        let age = time - Self.landing
-        guard age >= 0 else { return [] }
-        let origin = CGPoint(x: Double(barWidth) * Self.originX, y: 0)
-
-        var rays: [Ray] = []
-        for layer in Self.layers {
-            guard age < layer.life else { continue }
-            let progress = age / layer.life
-            var random = SeededRandom(seed: layer.seed)
-            for index in 0..<layer.count {
-                let angle = layer.offset + 2 * .pi * Double(index) / Double(layer.count)
-                let speed = layer.speed * random.next(in: (1 - layer.jitter)...(1 + layer.jitter))
-                let phase = random.next(in: 0...(2 * .pi))
-                let head = Self.radius(speed: speed, age: age)
-                let tail = Self.radius(speed: speed, age: max(0, age - Self.tailSeconds))
-                // Twinkle keeps the rim alive while it fades, the way real sparks flicker out.
-                let twinkle = 0.78 + 0.22 * sin(age * 21 + phase)
-                let opacity = min(1, age / 0.035) * pow(1 - progress, 1.6) * twinkle
-                guard opacity > 0.015 else { continue }
-                rays.append(Ray(
-                    inner: Self.point(
-                        origin: origin,
-                        angle: angle,
-                        radius: tail,
-                        age: max(0, age - Self.tailSeconds)
-                    ),
-                    outer: Self.point(origin: origin, angle: angle, radius: head, age: age),
-                    width: layer.width * (1 - 0.4 * progress),
-                    opacity: opacity,
-                    headRadius: layer.width * 0.85 * (1 - 0.5 * progress),
-                    tone: layer.tone
-                ))
-            }
+    static func glows(at time: TimeInterval, barWidth: CGFloat) -> [Glow] {
+        Self.blooms.compactMap { bloom in
+            let age = time - Self.landing
+            guard age >= 0, age < bloom.duration else { return nil }
+            let progress = age / bloom.duration
+            let eased = 1 - pow(1 - progress, 2.2)
+            let scale = bloom.startScale + (1 - bloom.startScale) * eased
+            let centreX = bloom.spansBar ? barWidth / 2 : barWidth * Self.originX
+            let radiusX = bloom.spansBar ? barWidth / 2 + bloom.radiusX : bloom.radiusX
+            return Glow(
+                centre: CGPoint(x: centreX, y: 0),
+                radiusX: radiusX * scale,
+                radiusY: bloom.radiusY * scale,
+                opacity: bloom.peak * pow(1 - progress, 1.7)
+            )
         }
-        return rays
-    }
-
-    /// Closed form of `v' = -kv`, so a spoke's reach never depends on the frame rate.
-    private static func radius(speed: Double, age: TimeInterval) -> Double {
-        speed * (1 - exp(-Self.drag * age)) / Self.drag
-    }
-
-    private static func point(
-        origin: CGPoint,
-        angle: Double,
-        radius: Double,
-        age: TimeInterval
-    ) -> CGPoint {
-        CGPoint(
-            x: origin.x + cos(angle) * radius,
-            y: origin.y + sin(angle) * radius + 0.5 * Self.gravity * age * age
-        )
     }
 
     // MARK: - Helpers
@@ -294,24 +230,6 @@ enum QuotaCelebration {
                 t = next
             }
             return t
-        }
-    }
-
-    /// splitmix64. The jitter has to look natural but be identical on every replay, or the demo
-    /// would be judging a different shell each time.
-    private struct SeededRandom {
-        private var state: UInt64
-
-        init(seed: UInt64) { self.state = seed &* 0x9E37_79B9_7F4A_7C15 &+ 0x1234_5678 }
-
-        mutating func next(in range: ClosedRange<Double>) -> Double {
-            self.state &+= 0x9E37_79B9_7F4A_7C15
-            var z = self.state
-            z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
-            z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
-            z ^= z >> 31
-            let unit = Double(z >> 11) / Double(1 << 53)
-            return range.lowerBound + unit * (range.upperBound - range.lowerBound)
         }
     }
 }
