@@ -1,4 +1,5 @@
 import AgentUsageBarCore
+import AppKit
 import SwiftUI
 
 /// Editable rate table. Rows are pre-filled with the rates currently in force, so editing one
@@ -12,7 +13,13 @@ struct PricingSettingsView: View {
     @State private var hoveredSortField: PricingSortField?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    private static let paneWidth: CGFloat = 620
     private static let rateColumnWidth: CGFloat = 68
+    /// A vertical scroll view only reserves room for its indicator once the content is tall
+    /// enough to scroll. Folding a group crosses that line, so the table keeps the gutter in
+    /// both states instead of letting every trailing column slide over by its width.
+    private static let scrollerGutter = NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy)
+    private static let tableContentWidth = Self.paneWidth - Self.scrollerGutter
     /// Click target for the per-row disclosure chevron, sized to the row rather than the glyph.
     private static let disclosureHitSize = CGSize(width: 22, height: 28)
     private static let detailLabelWidth: CGFloat = 138
@@ -38,7 +45,7 @@ struct PricingSettingsView: View {
             Divider()
             self.footer
         }
-        .frame(width: 620, height: 460)
+        .frame(width: Self.paneWidth, height: 460)
         .task { await self.model.load() }
     }
 
@@ -52,9 +59,11 @@ struct PricingSettingsView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            // Three equal columns split by the panel's own margin, so the row squares up with the
-            // table below it and keeps the same air at both ends. Only the arrow carries the
-            // vendor's color: brand-colored label text on a system-gray button reads as a warning.
+            // Three equal columns split by the panel's own margin, so the air between the buttons
+            // and at either end of the row is the same. The row keeps the header's own symmetric
+            // margins rather than the table's reserved scroller gutter, because the copy above it
+            // does too. Only the arrow carries the vendor's color: brand-colored label text on a
+            // system-gray button reads as a warning.
             HStack(spacing: Self.linkSpacing) {
                 self.pricingLink("Claude API pricing", Self.claudePricingURL, Theme.accent(for: .claude))
                 self.pricingLink("OpenAI API pricing", Self.openAIPricingURL, Theme.accent(for: .codex))
@@ -90,6 +99,11 @@ struct PricingSettingsView: View {
                     self.columnHeader
                 }
             }
+            // Hold the columns at one width and pin them left, so the gutter the scroll view
+            // takes back when the table stops scrolling turns into empty space instead of a
+            // sideways jump.
+            .frame(width: Self.tableContentWidth, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
