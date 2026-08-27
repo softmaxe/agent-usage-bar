@@ -131,6 +131,73 @@ enum QuotaRecoveryVerifier {
             _ = tracker.consumePending(for: .codex)
         }
 
+        // Claude reports the five-hour deadline it has already passed until real usage opens the
+        // next window, so the quota returns to 100 several polls before the identity moves. The
+        // recovery has to be caught at that reading, and must survive the identity catching up.
+        let lagging = epoch.addingTimeInterval(20 * 3600)
+        tracker.observe(
+            provider: .claude,
+            kind: .session,
+            remainingPercent: 3,
+            resetsAt: lagging,
+            now: lagging.addingTimeInterval(-600)
+        )
+        tracker.observe(
+            provider: .claude,
+            kind: .session,
+            remainingPercent: 100,
+            resetsAt: lagging,
+            now: lagging.addingTimeInterval(140)
+        )
+        let laggingExpected: [QuotaWindowKind: QuotaRecoveryEvent] = [
+            .session: QuotaRecoveryEvent(fromRemainingPercent: 3),
+        ]
+        if tracker.pendingRecoveries(for: .claude) != laggingExpected {
+            failures.append("a five-hour window recovering past its own deadline queued no animation")
+        }
+        tracker.observe(
+            provider: .claude,
+            kind: .session,
+            remainingPercent: 94,
+            resetsAt: lagging.addingTimeInterval(5 * 3600),
+            now: lagging.addingTimeInterval(900)
+        )
+        if tracker.pendingRecoveries(for: .claude) != laggingExpected {
+            failures.append("the identity catching up to a recovery already seen dropped its animation")
+        }
+        _ = tracker.consumePending(for: .claude)
+
+        // Two rollovers with the first one never shown: the unobserved second window supersedes
+        // the stale event instead of animating from a window that is two resets old.
+        tracker.observe(
+            provider: .codex,
+            kind: .session,
+            remainingPercent: 8,
+            resetsAt: epoch.addingTimeInterval(30 * 3600)
+        )
+        tracker.observe(
+            provider: .codex,
+            kind: .session,
+            remainingPercent: 100,
+            resetsAt: epoch.addingTimeInterval(35 * 3600)
+        )
+        tracker.observe(
+            provider: .codex,
+            kind: .session,
+            remainingPercent: 100,
+            resetsAt: epoch.addingTimeInterval(40 * 3600)
+        )
+        tracker.observe(
+            provider: .codex,
+            kind: .session,
+            remainingPercent: 71,
+            resetsAt: epoch.addingTimeInterval(45 * 3600)
+        )
+        if !tracker.pendingRecoveries(for: .codex).isEmpty {
+            failures.append("an event two rollovers old was still queued")
+            _ = tracker.consumePending(for: .codex)
+        }
+
         // An older response must not move the identity backwards and manufacture a future reset.
         tracker.observe(
             provider: .codex,
