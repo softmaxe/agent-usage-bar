@@ -63,6 +63,9 @@ enum AgentUsageBarApp {
         if CommandLine.arguments.contains("--verify-disclosure-motion") {
             DisclosureMotionVerifier.run()
         }
+        if CommandLine.arguments.contains("--verify-tab-switch-motion") {
+            TabSwitchMotionVerifier.run()
+        }
         if CommandLine.arguments.contains("--demo-celebration") {
             CelebrationDemo.run()
         }
@@ -87,6 +90,9 @@ enum AgentUsageBarApp {
         }
         if CommandLine.arguments.contains("--demo-disclosure") {
             DisclosureAnimationDemo.run()
+        }
+        if CommandLine.arguments.contains("--demo-tab-switch") {
+            TabSwitchDemo.run()
         }
         if CommandLine.arguments.contains("--demo-pricing-links") {
             PricingLinksDemo.run()

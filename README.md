@@ -97,6 +97,8 @@ Built-in rates are supplemented by the public [models.dev](https://models.dev) c
 
 The two provider groups and the per-model disclosure behind each row open on the same easing the quota bar charges on, and the rows inside a group arrive one beat apart so the list unrolls from under its header rather than appearing all at once; the chevron turns a quarter turn instead of being swapped for a second glyph, and the control dips while it is held. Only the control springs — the table's own height never overshoots, because that would push every row below it. **Reduce motion** turns all of it back into a cut. `make demo-disclosure` puts the candidate treatments side by side.
 
+The window's own **General** / **Pricing** tabs are drawn rather than handed to AppKit, because the system tab bar has nowhere to put a curve. The selection is one pill whose two edges run the same easing over different durations: the edge facing the destination leaves first and the one behind it catches up, so the pill briefly spans both segments and then contracts onto the new one. It is never in two places and never between them covering neither — the assertion suite walks the curve and checks the shape at every frame. The panes cross-fade under it, the segment dips while it is held, and ⌘ 1 / ⌘ 2 still select a pane. **Reduce motion** turns the travel back into a cut. `make demo-tab-switch` puts the candidate treatments side by side.
+
 User overrides are stored at:
 
 ```text
@@ -143,6 +145,7 @@ make demo-number        # Compare candidate treatments for the headline percenta
 make demo-label-toggle  # Compare candidate treatments for the chart label's tokens-to-cost switch
 make demo-disclosure    # Compare candidate treatments for the pricing table's collapse control
 make demo-pricing-links # Compare candidate layouts for the pricing header's vendor links
+make demo-tab-switch    # Compare candidate treatments for the settings window's tab switch
 make logs               # Stream app logs
 make app                # Build the release .app bundle
 make clean              # Remove SwiftPM and app build output
