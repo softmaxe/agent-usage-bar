@@ -4,7 +4,7 @@ CONFIG ?= debug
 BIN := $(BUILD_DIR)/$(CONFIG)/$(APP_NAME)
 LOG_SUBSYSTEM := com.agentusagebar.app
 
-.PHONY: build run probe logs kill test app demo demo-number demo-bar-hover demo-disclosure clean
+.PHONY: build run probe logs kill test app demo demo-number demo-bar-hover demo-disclosure demo-pricing-links clean
 
 build:
 	swift build -c $(CONFIG)
@@ -50,6 +50,11 @@ demo-bar-hover:
 demo-disclosure:
 	swift build -c debug --product $(APP_NAME)
 	$(BUILD_DIR)/debug/$(APP_NAME) --demo-disclosure
+
+## Compare the candidate layouts for the pricing header's three vendor links.
+demo-pricing-links:
+	swift build -c debug --product $(APP_NAME)
+	$(BUILD_DIR)/debug/$(APP_NAME) --demo-pricing-links
 
 ## Assemble a double-clickable AgentUsageBar.app under build/.
 app:

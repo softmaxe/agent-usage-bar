@@ -131,17 +131,18 @@ Claude Keychain access is performed through Apple's `/usr/bin/security` tool and
 The project uses Swift Package Manager and does not require an Xcode project.
 
 ```bash
-make build           # Build a debug binary
-make run             # Stop an existing instance, build, and run in the foreground
-make test            # Run the assertion-based test suite
-make probe           # Check both provider integrations from the terminal
-make probe-cost      # Rescan the local logs and print cost totals, without credentials or network
-make demo            # Replay the quota-recovery animation in a plain window
-make demo-number     # Compare candidate treatments for the headline percentage
-make demo-disclosure # Compare candidate treatments for the pricing table's collapse control
-make logs            # Stream app logs
-make app             # Build the release .app bundle
-make clean           # Remove SwiftPM and app build output
+make build              # Build a debug binary
+make run                # Stop an existing instance, build, and run in the foreground
+make test               # Run the assertion-based test suite
+make probe              # Check both provider integrations from the terminal
+make probe-cost         # Rescan the local logs and print cost totals, without credentials or network
+make demo               # Replay the quota-recovery animation in a plain window
+make demo-number        # Compare candidate treatments for the headline percentage
+make demo-disclosure    # Compare candidate treatments for the pricing table's collapse control
+make demo-pricing-links # Compare candidate layouts for the pricing header's vendor links
+make logs               # Stream app logs
+make app                # Build the release .app bundle
+make clean              # Remove SwiftPM and app build output
 ```
 
 `make probe` can expose account and usage metadata in the terminal. Review its output before sharing logs.

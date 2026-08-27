@@ -72,6 +72,14 @@ enum AgentUsageBarApp {
         if CommandLine.arguments.contains("--demo-disclosure") {
             DisclosureAnimationDemo.run()
         }
+        if CommandLine.arguments.contains("--demo-pricing-links") {
+            PricingLinksDemo.run()
+        }
+        if let index = CommandLine.arguments.firstIndex(of: "--dump-pricing-links"),
+           index + 1 < CommandLine.arguments.count {
+            PricingLinksDemo.dumpCards(directory: CommandLine.arguments[index + 1])
+            return
+        }
         if let index = CommandLine.arguments.firstIndex(of: "--dump-number-animation"),
            index + 1 < CommandLine.arguments.count {
             NumberAnimationDemo.dumpFrames(directory: CommandLine.arguments[index + 1])
