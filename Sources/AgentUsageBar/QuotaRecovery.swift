@@ -64,10 +64,17 @@ final class QuotaRecoveryTracker {
                 if currentReset < previousReset - 1 { return }
                 if currentReset > previousReset + 1,
                    let previousRemaining = (self.defaults.object(forKey: remainingKey) as? NSNumber)?.doubleValue {
-                    self.defaults.set(
-                        min(100, max(0, previousRemaining)),
-                        forKey: Self.key(provider, kind, .pendingFrom)
-                    )
+                    let pendingKey = Self.key(provider, kind, .pendingFrom)
+                    if remaining > previousRemaining {
+                        self.defaults.set(
+                            min(100, max(0, previousRemaining)),
+                            forKey: pendingKey
+                        )
+                    } else {
+                        // A later identity without an actual quota recovery is not a reset worth
+                        // celebrating. It also supersedes any older event the card never claimed.
+                        self.defaults.removeObject(forKey: pendingKey)
+                    }
                 }
             }
             self.defaults.set(currentReset, forKey: resetKey)

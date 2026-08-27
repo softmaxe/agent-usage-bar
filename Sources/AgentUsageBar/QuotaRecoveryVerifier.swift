@@ -111,6 +111,26 @@ enum QuotaRecoveryVerifier {
             failures.append("a percentage jump with an unchanged reset identity was treated as a reset")
         }
 
+        // A reset identity moving forward is not enough on its own. Codex can report a later
+        // identity while the remaining quota has fallen, which must stay on the ordinary glide
+        // path instead of playing a celebration backwards from 100% to the current reading.
+        tracker.observe(
+            provider: .codex,
+            kind: .session,
+            remainingPercent: 100,
+            resetsAt: epoch.addingTimeInterval(10 * 3600)
+        )
+        tracker.observe(
+            provider: .codex,
+            kind: .session,
+            remainingPercent: 62,
+            resetsAt: epoch.addingTimeInterval(15 * 3600)
+        )
+        if !tracker.pendingRecoveries(for: .codex).isEmpty {
+            failures.append("a forward reset identity with quota falling from 100 to 62 queued an animation")
+            _ = tracker.consumePending(for: .codex)
+        }
+
         // An older response must not move the identity backwards and manufacture a future reset.
         tracker.observe(
             provider: .codex,
