@@ -58,6 +58,7 @@ test:
 	$(BUILD_DIR)/debug/$(APP_NAME) --verify-quota-recovery
 	$(BUILD_DIR)/debug/$(APP_NAME) --verify-relative-time
 	$(BUILD_DIR)/debug/$(APP_NAME) --verify-refresh-row
+	$(BUILD_DIR)/debug/$(APP_NAME) --verify-pricing-sort
 
 clean:
 	swift package clean
