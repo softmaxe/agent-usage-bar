@@ -253,8 +253,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         // view — so these rows draw their own trailing shortcut content.
         menu.addItem(self.actionRow(
             title: "Switch provider",
-            icon: MenuIcons.mouseOutline(),
-            trailingIcon: MenuIcons.contextMenuCursor(),
+            icon: MenuIcons.rightButtonMouse(),
             handler: { [weak self] in self?.settings.advanceMenuBarProvider() }
         ))
 
