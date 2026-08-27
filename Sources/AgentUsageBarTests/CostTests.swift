@@ -638,20 +638,24 @@ enum RefreshRowPolicyTests {
     static func run() {
         let idle = RefreshRowPolicy.state(cooldownRemaining: 0, isRefreshing: false)
         Harness.expectEqual(idle.title, "Refresh", "an elapsed cooldown leaves the plain title")
+        Harness.expectEqual(idle.trailingText, nil, "an elapsed cooldown leaves the shortcut column empty")
         Harness.expect(idle.isEnabled, "and the row accepts clicks")
 
         let waiting = RefreshRowPolicy.state(cooldownRemaining: 42, isRefreshing: false)
-        Harness.expectEqual(waiting.title, "Refresh in 42s", "the cooldown is spelled out")
+        Harness.expectEqual(waiting.title, "Refresh", "the cooldown keeps the plain title")
+        Harness.expectEqual(waiting.trailingText, "42s", "the cooldown is spelled out in the shortcut column")
         Harness.expect(!waiting.isEnabled, "and the row refuses clicks it would drop")
 
         // Rounded up, so the last partial second never reads as a refresh that would be honoured.
         let sliver = RefreshRowPolicy.state(cooldownRemaining: 0.2, isRefreshing: false)
-        Harness.expectEqual(sliver.title, "Refresh in 1s", "a partial second still counts")
+        Harness.expectEqual(sliver.title, "Refresh", "a partial second keeps the plain title")
+        Harness.expectEqual(sliver.trailingText, "1s", "a partial second still counts")
         Harness.expect(!sliver.isEnabled, "and still refuses clicks")
 
         // An in-flight refresh holds the cooldown too, but a countdown would misdescribe it.
         let running = RefreshRowPolicy.state(cooldownRemaining: 59, isRefreshing: true)
         Harness.expectEqual(running.title, "Refreshing…", "a running refresh says so")
+        Harness.expectEqual(running.trailingText, nil, "a running refresh leaves the shortcut column empty")
         Harness.expect(!running.isEnabled, "and the row refuses a second one")
     }
 }
