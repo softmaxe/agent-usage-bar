@@ -88,6 +88,8 @@ final class PricingEditorModel: ObservableObject {
     @Published var expandedRowIDs: Set<String> = []
 
     private var originalRows: [String: PricingRow] = [:]
+    /// Position of each row in `rows`, so a field can reach its row without a linear scan.
+    private var indexByID: [String: Int] = [:]
     /// Rates from the built-in table plus models.dev, i.e. what a row falls back to.
     private var defaults: [String: ModelPricing] = [:]
     private let costService: CostService
@@ -98,19 +100,48 @@ final class PricingEditorModel: ObservableObject {
         self.costService = costService
     }
 
+    /// Fills the table from disk and only then goes looking for a newer models.dev catalog.
+    ///
+    /// Both halves used to be one blocking step in front of the table, so the pane sat on a
+    /// spinner for the length of a network round trip — and for the full request timeout on a
+    /// host that cannot reach models.dev, on every single open, because a failed fetch writes
+    /// no cache and so never stops looking stale.
     func load() async {
-        self.isLoading = true
+        // Reopening the pane must not throw away rates the user is part-way through typing.
+        guard !self.hasUnsavedChanges else { return }
 
-        let overlay = await PricingOverlayStore.load()
-        let overrides = PricingOverlayStore.loadUserOverrides()
+        await self.rebuild(overlay: PricingOverlayStore.loadFromDisk())
+
+        // The table is on screen by now, so the catalog refresh costs the user nothing. It
+        // only redraws when models.dev actually moved.
+        if let refreshed = await self.costService.refreshPricingCatalog(), !self.hasUnsavedChanges {
+            await self.rebuild(overlay: refreshed)
+        }
+    }
+
+    private func rebuild(overlay: PricingOverlay) async {
+        // A reload behind an already-drawn table replaces it in place; only a first fill has
+        // nothing to show meanwhile.
+        self.isLoading = self.rows.isEmpty
+
+        let overrides = overlay.userOverrides
         // The overlay minus the user layer is what a row would fall back to if its override
         // were removed, which is what the Reset button has to restore.
         let fallback = PricingOverlay(userOverrides: [:], modelsDev: overlay.modelsDev)
 
-        var usageByProvider: [Provider: [ModelUsageTotal]] = [:]
-        for provider in Provider.allCases {
-            usageByProvider[provider] = await self.costService.knownModelUsage(provider: provider)
-        }
+        // Read on a connection of its own rather than through the service's actor, which a log
+        // scan can hold for seconds at a time.
+        let databaseURL = self.costService.databaseURL
+        let usageByProvider = await Task.detached {
+            var usage: [Provider: [ModelUsageTotal]] = [:]
+            for provider in Provider.allCases {
+                usage[provider] = CostUsageReader.knownModelUsage(
+                    provider: provider,
+                    databaseURL: databaseURL
+                )
+            }
+            return usage
+        }.value
 
         var built: [PricingRow] = []
         var defaults: [String: ModelPricing] = [:]
@@ -182,10 +213,19 @@ final class PricingEditorModel: ObservableObject {
         }
 
         self.defaults = defaults
-        self.rows = built
+        self.setRows(built)
         self.originalRows = Dictionary(uniqueKeysWithValues: built.map { ($0.id, $0) })
         self.hasUnsavedChanges = false
         self.isLoading = false
+    }
+
+    /// Rows and the id lookup move together: the table asks for a row by id once per field, so
+    /// scanning the array for each one made a redraw quadratic in the number of models.
+    private func setRows(_ rows: [PricingRow]) {
+        self.rows = rows
+        self.indexByID = Dictionary(
+            uniqueKeysWithValues: rows.enumerated().map { ($0.element.id, $0.offset) }
+        )
     }
 
     func rows(in group: PricingGroup) -> [PricingRow] {
@@ -206,9 +246,9 @@ final class PricingEditorModel: ObservableObject {
 
     func binding(for id: String, keyPath: WritableKeyPath<PricingRow, String>) -> Binding<String> {
         Binding(
-            get: { self.rows.first { $0.id == id }?[keyPath: keyPath] ?? "" },
+            get: { self.indexByID[id].map { self.rows[$0][keyPath: keyPath] } ?? "" },
             set: { newValue in
-                guard let index = self.rows.firstIndex(where: { $0.id == id }) else { return }
+                guard let index = self.indexByID[id] else { return }
                 self.rows[index][keyPath: keyPath] = newValue
                 self.hasUnsavedChanges = self.rows.contains { self.originalRows[$0.id] != $0 }
             }
@@ -217,7 +257,7 @@ final class PricingEditorModel: ObservableObject {
 
     /// Restores a row to what it would be with no override.
     func reset(id: String) {
-        guard let index = self.rows.firstIndex(where: { $0.id == id }) else { return }
+        guard let index = self.indexByID[id] else { return }
         let fallback = self.defaults[id] ?? nil
         self.rows[index].input = Self.text(fallback?.input)
         self.rows[index].output = Self.text(fallback?.output)

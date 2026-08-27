@@ -91,7 +91,7 @@ The first scan can take longer on a large history. Later scans are incremental a
 ~/Library/Caches/AgentUsageBar/cost-usage/cost-usage.sqlite
 ```
 
-Built-in rates are supplemented by the public [models.dev](https://models.dev) catalog, cached for 24 hours. Rates can be reviewed or overridden under **Settings → Pricing**, which exposes every figure the cost math reads: input, output, five-minute cache write, cache read, the one-hour cache write (empty means twice input, the ratio Anthropic publishes), and the long-context tier — its per-request token threshold plus the rates that apply above it. User overrides are stored at:
+Built-in rates are supplemented by the public [models.dev](https://models.dev) catalog, cached for 24 hours; a failed refresh is not retried for an hour, and the pane never waits on one — it draws from the cache and folds a newer catalog in behind it. Rates can be reviewed or overridden under **Settings → Pricing**, which exposes every figure the cost math reads: input, output, five-minute cache write, cache read, the one-hour cache write (empty means twice input, the ratio Anthropic publishes), and the long-context tier — its per-request token threshold plus the rates that apply above it. User overrides are stored at:
 
 ```text
 ~/Library/Application Support/AgentUsageBar/pricing-overrides.json
