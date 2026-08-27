@@ -4,7 +4,7 @@ CONFIG ?= debug
 BIN := $(BUILD_DIR)/$(CONFIG)/$(APP_NAME)
 LOG_SUBSYSTEM := com.agentusagebar.app
 
-.PHONY: build run probe logs kill test app demo demo-number demo-bar-hover demo-collapse demo-disclosure demo-pricing-links clean
+.PHONY: build run probe logs kill test app demo demo-number demo-bar-hover demo-collapse demo-disclosure demo-pricing-links demo-tab-switch clean
 
 build:
 	swift build -c $(CONFIG)
@@ -61,6 +61,11 @@ demo-pricing-links:
 	swift build -c debug --product $(APP_NAME)
 	$(BUILD_DIR)/debug/$(APP_NAME) --demo-pricing-links
 
+## Compare the candidate treatments for switching the settings window's tabs.
+demo-tab-switch:
+	swift build -c debug --product $(APP_NAME)
+	$(BUILD_DIR)/debug/$(APP_NAME) --demo-tab-switch
+
 ## Assemble a double-clickable AgentUsageBar.app under build/.
 app:
 	Scripts/package_app.sh
@@ -81,6 +86,7 @@ test:
 	$(BUILD_DIR)/debug/$(APP_NAME) --verify-pricing-sort
 	$(BUILD_DIR)/debug/$(APP_NAME) --verify-pricing-model-filter
 	$(BUILD_DIR)/debug/$(APP_NAME) --verify-disclosure-motion
+	$(BUILD_DIR)/debug/$(APP_NAME) --verify-tab-switch-motion
 
 clean:
 	swift package clean

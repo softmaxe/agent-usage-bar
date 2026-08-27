@@ -7,6 +7,9 @@ import SwiftUI
 /// the disclosure behind each row carries the rest of what the billing math reads.
 struct PricingSettingsView: View {
     @ObservedObject var model: PricingEditorModel
+    /// The settings window keeps this pane mounted behind the General one so the tabs can
+    /// cross-fade, so the scan and the catalog refresh wait for the tab to actually be opened.
+    var isLoadEnabled = true
     @State private var expandedGroups = Set(PricingGroup.allCases)
     /// The column under the pointer, so an unsorted header can show the arrow a click would
     /// give it. Without it a sorted-by-nothing header looks like plain text.
@@ -46,7 +49,10 @@ struct PricingSettingsView: View {
             self.footer
         }
         .frame(width: Self.paneWidth, height: 460)
-        .task { await self.model.load() }
+        .task(id: self.isLoadEnabled) {
+            guard self.isLoadEnabled else { return }
+            await self.model.load()
+        }
     }
 
     private var header: some View {
