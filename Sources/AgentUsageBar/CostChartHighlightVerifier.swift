@@ -1,6 +1,7 @@
 #if DEBUG
 import AgentUsageBarCore
 import Foundation
+import SwiftUI
 
 enum CostChartHighlightVerifier {
     static func run() -> Never {
@@ -209,6 +210,28 @@ enum CostChartHighlightVerifier {
             )
         }
 
+        // The highlight's motion: a move between bars keeps up with the pointer, the trip back to
+        // today takes longer, and Reduce Motion drops both rather than shortening them.
+        if CostChartHoverMotion.returnResponse <= CostChartHoverMotion.hoverResponse {
+            failures.append(
+                "returning to today expected a longer response than moving between bars, got "
+                    + "\(CostChartHoverMotion.returnResponse) vs \(CostChartHoverMotion.hoverResponse)"
+            )
+        }
+        if CostChartHoverMotion.lift <= 0 {
+            failures.append("the selected bar expected a lift, got \(CostChartHoverMotion.lift)")
+        }
+        let hoverMotion = CostChartHoverMotion.animation(returningToToday: false, reduceMotion: false)
+        let returnMotion = CostChartHoverMotion.animation(returningToToday: true, reduceMotion: false)
+        if hoverMotion == nil || returnMotion == nil || hoverMotion == returnMotion {
+            failures.append("hover and return expected two distinct animations")
+        }
+        let reducedHover = CostChartHoverMotion.animation(returningToToday: false, reduceMotion: true)
+        let reducedReturn = CostChartHoverMotion.animation(returningToToday: true, reduceMotion: true)
+        if reducedHover != nil || reducedReturn != nil {
+            failures.append("Reduce Motion expected no animation on either move")
+        }
+
         guard failures.isEmpty else {
             for failure in failures {
                 fputs("cost chart highlight verification failed: \(failure)\n", stderr)
@@ -216,7 +239,7 @@ enum CostChartHighlightVerifier {
             exit(1)
         }
 
-        print("cost chart selection, click label toggle, hit testing, and opacity checks passed")
+        print("cost chart selection, click label toggle, hit testing, opacity, and hover motion checks passed")
         exit(0)
     }
 }
