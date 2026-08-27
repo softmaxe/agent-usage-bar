@@ -274,7 +274,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         // These two leave the card behind anyway, so they stay standard items and keep working
         // key equivalents.
         let settings = NSMenuItem(
-            title: "Settings…",
+            title: "Settings",
             action: #selector(self.settingsClicked),
             keyEquivalent: ","
         )
