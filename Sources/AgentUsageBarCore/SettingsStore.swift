@@ -39,11 +39,17 @@ public enum RefreshFrequency: String, CaseIterable, Identifiable {
     }
 }
 
+public enum CostChartLabelMode: String {
+    case tokens
+    case cost
+}
+
 @MainActor
 public final class SettingsStore: ObservableObject {
     private enum Key {
         static let refreshFrequency = "refreshFrequency"
         static let menuBarProvider = "menuBarProvider"
+        static let costChartLabelMode = "costChartLabelMode"
         /// Pre-single-item builds stored one visibility switch per provider.
         static func providerEnabled(_ provider: Provider) -> String {
             "provider.\(provider.rawValue).enabled"
@@ -69,11 +75,22 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
+    /// Shared by both providers so the selected chart label stays consistent while switching or
+    /// reopening the menu.
+    @Published public var costChartLabelMode: CostChartLabelMode {
+        didSet {
+            guard oldValue != self.costChartLabelMode else { return }
+            self.defaults.set(self.costChartLabelMode.rawValue, forKey: Key.costChartLabelMode)
+        }
+    }
+
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         self.refreshFrequency = (defaults.string(forKey: Key.refreshFrequency))
             .flatMap(RefreshFrequency.init(rawValue:)) ?? .fiveMinutes
         self.menuBarProvider = Self.initialMenuBarProvider(defaults: defaults)
+        self.costChartLabelMode = (defaults.string(forKey: Key.costChartLabelMode))
+            .flatMap(CostChartLabelMode.init(rawValue:)) ?? .tokens
     }
 
     /// Moves the menu bar item to the next provider, which is what a right-click does.

@@ -15,6 +15,8 @@ struct MenuCardView: View {
     var celebrationTokens: [QuotaWindowKind: Int] = [:]
     /// Captured when the card is rebuilt so relative labels can be tested without wall-clock waits.
     var now = Date()
+    var costChartLabelMode = CostChartLabelMode.tokens
+    var onCostChartLabelModeChanged: (CostChartLabelMode) -> Void = { _ in }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -92,7 +94,12 @@ struct MenuCardView: View {
                 }
 
                 if let cost = self.display.cost {
-                    CostSectionView(provider: self.provider, snapshot: cost)
+                    CostSectionView(
+                        provider: self.provider,
+                        snapshot: cost,
+                        labelMode: self.costChartLabelMode,
+                        onLabelModeChanged: self.onCostChartLabelModeChanged
+                    )
                 }
 
                 // Only Codex reports credits at all. A zero balance still shows, matching

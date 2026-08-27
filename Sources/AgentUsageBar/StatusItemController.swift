@@ -205,7 +205,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             provider: self.settings.menuBarProvider,
             display: ProviderDisplay(),
             isRefreshing: false,
-            now: self.now()
+            now: self.now(),
+            costChartLabelMode: self.settings.costChartLabelMode,
+            onCostChartLabelModeChanged: { [weak self] mode in
+                self?.settings.costChartLabelMode = mode
+            }
         ))
         hosting.frame = NSRect(x: 0, y: 0, width: Self.cardWidth, height: 200)
         cardItem.view = hosting
@@ -282,7 +286,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             isRefreshing: self.store.isRefreshing,
             recoveries: self.recoveries[provider] ?? [:],
             celebrationTokens: self.celebrationTokens[provider] ?? [:],
-            now: self.now()
+            now: self.now(),
+            costChartLabelMode: self.settings.costChartLabelMode,
+            onCostChartLabelModeChanged: { [weak self] mode in
+                self?.settings.costChartLabelMode = mode
+            }
         )
         // The card's height depends on how many windows the provider reported, so resize to fit.
         let height = hosting.fittingSize.height

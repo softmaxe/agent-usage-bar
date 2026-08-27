@@ -187,13 +187,15 @@ enum CostChartHighlightVerifier {
             failures.append("clicking a non-selected bar changed the selected label mode")
         }
 
-        let changedSelectionMode = CostChartHighlightPolicy.labelMode(
-            afterSelecting: today,
-            previously: yesterday,
-            currentMode: .cost
+        let nextBarLabel = CostChartHighlightPolicy.labelText(
+            dayKey: today,
+            selectedDayKey: today,
+            selectedMode: clickedMode,
+            tokens: 231_000_000,
+            costUSD: 231
         )
-        if changedSelectionMode != .tokens {
-            failures.append("moving to another selected bar did not restore the token label")
+        if nextBarLabel != "$231" {
+            failures.append("moving to another selected bar forgot the cost label mode")
         }
 
         let firstBar = CostChartHighlightPolicy.barIndex(atX: 47, width: 100, barCount: 2, spacing: 4)

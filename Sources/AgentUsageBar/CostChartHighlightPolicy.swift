@@ -1,10 +1,5 @@
 import AgentUsageBarCore
 
-enum CostChartLabelMode {
-    case tokens
-    case cost
-}
-
 enum CostChartHighlightPolicy {
     static func visibleDays(
         from days: [CostDay],
@@ -76,14 +71,6 @@ enum CostChartHighlightPolicy {
     ) -> CostChartLabelMode {
         guard dayKey == selectedDayKey else { return currentMode }
         return currentMode == .tokens ? .cost : .tokens
-    }
-
-    static func labelMode(
-        afterSelecting dayKey: String?,
-        previously previousDayKey: String?,
-        currentMode: CostChartLabelMode
-    ) -> CostChartLabelMode {
-        dayKey == previousDayKey ? currentMode : .tokens
     }
 
     /// Mirrors the HStack's equal-width bars and explicit spacing. Pointer movement through a gap

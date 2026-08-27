@@ -20,21 +20,26 @@ struct CostSectionView: View {
 
     /// Which day the pointer is over. Nil falls back to today's bar.
     @State private var hoveredDayKey: String?
-    /// The selected bar starts with tokens and toggles to cost when clicked.
-    @State private var selectedLabelMode = CostChartLabelMode.tokens
+    /// Updated immediately on click, then seeded from SettingsStore whenever the card is rebuilt.
+    @State private var selectedLabelMode: CostChartLabelMode
     private let todayDayKey: String
+    private let onLabelModeChanged: (CostChartLabelMode) -> Void
 
     /// Seeds the hover state so `--dump-card` can capture what hovering looks like.
     init(
         provider: Provider,
         snapshot: CostSnapshot,
         previewHoveredDayKey: String? = nil,
-        previewTodayDayKey: String? = nil
+        previewTodayDayKey: String? = nil,
+        labelMode: CostChartLabelMode = .tokens,
+        onLabelModeChanged: @escaping (CostChartLabelMode) -> Void = { _ in }
     ) {
         self.provider = provider
         self.snapshot = snapshot
         self._hoveredDayKey = State(initialValue: previewHoveredDayKey)
+        self._selectedLabelMode = State(initialValue: labelMode)
         self.todayDayKey = previewTodayDayKey ?? Self.dayKey(for: Date())
+        self.onLabelModeChanged = onLabelModeChanged
     }
 
     var body: some View {
@@ -255,10 +260,8 @@ struct CostSectionView: View {
     private func updateHover(at location: CGPoint?, width: CGFloat) {
         // Leaving the chart clears hover selection, which restores today's default highlight.
         // Inside the chart the policy decides, so a gap between bars holds the current day.
-        let previousSelection = self.selectedDayKey
         guard let location, !self.bars.isEmpty, width > 0 else {
             if self.hoveredDayKey != nil { self.hoveredDayKey = nil }
-            self.resetLabelMode(after: previousSelection)
             return
         }
         let index = CostChartHighlightPolicy.barIndex(
@@ -273,7 +276,6 @@ struct CostSectionView: View {
             currentDayKey: self.hoveredDayKey
         )
         if self.hoveredDayKey != nextKey { self.hoveredDayKey = nextKey }
-        self.resetLabelMode(after: previousSelection)
     }
 
     private var selectedDayKey: String? {
@@ -281,14 +283,6 @@ struct CostSectionView: View {
             hoveredDayKey: self.hoveredDayKey,
             todayDayKey: self.todayDayKey,
             availableDayKeys: Set(self.bars.map(\.dayKey))
-        )
-    }
-
-    private func resetLabelMode(after previousSelection: String?) {
-        self.selectedLabelMode = CostChartHighlightPolicy.labelMode(
-            afterSelecting: self.selectedDayKey,
-            previously: previousSelection,
-            currentMode: self.selectedLabelMode
         )
     }
 
@@ -300,11 +294,14 @@ struct CostSectionView: View {
             spacing: Self.barSpacing
         )
         let clickedDayKey = index.map { self.bars[$0].dayKey }
-        self.selectedLabelMode = CostChartHighlightPolicy.labelMode(
+        let nextMode = CostChartHighlightPolicy.labelMode(
             afterClicking: clickedDayKey,
             selectedDayKey: self.selectedDayKey,
             currentMode: self.selectedLabelMode
         )
+        guard nextMode != self.selectedLabelMode else { return }
+        self.selectedLabelMode = nextMode
+        self.onLabelModeChanged(nextMode)
     }
 
     private static func dayKey(for date: Date, calendar: Calendar = .current) -> String {

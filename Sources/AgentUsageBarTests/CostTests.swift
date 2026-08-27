@@ -584,6 +584,7 @@ enum SettingsTests {
         let store = SettingsStore(defaults: defaults)
         Harness.expectEqual(store.refreshFrequency, .fiveMinutes, "default cadence")
         Harness.expectEqual(store.menuBarProvider, Provider.allCases[0], "one provider shows by default")
+        Harness.expectEqual(store.costChartLabelMode, .tokens, "chart labels default to tokens")
 
         Harness.expectEqual(RefreshFrequency.manual.seconds, nil, "manual runs no timer")
         Harness.expectEqual(RefreshFrequency.oneMinute.seconds, 60, "one minute in seconds")
@@ -607,10 +608,18 @@ enum SettingsTests {
         _ = observer
 
         store.menuBarProvider = .claude
+        store.costChartLabelMode = .cost
 
         let reloaded = SettingsStore(defaults: defaults)
         Harness.expectEqual(reloaded.refreshFrequency, .fifteenMinutes, "cadence survives a reload")
         Harness.expectEqual(reloaded.menuBarProvider, .claude, "the shown provider survives a reload")
+        Harness.expectEqual(reloaded.costChartLabelMode, .cost, "chart label mode survives a reload")
+        reloaded.costChartLabelMode = .tokens
+        Harness.expectEqual(
+            SettingsStore(defaults: defaults).costChartLabelMode,
+            .tokens,
+            "chart label mode can switch back to tokens"
+        )
 
         // A machine upgrading from the two-toggle build keeps the item it had left enabled.
         let legacySuite = "\(suite)-legacy"
