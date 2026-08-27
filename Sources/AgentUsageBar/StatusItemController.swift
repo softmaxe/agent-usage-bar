@@ -131,12 +131,6 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         )
     }
 
-    /// The right-click half of the click handler. The left-click half opens a menu, which would
-    /// block a headless run on menu tracking, so it is deliberately not exposed here.
-    func debugSecondaryClick() {
-        self.settings.advanceMenuBarProvider()
-    }
-
     func debugRefreshOpenCard() {
         self.refreshOpenCard()
     }
