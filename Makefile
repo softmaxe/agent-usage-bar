@@ -4,7 +4,7 @@ CONFIG ?= debug
 BIN := $(BUILD_DIR)/$(CONFIG)/$(APP_NAME)
 LOG_SUBSYSTEM := com.agentusagebar.app
 
-.PHONY: build run probe logs kill test app demo demo-number demo-bar-hover demo-collapse demo-disclosure demo-pricing-links demo-tab-switch clean
+.PHONY: build run probe logs kill test app demo demo-number demo-bar-hover demo-label-toggle demo-collapse demo-disclosure demo-pricing-links demo-tab-switch clean
 
 build:
 	swift build -c $(CONFIG)
@@ -50,6 +50,11 @@ demo-number:
 demo-bar-hover:
 	swift build -c debug --product $(APP_NAME)
 	$(BUILD_DIR)/debug/$(APP_NAME) --demo-bar-hover
+
+## Compare the candidate treatments for the chart label's tokens-to-cost switch.
+demo-label-toggle:
+	swift build -c debug --product $(APP_NAME)
+	$(BUILD_DIR)/debug/$(APP_NAME) --demo-label-toggle
 
 ## Compare the candidate collapse-button treatments for the pricing table.
 demo-disclosure:

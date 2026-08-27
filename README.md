@@ -142,6 +142,7 @@ make probe              # Check both provider integrations from the terminal
 make probe-cost         # Rescan the local logs and print cost totals, without credentials or network
 make demo               # Replay the quota-recovery animation in a plain window
 make demo-number        # Compare candidate treatments for the headline percentage
+make demo-label-toggle  # Compare candidate treatments for the chart label's tokens-to-cost switch
 make demo-disclosure    # Compare candidate treatments for the pricing table's collapse control
 make demo-pricing-links # Compare candidate layouts for the pricing header's vendor links
 make demo-tab-switch    # Compare candidate treatments for the settings window's tab switch
