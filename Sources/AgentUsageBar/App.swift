@@ -54,6 +54,9 @@ enum AgentUsageBarApp {
         if CommandLine.arguments.contains("--verify-refresh-row") {
             RefreshRowVerifier.run()
         }
+        if CommandLine.arguments.contains("--verify-pricing-sort") {
+            PricingSortVerifier.run()
+        }
         if CommandLine.arguments.contains("--demo-celebration") {
             CelebrationDemo.run()
         }
