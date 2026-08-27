@@ -10,6 +10,7 @@ enum CostTests {
         Self.normalization()
         Self.longContextTiering()
         Self.overlayParsing()
+        Self.catalogRefreshBackoff()
         await Self.scanning()
         await Self.pricingEditsApplyForward()
     }
@@ -137,6 +138,42 @@ enum CostTests {
             CostPricing.pricing(for: "claude-opus-5", provider: .claude, overlay: overlay)?.input,
             99,
             "user override beats the models.dev catalog"
+        )
+    }
+
+    // MARK: - models.dev refresh
+
+    /// The pricing pane used to wait on this refresh, and a host that cannot reach models.dev
+    /// paid the request timeout on every open because a failure writes no cache and so never
+    /// stops looking stale. The backoff is what turns that into one attempt an hour.
+    private static func catalogRefreshBackoff() {
+        let hour: TimeInterval = 60 * 60
+
+        Harness.expect(
+            PricingCatalogRefreshPolicy.shouldRefresh(catalogAge: nil, lastAttemptAge: nil),
+            "a catalog that was never fetched is worth fetching"
+        )
+        Harness.expect(
+            !PricingCatalogRefreshPolicy.shouldRefresh(catalogAge: 12 * hour, lastAttemptAge: nil),
+            "a catalog inside its TTL is left alone"
+        )
+        Harness.expect(
+            PricingCatalogRefreshPolicy.shouldRefresh(catalogAge: 25 * hour, lastAttemptAge: 2 * hour),
+            "a catalog past its TTL refreshes once the backoff has run out"
+        )
+        Harness.expect(
+            !PricingCatalogRefreshPolicy.shouldRefresh(catalogAge: nil, lastAttemptAge: 60),
+            "a failure a minute ago is not retried"
+        )
+        Harness.expect(
+            PricingCatalogRefreshPolicy.shouldRefresh(catalogAge: nil, lastAttemptAge: 2 * hour),
+            "a failure an hour old is retried"
+        )
+        // A stale catalog still in backoff keeps serving its prices rather than blocking on a
+        // fetch; that is the whole point of keeping the old cache on failure.
+        Harness.expect(
+            !PricingCatalogRefreshPolicy.shouldRefresh(catalogAge: 30 * hour, lastAttemptAge: 5 * 60),
+            "a stale catalog waits out the backoff instead of retrying on every call"
         )
     }
 
