@@ -44,6 +44,28 @@ do {
     Harness.expect(false, "codex partial decode threw: \(error)")
 }
 
+// An empty balance is not worth a section: the popover hides it rather than showing "0 left".
+Harness.expect(
+    !CreditsSnapshot(hasCredits: false, unlimited: false, balance: 0).hasSpendableBalance,
+    "no credits hides the section"
+)
+Harness.expect(
+    !CreditsSnapshot(hasCredits: true, unlimited: false, balance: 0).hasSpendableBalance,
+    "drained balance hides the section"
+)
+Harness.expect(
+    !CreditsSnapshot(hasCredits: true, unlimited: false, balance: nil).hasSpendableBalance,
+    "missing balance hides the section"
+)
+Harness.expect(
+    CreditsSnapshot(hasCredits: true, unlimited: false, balance: 640).hasSpendableBalance,
+    "positive balance shows the section"
+)
+Harness.expect(
+    CreditsSnapshot(hasCredits: false, unlimited: true, balance: nil).hasSpendableBalance,
+    "unlimited credits show the section"
+)
+
 Harness.expectEqual(CodexProvider.planLabel("plus"), "Plus", "plan label simple")
 Harness.expectEqual(CodexProvider.planLabel("free_workspace"), "Free Workspace", "plan label underscored")
 

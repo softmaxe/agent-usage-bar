@@ -124,7 +124,7 @@ enum CardDump {
                 // Two days into the week with 14% gone is a reserve; the tip renders green.
                 weekly: UsageWindow(usedPercent: 14, resetsAt: Date().addingTimeInterval(5 * 86_400), windowSeconds: 604_800),
                 planLabel: "Plus",
-                credits: CreditsSnapshot(hasCredits: false, unlimited: false, balance: 0),
+                credits: CreditsSnapshot(hasCredits: true, unlimited: false, balance: 640),
                 fetchedAt: now
             ))),
             ("claude-loaded", .claude, (UsageSnapshot(

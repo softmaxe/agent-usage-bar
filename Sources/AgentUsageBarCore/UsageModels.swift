@@ -44,6 +44,15 @@ public struct CreditsSnapshot: Sendable, Equatable {
         self.unlimited = unlimited
         self.balance = balance
     }
+
+    /// True only when there is a balance worth showing. An account with no credits at all,
+    /// or one drained to zero, reports the same thing an empty bar would — so the popover
+    /// drops the section instead of rendering "0 left".
+    public var hasSpendableBalance: Bool {
+        if self.unlimited { return true }
+        guard self.hasCredits, let balance = self.balance else { return false }
+        return balance > 0
+    }
 }
 
 /// Everything the menu bar and the popover need for one provider at one point in time.

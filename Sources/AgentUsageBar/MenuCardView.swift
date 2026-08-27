@@ -102,9 +102,10 @@ struct MenuCardView: View {
                     )
                 }
 
-                // Only Codex reports credits at all. A zero balance still shows, matching
-                // CodexBar: an empty credit bar is information, not an empty state.
-                if let credits = snapshot.credits {
+                // Only Codex reports credits at all, and the section is only worth the space
+                // when there is a balance left: with no credits the bar would sit empty at
+                // "0 left", which tells the user nothing their quota windows do not.
+                if let credits = snapshot.credits, credits.hasSpendableBalance {
                     Divider().padding(.top, 2)
                     CreditsSectionView(credits: credits)
                 }
