@@ -633,6 +633,46 @@ enum RefreshCooldownGateTests {
     }
 }
 
+/// Refreshes are scoped to the provider on screen, so each provider waits out its own minute.
+enum ProviderRefreshCooldownTests {
+    static func run() {
+        var cooldowns = ProviderRefreshCooldown()
+
+        // Everything the shown provider does — the poll, opening the menu, the Refresh row —
+        // claims its gate and nothing else.
+        Harness.expect(cooldowns.claimRefresh(.codex, at: 1_000), "the shown provider refreshes")
+        Harness.expect(!cooldowns.claimRefresh(.codex, at: 1_030), "and then waits out its minute")
+        Harness.expectEqual(
+            cooldowns.remaining(.claude, at: 1_030),
+            0,
+            "the provider that is not shown is untouched by that refresh"
+        )
+
+        // Switching to the other provider is the one event that refreshes it.
+        Harness.expect(cooldowns.claimRefresh(.claude, at: 1_030), "switching refreshes the provider switched to")
+
+        // Switching back and forth cannot buy extra fetches: both gates are still running.
+        Harness.expect(!cooldowns.claimRefresh(.codex, at: 1_040), "switching back does not refetch within the minute")
+        Harness.expect(!cooldowns.claimRefresh(.claude, at: 1_050), "and neither does switching away and back")
+
+        // Each gate elapses from its own last refresh, not from the other provider's.
+        Harness.expect(cooldowns.claimRefresh(.codex, at: 1_059), "the first provider comes back a minute after its own refresh")
+        Harness.expect(!cooldowns.claimRefresh(.claude, at: 1_059), "which says nothing about the other one")
+        Harness.expect(cooldowns.claimRefresh(.claude, at: 1_089), "the other one comes back a minute after its own")
+
+        // A forced refresh — a pricing edit the user is looking at — restarts only that provider.
+        cooldowns.recordRefresh(.codex, at: 1_100)
+        Harness.expectEqual(cooldowns.remaining(.codex, at: 1_100), 59, "a forced refresh restarts that provider's cooldown")
+        Harness.expectEqual(cooldowns.remaining(.claude, at: 1_100), 48, "and leaves the other provider's running")
+
+        // The interval is configurable, per provider, the same way the single gate's is.
+        var tight = ProviderRefreshCooldown(minimumInterval: 10, tolerance: 0)
+        Harness.expect(tight.claimRefresh(.codex, at: 0), "the first refresh runs")
+        Harness.expect(!tight.claimRefresh(.codex, at: 9.999), "a custom interval is honoured")
+        Harness.expect(tight.claimRefresh(.codex, at: 10), "and elapses exactly")
+    }
+}
+
 /// What the Refresh row says while the cooldown runs.
 enum RefreshRowPolicyTests {
     static func run() {
