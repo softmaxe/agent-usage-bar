@@ -7,10 +7,12 @@ import Foundation
 public enum RefreshRowPolicy {
     public struct State: Equatable {
         public let title: String
+        public let trailingText: String?
         public let isEnabled: Bool
 
-        public init(title: String, isEnabled: Bool) {
+        public init(title: String, trailingText: String?, isEnabled: Bool) {
             self.title = title
+            self.trailingText = trailingText
             self.isEnabled = isEnabled
         }
     }
@@ -21,15 +23,15 @@ public enum RefreshRowPolicy {
         // An in-flight refresh also holds the cooldown, so it is reported as what it is rather
         // than as a countdown the user cannot act on yet.
         if isRefreshing {
-            return State(title: "Refreshing…", isEnabled: false)
+            return State(title: "Refreshing…", trailingText: nil, isEnabled: false)
         }
 
         guard cooldownRemaining > 0 else {
-            return State(title: Self.idleTitle, isEnabled: true)
+            return State(title: Self.idleTitle, trailingText: nil, isEnabled: true)
         }
 
-        // Rounded up: the row must never read "Refresh in 0s" while a click is still refused.
+        // Rounded up: the row must never read "0s" while a click is still refused.
         let seconds = Int(cooldownRemaining.rounded(.up))
-        return State(title: "Refresh in \(seconds)s", isEnabled: false)
+        return State(title: Self.idleTitle, trailingText: "\(seconds)s", isEnabled: false)
     }
 }

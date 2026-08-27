@@ -187,7 +187,7 @@ struct PricingSettingsView: View {
             }
             .buttonStyle(.borderless)
             .frame(width: 22)
-            .help("Back to the default order: most used first")
+            .help("Back to the default order: API whitelist fixed order; Others most-used first")
             .disabled(self.model.sort.isDefault)
         }
         .font(.system(size: 11, weight: .medium))

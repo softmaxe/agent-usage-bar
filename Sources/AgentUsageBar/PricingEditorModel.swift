@@ -10,13 +10,37 @@ enum PricingGroup: String, CaseIterable, Identifiable, Hashable {
 
     var id: String { self.rawValue }
 
-    static func classify(model: String) -> PricingGroup {
-        let name = model.lowercased()
-        if name.hasPrefix("claude-") { return .claude }
-        if ["gpt-", "chatgpt-", "codex-", "o1", "o3", "o4"].contains(where: name.hasPrefix) {
-            return .codex
+    static func whitelist(for provider: Provider) -> [String] {
+        switch provider {
+        case .codex: ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]
+        case .claude: ["claude-fable-5", "claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"]
         }
+    }
+
+    static func classify(model: String) -> PricingGroup {
+        let name = model.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if self.whitelist(for: .claude).contains(name) { return .claude }
+        if self.whitelist(for: .codex).contains(name) { return .codex }
         return .others
+    }
+}
+
+/// The settings pane keeps the current API models visible and only exposes an unpriced model
+/// from the local logs when every pricing layer has failed to resolve it.
+enum PricingModelFilterPolicy {
+    static func visibleModels(
+        provider: Provider,
+        usage: [ModelUsageTotal],
+        overlay: PricingOverlay
+    ) -> [String] {
+        let whitelist = PricingGroup.whitelist(for: provider)
+        let seen = usage.map { CostPricing.normalize($0.model, provider: provider) }
+        let seenSet = Set(seen.filter { !$0.isEmpty && $0 != CostPricing.unknownModel })
+        let unpriced = seenSet.filter { name in
+            !whitelist.contains(name)
+                && CostPricing.pricing(for: name, provider: provider, overlay: overlay) == nil
+        }
+        return whitelist + unpriced.sorted()
     }
 }
 
@@ -91,8 +115,12 @@ final class PricingEditorModel: ObservableObject {
     @Published private(set) var sort: PricingSort = .default
 
     private var originalRows: [String: PricingRow] = [:]
+    /// Position of each row in `rows`, so a field can reach its row without a linear scan.
+    private var indexByID: [String: Int] = [:]
     /// Rates from the built-in table plus models.dev, i.e. what a row falls back to.
     private var defaults: [String: ModelPricing] = [:]
+    /// User overrides loaded with the current overlay, including models hidden from the table.
+    private var loadedUserOverrides: [String: ModelPricing] = [:]
     private let costService: CostService
     /// Called after a successful save so the cards can re-price without waiting for a poll.
     var onSaved: (() -> Void)?
@@ -101,19 +129,48 @@ final class PricingEditorModel: ObservableObject {
         self.costService = costService
     }
 
+    /// Fills the table from disk and only then goes looking for a newer models.dev catalog.
+    ///
+    /// Both halves used to be one blocking step in front of the table, so the pane sat on a
+    /// spinner for the length of a network round trip — and for the full request timeout on a
+    /// host that cannot reach models.dev, on every single open, because a failed fetch writes
+    /// no cache and so never stops looking stale.
     func load() async {
-        self.isLoading = true
+        // Reopening the pane must not throw away rates the user is part-way through typing.
+        guard !self.hasUnsavedChanges else { return }
 
-        let overlay = await PricingOverlayStore.load()
-        let overrides = PricingOverlayStore.loadUserOverrides()
+        await self.rebuild(overlay: PricingOverlayStore.loadFromDisk())
+
+        // The table is on screen by now, so the catalog refresh costs the user nothing. It
+        // only redraws when models.dev actually moved.
+        if let refreshed = await self.costService.refreshPricingCatalog(), !self.hasUnsavedChanges {
+            await self.rebuild(overlay: refreshed)
+        }
+    }
+
+    private func rebuild(overlay: PricingOverlay) async {
+        // A reload behind an already-drawn table replaces it in place; only a first fill has
+        // nothing to show meanwhile.
+        self.isLoading = self.rows.isEmpty
+
+        self.loadedUserOverrides = overlay.userOverrides
         // The overlay minus the user layer is what a row would fall back to if its override
         // were removed, which is what the Reset button has to restore.
         let fallback = PricingOverlay(userOverrides: [:], modelsDev: overlay.modelsDev)
 
-        var usageByProvider: [Provider: [ModelUsageTotal]] = [:]
-        for provider in Provider.allCases {
-            usageByProvider[provider] = await self.costService.knownModelUsage(provider: provider)
-        }
+        // Read on a connection of its own rather than through the service's actor, which a log
+        // scan can hold for seconds at a time.
+        let databaseURL = self.costService.databaseURL
+        let usageByProvider = await Task.detached {
+            var usage: [Provider: [ModelUsageTotal]] = [:]
+            for provider in Provider.allCases {
+                usage[provider] = CostUsageReader.knownModelUsage(
+                    provider: provider,
+                    databaseURL: databaseURL
+                )
+            }
+            return usage
+        }.value
 
         var built: [PricingRow] = []
         var defaults: [String: ModelPricing] = [:]
@@ -121,21 +178,11 @@ final class PricingEditorModel: ObservableObject {
         for provider in Provider.allCases {
             let usage = usageByProvider[provider] ?? []
             let seen = usage.map(\.model)
-            let builtIn = provider == .codex ? CostPricing.codex : CostPricing.claude
-
-            // Normalized names, because that is the key everything else is looked up by.
-            var names: [String] = []
-            var included: Set<String> = []
-            let providerOverrides = overrides.keys.filter { name in
-                Self.provider(forOverride: name, usageByProvider: usageByProvider) == provider
-            }
-            for raw in seen + builtIn.keys.sorted() + providerOverrides.sorted() {
-                let name = CostPricing.normalize(raw, provider: provider)
-                guard !name.isEmpty, name != CostPricing.unknownModel, included.insert(name).inserted else {
-                    continue
-                }
-                names.append(name)
-            }
+            let names = PricingModelFilterPolicy.visibleModels(
+                provider: provider,
+                usage: usage,
+                overlay: overlay
+            )
 
             let seenSet = Set(seen.map { CostPricing.normalize($0, provider: provider) })
             let usageTokens = Dictionary(uniqueKeysWithValues: usage.map {
@@ -144,13 +191,9 @@ final class PricingEditorModel: ObservableObject {
 
             for name in names {
                 let fallbackPricing = CostPricing.pricing(for: name, provider: provider, overlay: fallback)
-                // Only list a model under the provider that knows it, unless the logs saw it.
-                guard seenSet.contains(name) || fallbackPricing != nil || overrides[name] != nil else {
-                    continue
-                }
                 defaults["\(provider.rawValue)|\(name)"] = fallbackPricing
 
-                let effective = overrides[name] ?? fallbackPricing
+                let effective = CostPricing.pricing(for: name, provider: provider, overlay: overlay)
                 built.append(PricingRow(
                     provider: provider,
                     group: PricingGroup.classify(model: name),
@@ -177,10 +220,19 @@ final class PricingEditorModel: ObservableObject {
         built.sort(by: PricingSortPolicy.defaultOrder)
 
         self.defaults = defaults
-        self.rows = built
+        self.setRows(built)
         self.originalRows = Dictionary(uniqueKeysWithValues: built.map { ($0.id, $0) })
         self.hasUnsavedChanges = false
         self.isLoading = false
+    }
+
+    /// Rows and the id lookup move together: the table asks for a row by id once per field, so
+    /// scanning the array for each one made a redraw quadratic in the number of models.
+    private func setRows(_ rows: [PricingRow]) {
+        self.rows = rows
+        self.indexByID = Dictionary(
+            uniqueKeysWithValues: rows.enumerated().map { ($0.element.id, $0.offset) }
+        )
     }
 
     func rows(in group: PricingGroup) -> [PricingRow] {
@@ -200,7 +252,7 @@ final class PricingEditorModel: ObservableObject {
 #if DEBUG
     /// Lets a headless run drive the table without reading the pricing files on disk.
     func debugSetRows(_ rows: [PricingRow]) {
-        self.rows = rows.sorted(by: PricingSortPolicy.defaultOrder)
+        self.setRows(rows.sorted(by: PricingSortPolicy.defaultOrder))
         self.isLoading = false
     }
 #endif
@@ -219,9 +271,9 @@ final class PricingEditorModel: ObservableObject {
 
     func binding(for id: String, keyPath: WritableKeyPath<PricingRow, String>) -> Binding<String> {
         Binding(
-            get: { self.rows.first { $0.id == id }?[keyPath: keyPath] ?? "" },
+            get: { self.indexByID[id].map { self.rows[$0][keyPath: keyPath] } ?? "" },
             set: { newValue in
-                guard let index = self.rows.firstIndex(where: { $0.id == id }) else { return }
+                guard let index = self.indexByID[id] else { return }
                 self.rows[index][keyPath: keyPath] = newValue
                 self.hasUnsavedChanges = self.rows.contains { self.originalRows[$0.id] != $0 }
             }
@@ -230,7 +282,7 @@ final class PricingEditorModel: ObservableObject {
 
     /// Restores a row to what it would be with no override.
     func reset(id: String) {
-        guard let index = self.rows.firstIndex(where: { $0.id == id }) else { return }
+        guard let index = self.indexByID[id] else { return }
         let fallback = self.defaults[id] ?? nil
         self.rows[index].input = Self.text(fallback?.input)
         self.rows[index].output = Self.text(fallback?.output)
@@ -253,15 +305,17 @@ final class PricingEditorModel: ObservableObject {
     /// Writes only the rows that differ from their fallback, so the override file stays small
     /// and future built-in updates still reach the untouched models.
     ///
+    /// Rows hidden by the settings filter are kept in the file. A visible row is the only row
+    /// allowed to update or remove its own override.
+    ///
     /// Usage already recorded keeps the cost it was scanned with: the service prices everything
     /// on disk at the old rates first, and the new rates only reach what is logged afterwards.
     func save() async {
-        var overrides: [String: ModelPricing] = [:]
-        for row in self.rows {
-            guard let pricing = Self.pricing(from: row) else { continue }
-            if let fallback = self.defaults[row.id] ?? nil, pricing == fallback { continue }
-            overrides[row.model] = pricing
-        }
+        let overrides = Self.mergedUserOverrides(
+            existing: self.loadedUserOverrides,
+            rows: self.rows,
+            defaults: self.defaults
+        )
 
         do {
             try await self.costService.freezeCurrentPrices()
@@ -270,11 +324,34 @@ final class PricingEditorModel: ObservableObject {
             self.saveError = nil
             self.hasUnsavedChanges = false
             self.lastSavedAt = Date()
+            self.loadedUserOverrides = overrides
             self.originalRows = Dictionary(uniqueKeysWithValues: self.rows.map { ($0.id, $0) })
             self.onSaved?()
         } catch {
             self.saveError = error.localizedDescription
         }
+    }
+
+    /// Merges visible edits into the loaded user layer without deleting overrides for hidden rows.
+    /// A missing row price or a value equal to its fallback removes that row's override.
+    static func mergedUserOverrides(
+        existing: [String: ModelPricing],
+        rows: [PricingRow],
+        defaults: [String: ModelPricing]
+    ) -> [String: ModelPricing] {
+        var overrides = existing
+        for row in rows {
+            guard let pricing = Self.pricing(from: row) else {
+                overrides.removeValue(forKey: row.model)
+                continue
+            }
+            if let fallback = defaults[row.id], pricing == fallback {
+                overrides.removeValue(forKey: row.model)
+            } else {
+                overrides[row.model] = pricing
+            }
+        }
+        return overrides
     }
 
     /// A row with no base rates is not priced at all, which is how a model gets removed from the
@@ -315,18 +392,5 @@ final class PricingEditorModel: ObservableObject {
 
     private static func integerText(_ value: Int?) -> String {
         value.map(String.init) ?? ""
-    }
-
-    private static func provider(
-        forOverride model: String,
-        usageByProvider: [Provider: [ModelUsageTotal]]
-    ) -> Provider {
-        for provider in Provider.allCases where usageByProvider[provider]?.contains(where: {
-            CostPricing.normalize($0.model, provider: provider)
-                == CostPricing.normalize(model, provider: provider)
-        }) == true {
-            return provider
-        }
-        return PricingGroup.classify(model: model) == .claude ? .claude : .codex
     }
 }

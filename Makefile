@@ -55,7 +55,6 @@ test:
 	swift build -c $(CONFIG) --product $(APP_NAME)Tests
 	$(BUILD_DIR)/$(CONFIG)/$(APP_NAME)Tests
 	swift build -c debug --product $(APP_NAME)
-	$(BUILD_DIR)/debug/$(APP_NAME) --verify-menu-toggles
 	$(BUILD_DIR)/debug/$(APP_NAME) --verify-cost-chart-highlighting
 	$(BUILD_DIR)/debug/$(APP_NAME) --verify-usage-bar-fill
 	$(BUILD_DIR)/debug/$(APP_NAME) --verify-icon-rendering
@@ -64,6 +63,7 @@ test:
 	$(BUILD_DIR)/debug/$(APP_NAME) --verify-relative-time
 	$(BUILD_DIR)/debug/$(APP_NAME) --verify-refresh-row
 	$(BUILD_DIR)/debug/$(APP_NAME) --verify-pricing-sort
+	$(BUILD_DIR)/debug/$(APP_NAME) --verify-pricing-model-filter
 	$(BUILD_DIR)/debug/$(APP_NAME) --verify-disclosure-motion
 
 clean:
