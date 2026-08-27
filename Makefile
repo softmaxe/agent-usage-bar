@@ -4,7 +4,7 @@ CONFIG ?= debug
 BIN := $(BUILD_DIR)/$(CONFIG)/$(APP_NAME)
 LOG_SUBSYSTEM := com.agentusagebar.app
 
-.PHONY: build run probe logs kill test app demo demo-number demo-bar-hover clean
+.PHONY: build run probe logs kill test app demo demo-number demo-bar-hover demo-disclosure clean
 
 build:
 	swift build -c $(CONFIG)
@@ -46,6 +46,11 @@ demo-bar-hover:
 	swift build -c debug --product $(APP_NAME)
 	$(BUILD_DIR)/debug/$(APP_NAME) --demo-bar-hover
 
+## Compare the candidate collapse-button treatments for the pricing table.
+demo-disclosure:
+	swift build -c debug --product $(APP_NAME)
+	$(BUILD_DIR)/debug/$(APP_NAME) --demo-disclosure
+
 ## Assemble a double-clickable AgentUsageBar.app under build/.
 app:
 	Scripts/package_app.sh
@@ -55,7 +60,6 @@ test:
 	swift build -c $(CONFIG) --product $(APP_NAME)Tests
 	$(BUILD_DIR)/$(CONFIG)/$(APP_NAME)Tests
 	swift build -c debug --product $(APP_NAME)
-	$(BUILD_DIR)/debug/$(APP_NAME) --verify-menu-toggles
 	$(BUILD_DIR)/debug/$(APP_NAME) --verify-cost-chart-highlighting
 	$(BUILD_DIR)/debug/$(APP_NAME) --verify-usage-bar-fill
 	$(BUILD_DIR)/debug/$(APP_NAME) --verify-icon-rendering
@@ -63,6 +67,9 @@ test:
 	$(BUILD_DIR)/debug/$(APP_NAME) --verify-quota-recovery
 	$(BUILD_DIR)/debug/$(APP_NAME) --verify-relative-time
 	$(BUILD_DIR)/debug/$(APP_NAME) --verify-refresh-row
+	$(BUILD_DIR)/debug/$(APP_NAME) --verify-pricing-sort
+	$(BUILD_DIR)/debug/$(APP_NAME) --verify-pricing-model-filter
+	$(BUILD_DIR)/debug/$(APP_NAME) --verify-disclosure-motion
 
 clean:
 	swift package clean

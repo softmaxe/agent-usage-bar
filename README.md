@@ -91,7 +91,11 @@ The first scan can take longer on a large history. Later scans are incremental a
 ~/Library/Caches/AgentUsageBar/cost-usage/cost-usage.sqlite
 ```
 
-Built-in rates are supplemented by the public [models.dev](https://models.dev) catalog, cached for 24 hours. Rates can be reviewed or overridden under **Settings → Pricing**, which exposes every figure the cost math reads: input, output, five-minute cache write, cache read, the one-hour cache write (empty means twice input, the ratio Anthropic publishes), and the long-context tier — its per-request token threshold plus the rates that apply above it. User overrides are stored at:
+Built-in rates are supplemented by the public [models.dev](https://models.dev) catalog, cached for 24 hours; a failed refresh is not retried for an hour, and the pane never waits on one — it draws from the cache and folds a newer catalog in behind it. Rates can be reviewed or overridden under **Settings → Pricing**, which exposes every figure the cost math reads: input, output, five-minute cache write, cache read, the one-hour cache write (empty means twice input, the ratio Anthropic publishes), and the long-context tier — its per-request token threshold plus the rates that apply above it. The table opens with the models the local logs use most at the top; clicking **Model**, **Input**, **Output**, **Cache w**, or **Cache r** sorts by that column and clicking it again reverses it, and the control at the right end of the header row goes back to the default most-used-first order.
+
+The two provider groups and the per-model disclosure behind each row open on the same easing the quota bar charges on, and the rows inside a group arrive one beat apart so the list unrolls from under its header rather than appearing all at once; the chevron turns a quarter turn instead of being swapped for a second glyph, and the control dips while it is held. Only the control springs — the table's own height never overshoots, because that would push every row below it. **Reduce motion** turns all of it back into a cut. `make demo-disclosure` puts the candidate treatments side by side.
+
+User overrides are stored at:
 
 ```text
 ~/Library/Application Support/AgentUsageBar/pricing-overrides.json
@@ -127,16 +131,17 @@ Claude Keychain access is performed through Apple's `/usr/bin/security` tool and
 The project uses Swift Package Manager and does not require an Xcode project.
 
 ```bash
-make build       # Build a debug binary
-make run         # Stop an existing instance, build, and run in the foreground
-make test        # Run the assertion-based test suite
-make probe       # Check both provider integrations from the terminal
-make probe-cost  # Rescan the local logs and print cost totals, without credentials or network
-make demo        # Replay the quota-recovery animation in a plain window
-make demo-number # Compare candidate treatments for the headline percentage
-make logs        # Stream app logs
-make app         # Build the release .app bundle
-make clean       # Remove SwiftPM and app build output
+make build           # Build a debug binary
+make run             # Stop an existing instance, build, and run in the foreground
+make test            # Run the assertion-based test suite
+make probe           # Check both provider integrations from the terminal
+make probe-cost      # Rescan the local logs and print cost totals, without credentials or network
+make demo            # Replay the quota-recovery animation in a plain window
+make demo-number     # Compare candidate treatments for the headline percentage
+make demo-disclosure # Compare candidate treatments for the pricing table's collapse control
+make logs            # Stream app logs
+make app             # Build the release .app bundle
+make clean           # Remove SwiftPM and app build output
 ```
 
 `make probe` can expose account and usage metadata in the terminal. Review its output before sharing logs.

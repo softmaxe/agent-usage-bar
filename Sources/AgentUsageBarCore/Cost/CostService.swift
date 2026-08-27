@@ -15,7 +15,9 @@ public struct ModelUsageTotal: Sendable, Equatable {
 public actor CostService {
     private var cache: CostCache?
     private var overlay: PricingOverlay?
-    private let databaseURL: URL
+    /// Readable without the actor so `CostUsageReader` can open the same file on a connection
+    /// of its own rather than queueing behind a scan.
+    public nonisolated let databaseURL: URL
     private let env: [String: String]
 
     /// `pricingOverlay` pins the price layers instead of loading them; tests use it to stay offline.
@@ -81,6 +83,19 @@ public actor CostService {
     /// Drops the cached price layers so the next refresh picks up an edited override file.
     public func invalidatePricing() {
         self.overlay = nil
+    }
+
+    /// Refreshes the models.dev layer if it has gone stale and folds it into the cached
+    /// overlay. Returns the new overlay only when the catalog actually moved, so a caller can
+    /// tell whether it has anything to redraw.
+    public func refreshPricingCatalog() async -> PricingOverlay? {
+        guard let catalog = await PricingOverlayStore.refreshCatalogIfStale() else { return nil }
+        let overlay = PricingOverlay(
+            userOverrides: PricingOverlayStore.loadUserOverrides(),
+            modelsDev: catalog
+        )
+        self.overlay = overlay
+        return overlay
     }
 
     /// Replaces the cached price layers outright. The app reloads them from disk instead

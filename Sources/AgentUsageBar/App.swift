@@ -33,9 +33,6 @@ enum AgentUsageBarApp {
         if CommandLine.arguments.contains("--verify-cost-chart-highlighting") {
             CostChartHighlightVerifier.run()
         }
-        if CommandLine.arguments.contains("--verify-menu-toggles") {
-            StatusItemToggleVerifier.run()
-        }
         if CommandLine.arguments.contains("--verify-usage-bar-fill") {
             UsageBarFillVerifier.run()
         }
@@ -54,6 +51,15 @@ enum AgentUsageBarApp {
         if CommandLine.arguments.contains("--verify-refresh-row") {
             RefreshRowVerifier.run()
         }
+        if CommandLine.arguments.contains("--verify-pricing-sort") {
+            PricingSortVerifier.run()
+        }
+        if CommandLine.arguments.contains("--verify-pricing-model-filter") {
+            PricingModelFilterVerifier.run()
+        }
+        if CommandLine.arguments.contains("--verify-disclosure-motion") {
+            DisclosureMotionVerifier.run()
+        }
         if CommandLine.arguments.contains("--demo-celebration") {
             CelebrationDemo.run()
         }
@@ -62,6 +68,9 @@ enum AgentUsageBarApp {
         }
         if CommandLine.arguments.contains("--demo-bar-hover") {
             BarHoverDemo.run()
+        }
+        if CommandLine.arguments.contains("--demo-disclosure") {
+            DisclosureAnimationDemo.run()
         }
         if let index = CommandLine.arguments.firstIndex(of: "--dump-number-animation"),
            index + 1 < CommandLine.arguments.count {

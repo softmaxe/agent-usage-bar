@@ -131,12 +131,6 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         )
     }
 
-    /// The right-click half of the click handler. The left-click half opens a menu, which would
-    /// block a headless run on menu tracking, so it is deliberately not exposed here.
-    func debugSecondaryClick() {
-        self.settings.advanceMenuBarProvider()
-    }
-
     func debugRefreshOpenCard() {
         self.refreshOpenCard()
     }
@@ -153,9 +147,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         self.hostingView?.rootView.debugStatusLine
     }
 
-    func debugRefreshRowState() -> (title: String, isEnabled: Bool)? {
+    func debugRefreshRowState() -> (title: String, trailingText: String?, isEnabled: Bool)? {
         guard let row = self.refreshRow else { return nil }
-        return (row.title, row.isEnabled)
+        return (row.title, row.trailingText, row.isEnabled)
     }
 
     func debugClickRefreshRow() {
@@ -248,9 +242,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
         // Switch provider and Refresh act on the card the user is already looking at, so they are
         // custom rows: AppKit dismisses a menu the moment a standard item is picked, and putting
-        // it back afterwards blinks. The cost is that a custom row cannot carry a key equivalent —
-        // while a menu tracks, AppKit matches ⌘-something against the items itself, and skips any
-        // item that has a view — so these two rows show no shortcut.
+        // it back afterwards blinks. A custom row cannot carry a key equivalent — while a menu
+        // tracks, AppKit matches ⌘-something against the items itself and skips any item with a
+        // view — so these rows draw their own trailing shortcut content.
         menu.addItem(self.actionRow(
             title: "Switch provider",
             icon: MenuIcons.rightButtonMouse(),
@@ -264,6 +258,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             width: Self.cardWidth,
             title: RefreshRowPolicy.idleTitle,
             icon: MenuIcons.symbol("arrow.clockwise"),
+            trailingText: nil,
             handler: { [weak self] in self?.refreshClicked() }
         )
         refreshItem.view = refreshRow
@@ -273,7 +268,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         // These two leave the card behind anyway, so they stay standard items and keep working
         // key equivalents.
         let settings = NSMenuItem(
-            title: "Settings…",
+            title: "Settings",
             action: #selector(self.settingsClicked),
             keyEquivalent: ","
         )
@@ -297,6 +292,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private func actionRow(
         title: String,
         icon: NSImage?,
+        trailingIcon: NSImage? = nil,
+        trailingText: String? = nil,
         handler: @escaping () -> Void
     ) -> NSMenuItem {
         let item = NSMenuItem()
@@ -304,6 +301,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             width: Self.cardWidth,
             title: title,
             icon: icon,
+            trailingIcon: trailingIcon,
+            trailingText: trailingText,
             handler: handler
         )
         return item
@@ -401,6 +400,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             isRefreshing: self.store.isRefreshing
         )
         row.title = state.title
+        row.trailingText = state.trailingText
         row.isEnabled = state.isEnabled
     }
 
