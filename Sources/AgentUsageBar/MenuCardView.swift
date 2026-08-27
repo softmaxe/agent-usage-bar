@@ -17,6 +17,8 @@ struct MenuCardView: View {
     var now = Date()
     var costChartLabelMode = CostChartLabelMode.tokens
     var onCostChartLabelModeChanged: (CostChartLabelMode) -> Void = { _ in }
+    var quotaResetDisplayMode = QuotaResetDisplayMode.countdown
+    var onQuotaResetDisplayModeChanged: (QuotaResetDisplayMode) -> Void = { _ in }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -143,7 +145,12 @@ struct MenuCardView: View {
             paceLine: pace.map { Self.paceLine(for: $0, context: context) },
             animatesFill: self.animatesFill,
             celebrationToken: self.recoveries[kind] == nil ? 0 : self.celebrationTokens[kind] ?? 0,
-            celebrationStartPercent: self.recoveries[kind]?.fromRemainingPercent
+            celebrationStartPercent: self.recoveries[kind]?.fromRemainingPercent,
+            now: self.now,
+            resetDisplayMode: self.quotaResetDisplayMode,
+            onResetDisplayModeToggled: {
+                self.onQuotaResetDisplayModeChanged(self.quotaResetDisplayMode.toggled)
+            }
         )
     }
 }
@@ -160,6 +167,11 @@ private struct QuotaWindowRow: View {
     let animatesFill: Bool
     let celebrationToken: Int
     let celebrationStartPercent: Double?
+    /// Passed in rather than read here so the reset label renders the same on the offscreen dump
+    /// and in the verifiers as it does against the wall clock.
+    let now: Date
+    let resetDisplayMode: QuotaResetDisplayMode
+    let onResetDisplayModeToggled: () -> Void
 
     @StateObject private var celebration = QuotaCelebrationRelay()
 
@@ -174,9 +186,14 @@ private struct QuotaWindowRow: View {
                 )
                 Spacer(minLength: 8)
                 if let resetsAt = self.window.resetsAt {
-                    Text("Resets in \(Formatters.compactDuration(resetsAt.timeIntervalSinceNow))")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
+                    ResetLabel(
+                        text: QuotaResetLabel.text(
+                            resetsAt: resetsAt,
+                            mode: self.resetDisplayMode,
+                            now: self.now
+                        ),
+                        onToggle: self.onResetDisplayModeToggled
+                    )
                 }
             }
             UsageProgressBar(
@@ -199,5 +216,36 @@ private struct QuotaWindowRow: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+}
+
+/// The reset label doubles as its own switch: one click trades the countdown for the clock time
+/// it is counting down to, and back. The click cannot come from `.onTapGesture` — an NSMenu popup
+/// is never the key window, so SwiftUI's gestures never fire inside the card — so it arrives
+/// through the same always-active tracking view the cost chart uses.
+private struct ResetLabel: View {
+    let text: String
+    let onToggle: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Text(self.text)
+            .font(.system(size: 11))
+            // Nothing else on the card responds to the pointer this way, so the lift on hover is
+            // what tells the reader the label is worth clicking at all.
+            .foregroundStyle(self.isHovered ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+            .lineLimit(1)
+            .animation(.easeOut(duration: 0.12), value: self.isHovered)
+            .overlay {
+                MouseLocationReader(
+                    onMoved: { location in
+                        let hovered = location != nil
+                        guard self.isHovered != hovered else { return }
+                        self.isHovered = hovered
+                    },
+                    onClicked: { _ in self.onToggle() }
+                )
+            }
     }
 }

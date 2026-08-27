@@ -29,6 +29,11 @@ struct PricingSettingsView: View {
     private static let claudePricingURL = URL(string: "https://platform.claude.com/docs/en/about-claude/pricing")!
     private static let openAIPricingURL = URL(string: "https://developers.openai.com/api/docs/pricing")!
     private static let openRouterPricingURL = URL(string: "https://openrouter.ai/models")!
+    /// The gap between the vendor links, kept equal to the header's own padding.
+    private static let linkSpacing: CGFloat = 12
+    /// Claude and OpenAI are read by the accents their provider cards already carry. OpenRouter has
+    /// no card in the app, so it borrows the indigo from its own site, held at the same saturation.
+    private static let openRouterAccent = Color(red: 124 / 255, green: 118 / 255, blue: 214 / 255)
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -60,22 +65,33 @@ struct PricingSettingsView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 8) {
-                Link(destination: Self.claudePricingURL) {
-                    Label("Claude API pricing", systemImage: "arrow.up.right.square")
-                }
-                Link(destination: Self.openAIPricingURL) {
-                    Label("OpenAI API pricing", systemImage: "arrow.up.right.square")
-                }
-                Link(destination: Self.openRouterPricingURL) {
-                    Label("OpenRouter API pricing", systemImage: "arrow.up.right.square")
-                }
+            // Three equal columns split by the panel's own margin, so the air between the buttons
+            // and at either end of the row is the same. The row keeps the header's own symmetric
+            // margins rather than the table's reserved scroller gutter, because the copy above it
+            // does too. Only the arrow carries the vendor's color: brand-colored label text on a
+            // system-gray button reads as a warning.
+            HStack(spacing: Self.linkSpacing) {
+                self.pricingLink("Claude API pricing", Self.claudePricingURL, Theme.accent(for: .claude))
+                self.pricingLink("OpenAI API pricing", Self.openAIPricingURL, Theme.accent(for: .codex))
+                self.pricingLink("OpenRouter API pricing", Self.openRouterPricingURL, Self.openRouterAccent)
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
             .padding(.top, 4)
         }
         .padding(12)
+    }
+
+    private func pricingLink(_ title: String, _ url: URL, _ accent: Color) -> some View {
+        Link(destination: url) {
+            HStack(spacing: 5) {
+                Image(systemName: "arrow.up.right.square")
+                    .foregroundStyle(accent)
+                Text(title)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity)
+        }
     }
 
     private var table: some View {

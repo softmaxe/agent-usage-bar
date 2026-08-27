@@ -186,49 +186,56 @@ enum CardDump {
             }
         }
 
-        for (name, provider, snapshot) in cases {
-            let view = MenuCardView(
-                provider: provider,
-                display: ProviderDisplay(
-                    snapshot: snapshot,
-                    cost: costs[provider],
-                    error: errors[name]
-                ),
-                isRefreshing: false,
-                animatesFill: false
-            )
-            let hosting = NSHostingView(rootView: view)
-            hosting.frame = NSRect(origin: .zero, size: hosting.fittingSize)
-            // A layer-backed offscreen host still needs a window to lay out correctly.
-            let window = NSWindow(
-                contentRect: hosting.frame,
-                styleMask: [.borderless],
-                backing: .buffered,
-                defer: false
-            )
-            // The real card sits on the menu's vibrant material. Force dark appearance and paint
-            // an opaque ground so the dumped PNG shows the same contrast the menu does.
-            window.appearance = NSAppearance(named: .darkAqua)
-            let ground = NSView(frame: hosting.frame)
-            ground.wantsLayer = true
-            ground.layer?.backgroundColor = NSColor(white: 0.13, alpha: 1).cgColor
-            ground.addSubview(hosting)
-            window.contentView = ground
-            ground.layoutSubtreeIfNeeded()
-            hosting.layoutSubtreeIfNeeded()
+        // Both faces of the reset label: the clock one is the longer string, and it is the one
+        // that would crowd the headline out of a 280pt card if it ever got too long.
+        let resetModes: [(String, QuotaResetDisplayMode)] = [("", .countdown), ("-reset-clock", .clock)]
+        for (baseName, provider, snapshot) in cases {
+            for (suffix, resetMode) in resetModes {
+                let name = baseName + suffix
+                let view = MenuCardView(
+                    provider: provider,
+                    display: ProviderDisplay(
+                        snapshot: snapshot,
+                        cost: costs[provider],
+                        error: errors[baseName]
+                    ),
+                    isRefreshing: false,
+                    animatesFill: false,
+                    quotaResetDisplayMode: resetMode
+                )
+                let hosting = NSHostingView(rootView: view)
+                hosting.frame = NSRect(origin: .zero, size: hosting.fittingSize)
+                // A layer-backed offscreen host still needs a window to lay out correctly.
+                let window = NSWindow(
+                    contentRect: hosting.frame,
+                    styleMask: [.borderless],
+                    backing: .buffered,
+                    defer: false
+                )
+                // The real card sits on the menu's vibrant material. Force dark appearance and paint
+                // an opaque ground so the dumped PNG shows the same contrast the menu does.
+                window.appearance = NSAppearance(named: .darkAqua)
+                let ground = NSView(frame: hosting.frame)
+                ground.wantsLayer = true
+                ground.layer?.backgroundColor = NSColor(white: 0.13, alpha: 1).cgColor
+                ground.addSubview(hosting)
+                window.contentView = ground
+                ground.layoutSubtreeIfNeeded()
+                hosting.layoutSubtreeIfNeeded()
 
-            guard let rep = ground.bitmapImageRepForCachingDisplay(in: ground.bounds) else {
-                print("failed to allocate bitmap for \(name)")
-                continue
+                guard let rep = ground.bitmapImageRepForCachingDisplay(in: ground.bounds) else {
+                    print("failed to allocate bitmap for \(name)")
+                    continue
+                }
+                ground.cacheDisplay(in: ground.bounds, to: rep)
+                guard let data = rep.representation(using: NSBitmapImageRep.FileType.png, properties: [:]) else {
+                    print("failed to encode \(name)")
+                    continue
+                }
+                let url = root.appendingPathComponent("\(name).png")
+                try? data.write(to: url)
+                print("wrote \(url.path) (\(Int(hosting.frame.width))x\(Int(hosting.frame.height)))")
             }
-            ground.cacheDisplay(in: ground.bounds, to: rep)
-            guard let data = rep.representation(using: NSBitmapImageRep.FileType.png, properties: [:]) else {
-                print("failed to encode \(name)")
-                continue
-            }
-            let url = root.appendingPathComponent("\(name).png")
-            try? data.write(to: url)
-            print("wrote \(url.path) (\(Int(hosting.frame.width))x\(Int(hosting.frame.height)))")
         }
     }
 }

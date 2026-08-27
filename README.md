@@ -76,6 +76,8 @@ The menu bar carries one item. **Right-clicking** (or control-clicking) it switc
 
 Whenever the five-hour or weekly window resets, the card plays a one-off animation the next time it is opened. Each window resumes from its last observed pre-reset position and continuously slows into the new full reading, with nothing trailing the head on the way; reaching 100% is the whole event, and the pop, the flash, and a soft glow rising under the bar all land on that beat. The landing has no edges anywhere — what says the quota is full is the whole bar going warm, not a shape drawn where the head stopped. The percentage above the bar arrives with it rather than being already correct while the bar is still charging: it counts on the fill's own easing, blurs while the digits are turning fastest so it resolves into the new reading instead of stopping on it, and takes the same landing beat. The bar owns the only clock — the number renders the frames it publishes, so the two cannot drift apart. Five-hour and weekly resets are tracked independently, ordinary spending never triggers it, and both the last reading and a pending reset survive an app restart. Turning on **System Settings → Accessibility → Display → Reduce motion** replaces it with the ordinary fill. `make demo` replays the shared production animation on demand.
 
+Each quota window's **`Resets in …`** label is a switch: clicking it swaps the countdown for the wall-clock time the window resets at — `Resets 3:30 PM` today, `Resets Sat 9:00 AM` further out — and clicking again swaps back. Both windows read the same way, and the choice is remembered across launches.
+
 Opening the menu requests one immediate manual refresh of the provider on screen without resetting the scheduled timer. Without clicks, the app keeps the configured background cadence; its default interval is five minutes to reduce quota-endpoint rate limiting.
 
 ## Cost estimates and pricing
@@ -133,18 +135,19 @@ Claude Keychain access is performed through Apple's `/usr/bin/security` tool and
 The project uses Swift Package Manager and does not require an Xcode project.
 
 ```bash
-make build           # Build a debug binary
-make run             # Stop an existing instance, build, and run in the foreground
-make test            # Run the assertion-based test suite
-make probe           # Check both provider integrations from the terminal
-make probe-cost      # Rescan the local logs and print cost totals, without credentials or network
-make demo            # Replay the quota-recovery animation in a plain window
-make demo-number     # Compare candidate treatments for the headline percentage
-make demo-disclosure # Compare candidate treatments for the pricing table's collapse control
-make demo-tab-switch # Compare candidate treatments for the settings window's tab switch
-make logs            # Stream app logs
-make app             # Build the release .app bundle
-make clean           # Remove SwiftPM and app build output
+make build              # Build a debug binary
+make run                # Stop an existing instance, build, and run in the foreground
+make test               # Run the assertion-based test suite
+make probe              # Check both provider integrations from the terminal
+make probe-cost         # Rescan the local logs and print cost totals, without credentials or network
+make demo               # Replay the quota-recovery animation in a plain window
+make demo-number        # Compare candidate treatments for the headline percentage
+make demo-disclosure    # Compare candidate treatments for the pricing table's collapse control
+make demo-pricing-links # Compare candidate layouts for the pricing header's vendor links
+make demo-tab-switch    # Compare candidate treatments for the settings window's tab switch
+make logs               # Stream app logs
+make app                # Build the release .app bundle
+make clean              # Remove SwiftPM and app build output
 ```
 
 `make probe` can expose account and usage metadata in the terminal. Review its output before sharing logs.

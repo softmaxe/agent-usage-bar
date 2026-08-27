@@ -4,7 +4,7 @@ CONFIG ?= debug
 BIN := $(BUILD_DIR)/$(CONFIG)/$(APP_NAME)
 LOG_SUBSYSTEM := com.agentusagebar.app
 
-.PHONY: build run probe logs kill test app demo demo-number demo-bar-hover demo-collapse demo-disclosure demo-tab-switch clean
+.PHONY: build run probe logs kill test app demo demo-number demo-bar-hover demo-collapse demo-disclosure demo-pricing-links demo-tab-switch clean
 
 build:
 	swift build -c $(CONFIG)
@@ -56,6 +56,11 @@ demo-disclosure:
 	swift build -c debug --product $(APP_NAME)
 	$(BUILD_DIR)/debug/$(APP_NAME) --demo-disclosure
 
+## Compare the candidate layouts for the pricing header's three vendor links.
+demo-pricing-links:
+	swift build -c debug --product $(APP_NAME)
+	$(BUILD_DIR)/debug/$(APP_NAME) --demo-pricing-links
+
 ## Compare the candidate treatments for switching the settings window's tabs.
 demo-tab-switch:
 	swift build -c debug --product $(APP_NAME)
@@ -76,6 +81,7 @@ test:
 	$(BUILD_DIR)/debug/$(APP_NAME) --verify-menu-pointer-follow
 	$(BUILD_DIR)/debug/$(APP_NAME) --verify-quota-recovery
 	$(BUILD_DIR)/debug/$(APP_NAME) --verify-relative-time
+	$(BUILD_DIR)/debug/$(APP_NAME) --verify-quota-reset-label
 	$(BUILD_DIR)/debug/$(APP_NAME) --verify-refresh-row
 	$(BUILD_DIR)/debug/$(APP_NAME) --verify-pricing-sort
 	$(BUILD_DIR)/debug/$(APP_NAME) --verify-pricing-model-filter

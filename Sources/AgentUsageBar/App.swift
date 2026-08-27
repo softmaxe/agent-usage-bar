@@ -48,6 +48,9 @@ enum AgentUsageBarApp {
         if CommandLine.arguments.contains("--verify-relative-time") {
             RelativeTimeVerifier.run()
         }
+        if CommandLine.arguments.contains("--verify-quota-reset-label") {
+            QuotaResetLabelVerifier.run()
+        }
         if CommandLine.arguments.contains("--verify-refresh-row") {
             RefreshRowVerifier.run()
         }
@@ -87,6 +90,14 @@ enum AgentUsageBarApp {
         }
         if CommandLine.arguments.contains("--demo-tab-switch") {
             TabSwitchDemo.run()
+        }
+        if CommandLine.arguments.contains("--demo-pricing-links") {
+            PricingLinksDemo.run()
+        }
+        if let index = CommandLine.arguments.firstIndex(of: "--dump-pricing-links"),
+           index + 1 < CommandLine.arguments.count {
+            PricingLinksDemo.dumpCards(directory: CommandLine.arguments[index + 1])
+            return
         }
         if let index = CommandLine.arguments.firstIndex(of: "--dump-number-animation"),
            index + 1 < CommandLine.arguments.count {
