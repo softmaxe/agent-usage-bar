@@ -66,6 +66,16 @@ enum AgentUsageBarApp {
         if CommandLine.arguments.contains("--demo-celebration") {
             CelebrationDemo.run()
         }
+        if CommandLine.arguments.contains("--demo-collapse") {
+            CollapseShiftDemo.run()
+        }
+        if let index = CommandLine.arguments.firstIndex(of: "--dump-collapse-shift"),
+           index + 2 < CommandLine.arguments.count {
+            CollapseShiftDemo.report(
+                variant: CommandLine.arguments[index + 1],
+                state: CommandLine.arguments[index + 2]
+            )
+        }
         if CommandLine.arguments.contains("--demo-number-animation") {
             NumberAnimationDemo.run()
         }

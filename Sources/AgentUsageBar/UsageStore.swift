@@ -2,24 +2,31 @@ import AgentUsageBarCore
 import Combine
 import Foundation
 
-/// Owns provider state and the refresh schedule. Fixed-interval polling plus manual refreshes
-/// requested by status-item interactions, all funnelled through one cooldown.
+/// Owns provider state and the refresh schedule. Every path that asks for fresh numbers — the
+/// polling timer, opening the menu, the Refresh row, a pricing edit — refreshes the provider the
+/// status item is currently showing, and only that one. The other provider stays out of the loop
+/// entirely until the user switches to it, and that switch is the one event that refreshes it.
 @MainActor
 final class UsageStore: ObservableObject {
     @Published private(set) var displays: [Provider: ProviderDisplay] = [:]
-    @Published private(set) var isRefreshing = false
+    /// Which providers have a fetch in flight. Per provider rather than one flag: a switch made
+    /// while the provider left behind is still fetching must not make the new card say
+    /// "Refreshing…" for a request that is not about it.
+    @Published private(set) var refreshingProviders: Set<Provider> = []
 
     private var timer: Timer?
-    private var refreshTask: Task<Void, Never>?
-    private var costTask: Task<Void, Never>?
+    private var refreshTasks: [Provider: Task<Void, Never>] = [:]
+    private var costTasks: [Provider: Task<Void, Never>] = [:]
     private let costService: CostService
     private let historyStore = UsageHistoryStore()
     private let recovery = QuotaRecoveryTracker()
     private let settings: SettingsStore
     private var settingsObserver: AnyCancellable?
-    /// Every refresh claims this, whichever path asked for it, so the minute after any refresh
-    /// stays quiet.
-    private var cooldown = RefreshCooldownGate()
+    private var providerObserver: AnyCancellable?
+    /// One cooldown per provider, claimed by whichever path asked, so the minute after any
+    /// refresh of that provider stays quiet. Switching back and forth buys no extra refreshes:
+    /// each provider's own minute has to elapse before it is fetched again.
+    private var cooldowns = ProviderRefreshCooldown()
     private let clock: () -> TimeInterval
 
     init(
@@ -40,6 +47,18 @@ final class UsageStore: ObservableObject {
             .dropFirst()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.rescheduleTimer() }
+
+        // The moment of the switch is the only thing that pulls the other provider into a
+        // refresh, and it goes through that provider's cooldown like every other path.
+        // SettingsStore is MainActor-isolated; consume the emitted provider synchronously so a
+        // rapid switch back cannot leave a fetch queued behind a newer selection.
+        self.providerObserver = self.settings.$menuBarProvider
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] provider in
+                guard let self else { return }
+                self.refresh(provider: provider)
+            }
     }
 
     /// Rebuilt whenever the cadence changes; `.manual` leaves no timer at all.
@@ -60,86 +79,101 @@ final class UsageStore: ObservableObject {
     func stop() {
         self.timer?.invalidate()
         self.timer = nil
-        self.refreshTask?.cancel()
-        self.costTask?.cancel()
+        for task in self.refreshTasks.values { task.cancel() }
+        self.refreshTasks = [:]
+        for task in self.costTasks.values { task.cancel() }
+        self.costTasks = [:]
         self.settingsObserver = nil
+        self.providerObserver = nil
     }
 
-    /// `force` is for refreshes that answer a change the user just made rather than the passage
-    /// of time, where serving the pre-change numbers would look broken. It skips the cooldown but
-    /// still starts it.
+    /// Refreshes the provider on screen. `force` is for refreshes that answer a change the user
+    /// just made rather than the passage of time, where serving the pre-change numbers would look
+    /// broken. It skips the cooldown but still starts it.
     func refresh(force: Bool = false) {
+        self.refresh(provider: self.settings.menuBarProvider, force: force)
+    }
+
+    /// Whether this provider currently has a fetch in flight.
+    func isRefreshing(_ provider: Provider) -> Bool {
+        self.refreshingProviders.contains(provider)
+    }
+
+    private func refresh(provider: Provider, force: Bool = false) {
         // Coalesce: clicking the status item during a poll should not start a second round of
         // requests. Manual refreshes do not reschedule the independent polling timer.
-        guard self.refreshTask == nil else { return }
+        guard self.refreshTasks[provider] == nil else { return }
+        guard self.claimRefresh(for: provider, force: force, at: self.clock()) else { return }
 
-        let now = self.clock()
-        if force {
-            self.cooldown.recordRefresh(at: now)
-        } else if !self.cooldown.claimRefresh(at: now) {
-            return
-        }
+        self.refreshingProviders.insert(provider)
 
-        self.isRefreshing = true
-
-        self.refreshTask = Task { [weak self, historyStore] in
-            async let codex = CodexProvider.fetch()
-            async let claude = ClaudeProvider.fetch()
-            let results: [Provider: ProviderState] = await [.codex: codex, .claude: claude]
+        self.refreshTasks[provider] = Task { [weak self, historyStore] in
+            let state = await Self.fetch(provider)
 
             // Sampling the weekly window builds the history the pace model regresses over.
             // CodexBar records only Codex here; the model is provider-agnostic, so both are.
-            var histories: [Provider: UsageHistoryDataset] = [:]
-            for (provider, state) in results {
-                guard case let .loaded(snapshot) = state, let weekly = snapshot.weekly else { continue }
-                if let dataset = await historyStore.record(provider: provider, window: weekly) {
-                    histories[provider] = dataset
-                }
+            var history: UsageHistoryDataset?
+            if case let .loaded(snapshot) = state, let weekly = snapshot.weekly {
+                history = await historyStore.record(provider: provider, window: weekly)
             }
 
             await MainActor.run {
                 guard let self else { return }
-                for (provider, state) in results {
-                    self.apply(state: state, to: provider)
-                    Self.log(provider: provider, state: state)
+                self.apply(state: state, to: provider)
+                Self.log(provider: provider, state: state)
+                if let history {
+                    self.displays[provider, default: ProviderDisplay()].history = history
                 }
-                for (provider, dataset) in histories {
-                    self.displays[provider, default: ProviderDisplay()].history = dataset
-                }
-                self.isRefreshing = false
-                self.refreshTask = nil
+                self.refreshingProviders.remove(provider)
+                self.refreshTasks[provider] = nil
             }
         }
 
-        self.refreshCosts()
+        self.refreshCosts(for: provider)
+    }
+
+    private static func fetch(_ provider: Provider) async -> ProviderState {
+        switch provider {
+        case .codex: await CodexProvider.fetch()
+        case .claude: await ClaudeProvider.fetch()
+        }
+    }
+
+    /// Takes the cooldown for this provider, or reports that it is still running. A forced
+    /// refresh runs regardless but restarts the cooldown all the same.
+    private func claimRefresh(for provider: Provider, force: Bool, at time: TimeInterval) -> Bool {
+        guard !force else {
+            self.cooldowns.recordRefresh(provider, at: time)
+            return true
+        }
+        return self.cooldowns.claimRefresh(provider, at: time)
     }
 
     /// Log scanning runs on its own task: the first pass reads hundreds of megabytes and must not
     /// hold up the quota numbers, which are what the menu bar icon needs.
-    private func refreshCosts() {
-        guard self.costTask == nil else { return }
+    private func refreshCosts(for provider: Provider) {
+        guard self.costTasks[provider] == nil else { return }
 
-        self.costTask = Task { [weak self, costService] in
-            var scanned: [Provider: CostSnapshot] = [:]
-            for provider in Provider.allCases {
-                if let snapshot = await costService.refresh(provider) {
-                    scanned[provider] = snapshot
-                }
-            }
+        self.costTasks[provider] = Task { [weak self, costService] in
+            let scanned = await costService.refresh(provider)
             await MainActor.run {
                 guard let self else { return }
-                for (provider, snapshot) in scanned {
-                    self.displays[provider, default: ProviderDisplay()].cost = snapshot
+                if let scanned {
+                    self.displays[provider, default: ProviderDisplay()].cost = scanned
                 }
-                self.costTask = nil
+                self.costTasks[provider] = nil
             }
         }
     }
 
-    /// Seconds until the next refresh would actually run. The Refresh row counts this down
-    /// instead of accepting clicks it would drop.
+    /// Seconds until the next refresh of the provider on screen would actually run. The Refresh
+    /// row counts this down instead of accepting clicks it would drop.
     func refreshCooldownRemaining() -> TimeInterval {
-        self.cooldown.remaining(at: self.clock())
+        self.cooldownRemaining(for: self.settings.menuBarProvider)
+    }
+
+    func cooldownRemaining(for provider: Provider) -> TimeInterval {
+        self.cooldowns.remaining(provider, at: self.clock())
     }
 
     /// Window resets that have not been shown yet. Consuming them arms the animation, so only the
@@ -155,8 +189,8 @@ final class UsageStore: ObservableObject {
 
     /// Starts the cooldown without the network round trip a real refresh would make, so the menu
     /// wiring can be verified headlessly.
-    func debugRecordRefresh(at time: TimeInterval) {
-        self.cooldown.recordRefresh(at: time)
+    func debugRecordRefresh(at time: TimeInterval, provider: Provider? = nil) {
+        self.cooldowns.recordRefresh(provider ?? self.settings.menuBarProvider, at: time)
     }
 #endif
 
@@ -176,8 +210,8 @@ final class UsageStore: ObservableObject {
             display.snapshot = snapshot
             display.error = nil
             display.isSignedOut = false
-            // Every reading, not just the ones the card is looking at: a window that runs dry has
-            // to be noticed even when the menu has not been opened in hours.
+            // Every reading of this provider, not just the ones the card is looking at: a window
+            // that runs dry has to be noticed even when the menu has not been opened in hours.
             self.recovery.observe(provider: provider, snapshot: snapshot)
         }
         self.displays[provider] = display

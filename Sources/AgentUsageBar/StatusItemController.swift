@@ -77,7 +77,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             .sink { [weak self] displays in self?.apply(displays: displays) }
             .store(in: &self.cancellables)
 
-        self.store.$isRefreshing
+        self.store.$refreshingProviders
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.refreshOpenCard() }
             .store(in: &self.cancellables)
@@ -324,7 +324,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         hosting.rootView = MenuCardView(
             provider: provider,
             display: display,
-            isRefreshing: self.store.isRefreshing,
+            isRefreshing: self.store.isRefreshing(provider),
             recoveries: self.recoveries[provider] ?? [:],
             celebrationTokens: self.celebrationTokens[provider] ?? [:],
             now: self.now(),
@@ -411,7 +411,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         guard let row = self.refreshRow else { return }
         let state = RefreshRowPolicy.state(
             cooldownRemaining: self.store.refreshCooldownRemaining(),
-            isRefreshing: self.store.isRefreshing
+            isRefreshing: self.store.isRefreshing(self.settings.menuBarProvider)
         )
         row.title = state.title
         row.trailingText = state.trailingText
