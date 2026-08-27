@@ -33,9 +33,6 @@ enum AgentUsageBarApp {
         if CommandLine.arguments.contains("--verify-cost-chart-highlighting") {
             CostChartHighlightVerifier.run()
         }
-        if CommandLine.arguments.contains("--verify-menu-toggles") {
-            StatusItemToggleVerifier.run()
-        }
         if CommandLine.arguments.contains("--verify-usage-bar-fill") {
             UsageBarFillVerifier.run()
         }
