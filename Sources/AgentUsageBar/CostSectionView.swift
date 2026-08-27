@@ -151,13 +151,6 @@ struct CostSectionView: View {
             selectedDayKey: selectedDayKey,
             valueRatio: ratio
         )
-        let labelText = CostChartHighlightPolicy.labelText(
-            dayKey: day.dayKey,
-            selectedDayKey: selectedDayKey,
-            selectedMode: self.selectedLabelMode,
-            tokens: day.tokens.total,
-            costUSD: day.costUSD
-        )
         let isSelected = day.dayKey == selectedDayKey
         return RoundedRectangle(cornerRadius: 2)
             .fill(Theme.accent(for: self.provider))
@@ -169,15 +162,35 @@ struct CostSectionView: View {
             .frame(height: max(4, Self.chartHeight * ratio) + (isSelected ? CostChartHoverMotion.lift : 0))
             .frame(maxWidth: .infinity)
             .overlay(alignment: .top) {
-                if let labelText {
-                    Text(labelText)
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.primary)
-                        .fixedSize()
+                if isSelected {
+                    self.label(for: day, selectedDayKey: selectedDayKey)
                         .offset(y: -14)
                         .transition(CostChartHoverMotion.labelTransition)
                 }
             }
+    }
+
+    /// The outer `if` above owns the label's arrival on a bar; this one owns the unit swap on a
+    /// bar that already has a label. Keeping the two changes on separate views is what stops a
+    /// click from replaying the arrival, or a move between bars from replaying the swap.
+    private func label(for day: CostDay, selectedDayKey: String?) -> some View {
+        ZStack {
+            ForEach([self.selectedLabelMode], id: \.self) { mode in
+                if let text = CostChartHighlightPolicy.labelText(
+                    dayKey: day.dayKey,
+                    selectedDayKey: selectedDayKey,
+                    selectedMode: mode,
+                    tokens: day.tokens.total,
+                    costUSD: day.costUSD
+                ) {
+                    Text(text)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.primary)
+                        .fixedSize()
+                        .transition(CostChartHoverMotion.swapTransition)
+                }
+            }
+        }
     }
 
     // MARK: - Hover
@@ -319,7 +332,12 @@ struct CostSectionView: View {
             currentMode: self.selectedLabelMode
         )
         guard nextMode != self.selectedLabelMode else { return }
-        self.selectedLabelMode = nextMode
+        // The unit change is the one thing on this chart the reader asks for by clicking, so it
+        // is drawn rather than assigned: the old reading blurs out and the new one resolves.
+        let animation = CostChartHoverMotion.swapAnimation(
+            reduceMotion: CostChartHoverMotion.systemReduceMotion
+        )
+        withAnimation(animation) { self.selectedLabelMode = nextMode }
         self.onLabelModeChanged(nextMode)
     }
 

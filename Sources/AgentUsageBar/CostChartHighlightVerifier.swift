@@ -232,6 +232,27 @@ enum CostChartHighlightVerifier {
             failures.append("Reduce Motion expected no animation on either move")
         }
 
+        // The unit swap: the label resolves rather than cuts, it stays in place while it does,
+        // and Reduce Motion drops the resolve rather than shortening it.
+        if CostChartHoverMotion.swapDuration <= 0 {
+            failures.append(
+                "the unit swap expected a duration, got \(CostChartHoverMotion.swapDuration)"
+            )
+        }
+        if CostChartHoverMotion.swapBlur <= 0 || CostChartHoverMotion.swapScale >= 1 {
+            failures.append(
+                "the unit swap expected to blur and undersize the outgoing number, got "
+                    + "\(CostChartHoverMotion.swapBlur)/\(CostChartHoverMotion.swapScale)"
+            )
+        }
+        let swapMotion = CostChartHoverMotion.swapAnimation(reduceMotion: false)
+        if swapMotion == nil || swapMotion == hoverMotion {
+            failures.append("the unit swap expected an animation of its own, distinct from a hover")
+        }
+        if CostChartHoverMotion.swapAnimation(reduceMotion: true) != nil {
+            failures.append("Reduce Motion expected no animation on the unit swap")
+        }
+
         guard failures.isEmpty else {
             for failure in failures {
                 fputs("cost chart highlight verification failed: \(failure)\n", stderr)
@@ -239,7 +260,10 @@ enum CostChartHighlightVerifier {
             exit(1)
         }
 
-        print("cost chart selection, click label toggle, hit testing, opacity, and hover motion checks passed")
+        print(
+            "cost chart selection, click label toggle, hit testing, opacity, hover motion, and "
+                + "unit swap motion checks passed"
+        )
         exit(0)
     }
 }
