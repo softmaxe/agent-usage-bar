@@ -7,7 +7,7 @@ The project is a focused reimplementation of selected [CodexBar](https://github.
 ## Features
 
 - One menu bar item, right-click to switch between Codex and Claude
-- Session and weekly quota remaining, reset times, and pace indicators
+- Session and weekly quota remaining, reset times, and pace indicators measured against the clock at first, then against your own recorded windows once three comparable ones have completed
 - Today's and rolling 30-day token and estimated cost totals
 - Recent daily usage chart, per-model breakdown, and top-model summary
 - Codex credits when the usage endpoint reports them
@@ -83,7 +83,7 @@ Opening the menu requests one immediate manual refresh without resetting the sch
 Cost and token totals are estimated from local CLI session logs:
 
 - Codex: `~/.codex/sessions` and `~/.codex/archived_sessions`
-- Claude: `~/.claude/projects` and `~/.config/claude/projects`
+- Claude: `$CLAUDE_CONFIG_DIR/projects`, or `~/.claude/projects` and `~/.config/claude/projects` when `CLAUDE_CONFIG_DIR` is unset
 
 The first scan can take longer on a large history. Later scans are incremental and use a cache at:
 
@@ -103,7 +103,16 @@ All displayed costs are estimates. Cache-token accounting, provider billing rule
 
 ## Privacy and network access
 
-AgentUsageBar reads local CLI credentials and usage logs. It writes only its settings, incremental cost cache, usage history, pricing cache, and optional pricing overrides.
+AgentUsageBar reads local CLI credentials and usage logs. It never writes to them: `auth.json` is read-only to this app, and a refreshed Codex token is held in memory for that run only. Everything it does write lives under its own directories:
+
+```text
+~/Library/Application Support/AgentUsageBar/usage-history.json      quota samples, kept 56 days
+~/Library/Application Support/AgentUsageBar/pricing-overrides.json  manual rates, when set
+~/Library/Caches/AgentUsageBar/cost-usage/cost-usage.sqlite         incremental scan cache
+~/Library/Caches/AgentUsageBar/model-pricing/                       models.dev catalog, 24h TTL
+```
+
+Settings live in the standard preferences domain for the bundle, `com.agentusagebar.app`. The cost cache stores transcript paths, dates, model names, token counts, and costs — never prompt or response text.
 
 The app makes requests to:
 
@@ -111,21 +120,22 @@ The app makes requests to:
 - Anthropic's OAuth usage endpoint for Claude quota data
 - `models.dev` for the optional pricing catalog
 
-Credentials are not written back to Codex or Claude storage. Claude Keychain access is performed through Apple's `/usr/bin/security` tool and may trigger a macOS access prompt.
+Claude Keychain access is performed through Apple's `/usr/bin/security` tool and may trigger a macOS access prompt.
 
 ## Development
 
 The project uses Swift Package Manager and does not require an Xcode project.
 
 ```bash
-make build   # Build a debug binary
-make run     # Stop an existing instance, build, and run in the foreground
-make test    # Run the assertion-based test suite
-make probe   # Check both provider integrations from the terminal
-make demo    # Replay the quota-recovery animation in a plain window
-make logs    # Stream app logs
-make app     # Build the release .app bundle
-make clean   # Remove SwiftPM and app build output
+make build       # Build a debug binary
+make run         # Stop an existing instance, build, and run in the foreground
+make test        # Run the assertion-based test suite
+make probe       # Check both provider integrations from the terminal
+make probe-cost  # Rescan the local logs and print cost totals, without credentials or network
+make demo        # Replay the quota-recovery animation in a plain window
+make logs        # Stream app logs
+make app         # Build the release .app bundle
+make clean       # Remove SwiftPM and app build output
 ```
 
 `make probe` can expose account and usage metadata in the terminal. Review its output before sharing logs.
