@@ -11,8 +11,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private let settings: SettingsStore
     private let settingsWindow: SettingsWindowController
     private let now: () -> Date
-    private let menuRefreshClock: () -> TimeInterval
     private let openMenuClockInterval: TimeInterval
+    private let refreshRowClockInterval: TimeInterval
     private var statusItem: NSStatusItem?
     private var hostingView: NSHostingView<MenuCardView>?
     /// Attached to the item only while a left-click is being handled, so a right-click can mean
@@ -30,8 +30,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     /// "Updated 2m ago" and "Resets in 4h 53m" are strings built at render time, so an open menu
     /// needs its own clock; nothing else publishes between two scheduled refreshes.
     private var openMenuClock: Timer?
-    /// Opening the menu is an explicit refresh, but rapid reopenings share a one-minute cooldown.
-    private var menuOpenRefreshGate = MenuOpenRefreshGate()
+    /// The card's clock is too coarse for a per-second countdown, and re-rendering the whole card
+    /// once a second to drive one label would be wasteful, so the Refresh row keeps its own.
+    private var refreshRowClock: Timer?
+    /// Owned by its menu item; held weakly so the row can be relabelled between rebuilt menus.
+    private weak var refreshRow: MenuActionRowView?
     /// One autosave name for the one item, so switching providers leaves it where the user
     /// dragged it instead of moving the icon around.
     private static let autosaveName = "agentusagebar"
@@ -43,18 +46,20 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         settings: SettingsStore,
         pricing: PricingEditorModel,
         now: @escaping () -> Date = { Date() },
-        menuRefreshClock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
-        openMenuClockInterval: TimeInterval = 15
+        openMenuClockInterval: TimeInterval = 15,
+        refreshRowClockInterval: TimeInterval = 1
     ) {
         self.store = store
         self.settings = settings
         self.settingsWindow = SettingsWindowController(settings: settings, pricing: pricing)
         self.now = now
-        self.menuRefreshClock = menuRefreshClock
         self.openMenuClockInterval = openMenuClockInterval
+        self.refreshRowClockInterval = refreshRowClockInterval
         super.init()
 
-        pricing.onSaved = { [weak store] in store?.refresh() }
+        // Saving pricing changes the numbers the card shows, so this one refresh forces past the
+        // cooldown: the user is looking at the edit they just made.
+        pricing.onSaved = { [weak store] in store?.refresh(force: true) }
 
         // SettingsStore is MainActor-isolated. Consume the emitted provider synchronously so
         // rapid switches cannot leave status-item work queued behind a newer selection.
@@ -147,6 +152,24 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     func debugStatusLine() -> String? {
         self.hostingView?.rootView.debugStatusLine
     }
+
+    func debugRefreshRowState() -> (title: String, isEnabled: Bool)? {
+        guard let row = self.refreshRow else { return nil }
+        return (row.title, row.isEnabled)
+    }
+
+    func debugClickRefreshRow() {
+        guard let row = self.refreshRow, row.isEnabled else { return }
+        self.refreshClicked()
+    }
+
+    func debugStartRefreshRowClock() {
+        self.startRefreshRowClock()
+    }
+
+    func debugStopRefreshRowClock() {
+        self.stopRefreshRowClock()
+    }
 #endif
 
     /// A failed refresh keeps the last good percentages but dims them, so the icon still carries
@@ -234,11 +257,18 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             handler: { [weak self] in self?.settings.advanceMenuBarProvider() }
         ))
 
-        menu.addItem(self.actionRow(
-            title: "Refresh",
+        // Subject to the cooldown, and says so: while it is running the row counts the wait down
+        // and refuses clicks, rather than dropping them without a word.
+        let refreshItem = NSMenuItem()
+        let refreshRow = MenuActionRowView(
+            width: Self.cardWidth,
+            title: RefreshRowPolicy.idleTitle,
             icon: MenuIcons.symbol("arrow.clockwise"),
-            handler: { [weak self] in self?.store.refresh() }
-        ))
+            handler: { [weak self] in self?.refreshClicked() }
+        )
+        refreshItem.view = refreshRow
+        self.refreshRow = refreshRow
+        menu.addItem(refreshItem)
 
         // These two leave the card behind anyway, so they stay standard items and keep working
         // key equivalents.
@@ -354,6 +384,24 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private func refreshOpenCard() {
         let provider = self.settings.menuBarProvider
         self.updateCard(provider: provider, display: self.store.displays[provider] ?? ProviderDisplay())
+        self.updateRefreshRow()
+    }
+
+    /// The row is already disabled for the whole cooldown, so this only ever reaches a store that
+    /// will honour it; asking anyway keeps the store the single authority on the cooldown.
+    private func refreshClicked() {
+        self.store.refresh()
+        self.updateRefreshRow()
+    }
+
+    private func updateRefreshRow() {
+        guard let row = self.refreshRow else { return }
+        let state = RefreshRowPolicy.state(
+            cooldownRemaining: self.store.refreshCooldownRemaining(),
+            isRefreshing: self.store.isRefreshing
+        )
+        row.title = state.title
+        row.isEnabled = state.isEnabled
     }
 
     @objc private func settingsClicked() {
@@ -363,21 +411,21 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     // MARK: - NSMenuDelegate
 
     func menuWillOpen(_: NSMenu) {
-        // The first open refreshes immediately. Reopenings within one minute reuse that result,
-        // while the independent polling timer and the explicit Refresh action stay unchanged.
-        if self.menuOpenRefreshGate.claimRefresh(at: self.menuRefreshClock()) {
-            self.store.refresh()
-        }
+        // Opening the menu asks for a refresh; the store's cooldown decides. Within a minute of
+        // any earlier refresh, poll or click alike, the open reuses that result.
+        self.store.refresh()
         self.isMenuOpen = true
         // A celebration belongs to one viewing of the card. Whatever the last one played is over.
         self.recoveries = [:]
         self.refreshOpenCard()
         self.startOpenMenuClock()
+        self.startRefreshRowClock()
     }
 
     func menuDidClose(_: NSMenu) {
         self.isMenuOpen = false
         self.stopOpenMenuClock()
+        self.stopRefreshRowClock()
     }
 
     private func startOpenMenuClock() {
@@ -393,5 +441,20 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private func stopOpenMenuClock() {
         self.openMenuClock?.invalidate()
         self.openMenuClock = nil
+    }
+
+    private func startRefreshRowClock() {
+        self.stopRefreshRowClock()
+        let timer = Timer(timeInterval: self.refreshRowClockInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.updateRefreshRow() }
+        }
+        // Menu tracking runs the run loop in its own mode, so the default mode would never fire.
+        RunLoop.main.add(timer, forMode: .common)
+        self.refreshRowClock = timer
+    }
+
+    private func stopRefreshRowClock() {
+        self.refreshRowClock?.invalidate()
+        self.refreshRowClock = nil
     }
 }

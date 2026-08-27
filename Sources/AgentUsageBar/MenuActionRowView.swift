@@ -8,7 +8,26 @@ import AppKit
 /// the menu standing; the card then updates in place.
 @MainActor
 final class MenuActionRowView: NSView {
-    private let title: String
+    /// Mutable because the Refresh row rewrites itself into a countdown while the menu stands
+    /// open; a row whose label is fixed at build time could not show one.
+    var title: String {
+        didSet {
+            guard oldValue != self.title else { return }
+            self.setAccessibilityLabel(self.title)
+            self.needsDisplay = true
+        }
+    }
+
+    /// A disabled row draws greyed and swallows clicks, the way AppKit draws a disabled item.
+    var isEnabled = true {
+        didSet {
+            guard oldValue != self.isEnabled else { return }
+            self.setAccessibilityEnabled(self.isEnabled)
+            if !self.isEnabled { self.isHighlighted = false }
+            self.needsDisplay = true
+        }
+    }
+
     private let icon: NSImage?
     private let handler: () -> Void
 
@@ -37,6 +56,7 @@ final class MenuActionRowView: NSView {
         super.init(frame: NSRect(x: 0, y: 0, width: width, height: Self.rowHeight))
         self.setAccessibilityRole(.menuItem)
         self.setAccessibilityLabel(title)
+        self.setAccessibilityEnabled(true)
     }
 
     @available(*, unavailable)
@@ -45,7 +65,13 @@ final class MenuActionRowView: NSView {
     // MARK: - Drawing
 
     override func draw(_: NSRect) {
-        let foreground: NSColor = self.isHighlighted ? .selectedMenuItemTextColor : .labelColor
+        let foreground: NSColor = if !self.isEnabled {
+            .disabledControlTextColor
+        } else if self.isHighlighted {
+            .selectedMenuItemTextColor
+        } else {
+            .labelColor
+        }
 
         if self.isHighlighted {
             NSColor.selectedContentBackgroundColor.setFill()
@@ -108,11 +134,13 @@ final class MenuActionRowView: NSView {
 
     override func mouseUp(with event: NSEvent) {
         // A drag that started here and ended elsewhere is not a click on this row.
+        guard self.isEnabled else { return }
         guard self.bounds.contains(self.convert(event.locationInWindow, from: nil)) else { return }
         self.handler()
     }
 
     private func setHighlighted(_ highlighted: Bool) {
+        guard self.isEnabled || !highlighted else { return }
         guard self.isHighlighted != highlighted else { return }
         self.isHighlighted = highlighted
         self.needsDisplay = true

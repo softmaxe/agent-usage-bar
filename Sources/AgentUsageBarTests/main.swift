@@ -138,7 +138,8 @@ do {
 
 await CostTests.run()
 await RateLimitTests.run()
-MenuOpenRefreshGateTests.run()
+RefreshCooldownGateTests.run()
+RefreshRowPolicyTests.run()
 await MainActor.run { SettingsTests.run() }
 MenuBarProviderTests.run()
 PaceTests.run()

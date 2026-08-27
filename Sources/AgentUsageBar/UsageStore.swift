@@ -3,7 +3,7 @@ import Combine
 import Foundation
 
 /// Owns provider state and the refresh schedule. Fixed-interval polling plus manual refreshes
-/// requested by status-item interactions.
+/// requested by status-item interactions, all funnelled through one cooldown.
 @MainActor
 final class UsageStore: ObservableObject {
     @Published private(set) var displays: [Provider: ProviderDisplay] = [:]
@@ -17,10 +17,19 @@ final class UsageStore: ObservableObject {
     private let recovery = QuotaRecoveryTracker()
     private let settings: SettingsStore
     private var settingsObserver: AnyCancellable?
+    /// Every refresh claims this, whichever path asked for it, so the minute after any refresh
+    /// stays quiet.
+    private var cooldown = RefreshCooldownGate()
+    private let clock: () -> TimeInterval
 
-    init(settings: SettingsStore, costService: CostService) {
+    init(
+        settings: SettingsStore,
+        costService: CostService,
+        clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
+    ) {
         self.settings = settings
         self.costService = costService
+        self.clock = clock
     }
 
     func start() {
@@ -56,10 +65,21 @@ final class UsageStore: ObservableObject {
         self.settingsObserver = nil
     }
 
-    func refresh() {
+    /// `force` is for refreshes that answer a change the user just made rather than the passage
+    /// of time, where serving the pre-change numbers would look broken. It skips the cooldown but
+    /// still starts it.
+    func refresh(force: Bool = false) {
         // Coalesce: clicking the status item during a poll should not start a second round of
         // requests. Manual refreshes do not reschedule the independent polling timer.
         guard self.refreshTask == nil else { return }
+
+        let now = self.clock()
+        if force {
+            self.cooldown.recordRefresh(at: now)
+        } else if !self.cooldown.claimRefresh(at: now) {
+            return
+        }
+
         self.isRefreshing = true
 
         self.refreshTask = Task { [weak self, historyStore] in
@@ -116,6 +136,12 @@ final class UsageStore: ObservableObject {
         }
     }
 
+    /// Seconds until the next refresh would actually run. The Refresh row counts this down
+    /// instead of accepting clicks it would drop.
+    func refreshCooldownRemaining() -> TimeInterval {
+        self.cooldown.remaining(at: self.clock())
+    }
+
     /// Window resets that have not been shown yet. Consuming them arms the animation, so only the
     /// card that actually shows it may ask.
     func consumeCelebrations(for provider: Provider) -> [QuotaWindowKind: QuotaRecoveryEvent] {
@@ -125,6 +151,12 @@ final class UsageStore: ObservableObject {
 #if DEBUG
     func debugSetDisplay(_ display: ProviderDisplay, for provider: Provider) {
         self.displays[provider] = display
+    }
+
+    /// Starts the cooldown without the network round trip a real refresh would make, so the menu
+    /// wiring can be verified headlessly.
+    func debugRecordRefresh(at time: TimeInterval) {
+        self.cooldown.recordRefresh(at: time)
     }
 #endif
 
