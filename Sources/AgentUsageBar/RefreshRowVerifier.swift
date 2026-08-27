@@ -34,28 +34,28 @@ enum RefreshRowVerifier {
             refreshRowClockInterval: 0.01
         )
 
-        Self.requireRow(controller, "Refresh", enabled: true, step: "before any refresh")
+        Self.requireRow(controller, "Refresh", trailing: nil, enabled: true, step: "before any refresh")
 
         // A refresh the user cannot see the result of yet: the row must say how long the wait is.
         store.debugRecordRefresh(at: now)
         controller.debugStartRefreshRowClock()
         Self.drainMainRunLoop()
-        Self.requireRow(controller, "Refresh in 59s", enabled: false, step: "just after a refresh")
+        Self.requireRow(controller, "Refresh", trailing: "59s", enabled: false, step: "just after a refresh")
 
         // The row advances on its own clock, with nothing else publishing.
         now = 1_030
         Self.drainMainRunLoop()
-        Self.requireRow(controller, "Refresh in 29s", enabled: false, step: "half a cooldown later")
+        Self.requireRow(controller, "Refresh", trailing: "29s", enabled: false, step: "half a cooldown later")
 
         // A click during the cooldown is refused by the row itself, so the store is never asked.
         controller.debugClickRefreshRow()
         Self.drainMainRunLoop()
-        Self.requireRow(controller, "Refresh in 29s", enabled: false, step: "after a refused click")
+        Self.requireRow(controller, "Refresh", trailing: "29s", enabled: false, step: "after a refused click")
 
         // And the row comes back by itself, without the menu being reopened.
         now = 1_059
         Self.drainMainRunLoop()
-        Self.requireRow(controller, "Refresh", enabled: true, step: "once the cooldown elapsed")
+        Self.requireRow(controller, "Refresh", trailing: nil, enabled: true, step: "once the cooldown elapsed")
 
         controller.debugStopRefreshRowClock()
         Self.requireDisabledRowSwallowsClicks()
@@ -94,16 +94,20 @@ enum RefreshRowVerifier {
     private static func requireRow(
         _ controller: StatusItemController,
         _ title: String,
+        trailing: String?,
         enabled: Bool,
         step: String
     ) {
         guard let state = controller.debugRefreshRowState() else {
             Self.fail("\(step): the menu carries no Refresh row")
         }
+        let actualTrailing = state.trailingText ?? ""
+        let expectedTrailing = trailing ?? ""
         Self.require(
-            state.title == title && state.isEnabled == enabled,
-            "\(step): row read \"\(state.title)\" (enabled: \(state.isEnabled)), "
-                + "expected \"\(title)\" (enabled: \(enabled))"
+            state.title == title && state.trailingText == trailing && state.isEnabled == enabled,
+            "\(step): row read \"\(state.title)\" trailing \"\(actualTrailing)\" "
+                + "(enabled: \(state.isEnabled)), expected \"\(title)\" trailing "
+                + "\"\(expectedTrailing)\" (enabled: \(enabled))"
         )
     }
 

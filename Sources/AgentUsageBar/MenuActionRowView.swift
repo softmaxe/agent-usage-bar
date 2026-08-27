@@ -13,7 +13,17 @@ final class MenuActionRowView: NSView {
     var title: String {
         didSet {
             guard oldValue != self.title else { return }
-            self.setAccessibilityLabel(self.title)
+            self.updateAccessibilityLabel()
+            self.needsDisplay = true
+        }
+    }
+
+    /// Optional text in the trailing shortcut column. It uses AppKit's secondary shortcut tint
+    /// and is right aligned to the same edge as standard key equivalents.
+    var trailingText: String? {
+        didSet {
+            guard oldValue != self.trailingText else { return }
+            self.updateAccessibilityLabel()
             self.needsDisplay = true
         }
     }
@@ -29,6 +39,7 @@ final class MenuActionRowView: NSView {
     }
 
     private let icon: NSImage?
+    private let trailingIcon: NSImage?
     private let handler: () -> Void
 
     private var isHighlighted = false
@@ -42,20 +53,26 @@ final class MenuActionRowView: NSView {
     /// deriving their own.
     private static let iconLeading: CGFloat = 16
     private static let titleLeading: CGFloat = 37
+    /// AppKit leaves about 17pt between a standard menu item's key equivalent and its edge.
+    private static let trailingRightPadding: CGFloat = 17
     private static let cornerRadius: CGFloat = 5
 
     init(
         width: CGFloat,
         title: String,
         icon: NSImage?,
+        trailingIcon: NSImage? = nil,
+        trailingText: String? = nil,
         handler: @escaping () -> Void
     ) {
         self.title = title
+        self.trailingText = trailingText
         self.icon = icon
+        self.trailingIcon = trailingIcon
         self.handler = handler
         super.init(frame: NSRect(x: 0, y: 0, width: width, height: Self.rowHeight))
         self.setAccessibilityRole(.menuItem)
-        self.setAccessibilityLabel(title)
+        self.updateAccessibilityLabel()
         self.setAccessibilityEnabled(true)
     }
 
@@ -71,6 +88,13 @@ final class MenuActionRowView: NSView {
             .selectedMenuItemTextColor
         } else {
             .labelColor
+        }
+        let trailingForeground: NSColor = if !self.isEnabled {
+            .disabledControlTextColor
+        } else if self.isHighlighted {
+            .selectedMenuItemTextColor
+        } else {
+            .secondaryLabelColor
         }
 
         if self.isHighlighted {
@@ -99,6 +123,43 @@ final class MenuActionRowView: NSView {
             at: NSPoint(x: Self.titleLeading, y: (self.bounds.height - titleSize.height) / 2),
             withAttributes: titleAttributes
         )
+
+        if let trailingIcon {
+            let rect = NSRect(
+                x: self.trailingOrigin(for: trailingIcon.size.width),
+                y: (self.bounds.height - trailingIcon.size.height) / 2,
+                width: trailingIcon.size.width,
+                height: trailingIcon.size.height
+            )
+            MenuIcons.tinted(trailingIcon, trailingForeground).draw(in: rect)
+        }
+
+        if let trailingText, !trailingText.isEmpty {
+            let trailingAttributes: [NSAttributedString.Key: Any] = [
+                .font: font,
+                .foregroundColor: trailingForeground
+            ]
+            let trailingSize = (trailingText as NSString).size(withAttributes: trailingAttributes)
+            (trailingText as NSString).draw(
+                at: NSPoint(
+                    x: self.trailingOrigin(for: trailingSize.width),
+                    y: (self.bounds.height - trailingSize.height) / 2
+                ),
+                withAttributes: trailingAttributes
+            )
+        }
+    }
+
+    private func trailingOrigin(for contentWidth: CGFloat) -> CGFloat {
+        self.bounds.width - Self.trailingRightPadding - contentWidth
+    }
+
+    private func updateAccessibilityLabel() {
+        guard let trailingText, !trailingText.isEmpty else {
+            self.setAccessibilityLabel(self.title)
+            return
+        }
+        self.setAccessibilityLabel("\(self.title) \(trailingText)")
     }
 
     // MARK: - Mouse

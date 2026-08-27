@@ -1,6 +1,6 @@
 import AppKit
 
-/// The 16pt template images that lead each menu row.
+/// Template images used by menu rows: 16pt leading icons and appropriately sized trailing hints.
 enum MenuIcons {
     static let size = NSSize(width: 16, height: 16)
 
@@ -12,16 +12,20 @@ enum MenuIcons {
         return Self.centered(glyph)
     }
 
-    /// Centres a glyph's ink in one fixed box, so every row's icon sits on the same axis.
+    /// Centres a glyph's ink in a fixed box, so every row's icon sits on the same axis.
     ///
     /// Centring the image bounds is not enough: a symbol carries its own uneven padding, so the
     /// gear and the cross land a point apart even when their boxes agree. This measures what the
     /// glyph actually paints and centres that. It only ever scales down, so a small icon stays
     /// small rather than being blown up to fill the box.
     private static func centered(_ glyph: NSImage) -> NSImage {
+        Self.centered(glyph, in: Self.size)
+    }
+
+    private static func centered(_ glyph: NSImage, in targetSize: NSSize) -> NSImage {
         let ink = Self.inkBounds(of: glyph) ?? NSRect(origin: .zero, size: glyph.size)
-        let scale = min(Self.size.width / ink.width, Self.size.height / ink.height, 1)
-        let image = NSImage(size: Self.size, flipped: false) { rect in
+        let scale = min(targetSize.width / ink.width, targetSize.height / ink.height, 1)
+        let image = NSImage(size: targetSize, flipped: false) { rect in
             guard let context = NSGraphicsContext.current?.cgContext else { return false }
             context.saveGState()
             context.translateBy(x: rect.midX, y: rect.midY)
@@ -83,10 +87,12 @@ enum MenuIcons {
         )
     }
 
-    /// `computermouse` with its right button filled in, because right-clicking the status item is
-    /// the gesture the row names. SF Symbols has no such variant, so the shape is drawn here: an
-    /// outlined body with the top-right quadrant painted inside it.
-    static func rightButtonMouse() -> NSImage {
+    /// An outlined computer mouse for the action's leading icon.
+    static func mouseOutline() -> NSImage {
+        Self.mouseIcon(fillsRightButton: false)
+    }
+
+    private static func mouseIcon(fillsRightButton: Bool) -> NSImage {
         let drawn = NSImage(size: Self.size, flipped: false) { _ in
             let body = NSBezierPath(
                 roundedRect: NSRect(x: 4, y: 1.4, width: 8, height: 13.2),
@@ -97,17 +103,73 @@ enum MenuIcons {
             NSColor.black.setStroke()
             body.stroke()
 
-            // Clipping to the body keeps the filled button inside the rounded outline, which is
-            // also what draws the divider down the middle of the upper half.
-            NSGraphicsContext.saveGraphicsState()
-            body.addClip()
-            NSColor.black.setFill()
-            NSRect(x: 8.35, y: 8.1, width: 4, height: 7).fill()
-            NSGraphicsContext.restoreGraphicsState()
+            if fillsRightButton {
+                // Clipping to the body keeps the filled button inside the rounded outline.
+                NSGraphicsContext.saveGraphicsState()
+                body.addClip()
+                NSColor.black.setFill()
+                NSRect(x: 8.35, y: 8.1, width: 4, height: 7).fill()
+                NSGraphicsContext.restoreGraphicsState()
+            }
+
+            // The wheel/divider remains visible in both variants; only the right-button fill is
+            // different between the leading and trailing versions.
+            let divider = NSBezierPath()
+            divider.move(to: NSPoint(x: 8.35, y: 14.2))
+            divider.line(to: NSPoint(x: 8.35, y: 8.1))
+            divider.lineWidth = 1.3
+            NSColor.black.setStroke()
+            divider.stroke()
             return true
         }
         drawn.isTemplate = true
         return Self.centered(drawn)
+    }
+
+    /// A cursor arrow paired with a context-menu glyph, making the secondary-click gesture clear
+    /// in the trailing shortcut column. The geometry follows the C treatment from the menu mockup.
+    static func contextMenuCursor() -> NSImage {
+        let iconSize = NSSize(width: 20, height: 20)
+        let viewBox: CGFloat = 24
+        let scale = iconSize.width / viewBox
+
+        let drawn = NSImage(size: iconSize, flipped: false) { _ in
+            func point(_ x: CGFloat, _ y: CGFloat) -> NSPoint {
+                NSPoint(x: x * scale, y: iconSize.height - y * scale)
+            }
+
+            let cursor = NSBezierPath()
+            cursor.move(to: point(4, 3.5))
+            cursor.line(to: point(11.7, 11))
+            cursor.line(to: point(8.2, 11.7))
+            cursor.line(to: point(10.6, 16.1))
+            cursor.line(to: point(8.4, 17.3))
+            cursor.line(to: point(6, 12.9))
+            cursor.line(to: point(4, 14.9))
+            cursor.close()
+            cursor.lineWidth = 1.65 * scale
+            cursor.lineCapStyle = .round
+            cursor.lineJoinStyle = .round
+            NSColor.black.setStroke()
+            cursor.stroke()
+
+            for (start, end) in [
+                (NSPoint(x: 14, y: 5), NSPoint(x: 20, y: 5)),
+                (NSPoint(x: 14, y: 9), NSPoint(x: 20, y: 9)),
+                (NSPoint(x: 15.5, y: 13), NSPoint(x: 20, y: 13))
+            ] {
+                let line = NSBezierPath()
+                line.move(to: point(start.x, start.y))
+                line.line(to: point(end.x, end.y))
+                line.lineWidth = 1.65 * scale
+                line.lineCapStyle = .round
+                NSColor.black.setStroke()
+                line.stroke()
+            }
+            return true
+        }
+        drawn.isTemplate = true
+        return Self.centered(drawn, in: iconSize)
     }
 
     /// Repaints a template image in one colour, since a hand-drawn menu row tints its own icon
