@@ -7,6 +7,9 @@ import SwiftUI
 struct PricingSettingsView: View {
     @ObservedObject var model: PricingEditorModel
     @State private var expandedGroups = Set(PricingGroup.allCases)
+    /// The column under the pointer, so an unsorted header can show the arrow a click would
+    /// give it. Without it a sorted-by-nothing header looks like plain text.
+    @State private var hoveredSortField: PricingSortField?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static let rateColumnWidth: CGFloat = 68
@@ -15,6 +18,7 @@ struct PricingSettingsView: View {
     private static let detailLabelWidth: CGFloat = 138
     private static let claudePricingURL = URL(string: "https://platform.claude.com/docs/en/about-claude/pricing")!
     private static let openAIPricingURL = URL(string: "https://developers.openai.com/api/docs/pricing")!
+    private static let openRouterPricingURL = URL(string: "https://openrouter.ai/models")!
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -49,6 +53,9 @@ struct PricingSettingsView: View {
                 }
                 Link(destination: Self.openAIPricingURL) {
                     Label("OpenAI API pricing", systemImage: "arrow.up.right.square")
+                }
+                Link(destination: Self.openRouterPricingURL) {
+                    Label("OpenRouter API pricing", systemImage: "arrow.up.right.square")
                 }
             }
             .buttonStyle(.bordered)
@@ -168,18 +175,77 @@ struct PricingSettingsView: View {
     private var columnHeader: some View {
         HStack(spacing: 8) {
             Color.clear.frame(width: Self.disclosureHitSize.width)
-            Text("Model").frame(maxWidth: .infinity, alignment: .leading)
-            Text("Input").frame(width: Self.rateColumnWidth, alignment: .trailing)
-            Text("Output").frame(width: Self.rateColumnWidth, alignment: .trailing)
-            Text("Cache w").frame(width: Self.rateColumnWidth, alignment: .trailing)
-            Text("Cache r").frame(width: Self.rateColumnWidth, alignment: .trailing)
-            Color.clear.frame(width: 22)
+            self.sortHeader("Model", .model, alignment: .leading)
+            self.sortHeader("Input", .input)
+            self.sortHeader("Output", .output)
+            self.sortHeader("Cache w", .cacheWrite)
+            self.sortHeader("Cache r", .cacheRead)
+            Button {
+                self.model.resetSort()
+            } label: {
+                Image(systemName: "line.3.horizontal.decrease")
+            }
+            .buttonStyle(.borderless)
+            .frame(width: 22)
+            .help("Back to the default order: most used first")
+            .disabled(self.model.sort.isDefault)
         }
         .font(.system(size: 11, weight: .medium))
         .foregroundStyle(.secondary)
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
         .background(.background)
+    }
+
+    /// A clickable column title. The arrow only shows on the column in force, so the header
+    /// reads as one sorted column rather than five controls competing for attention.
+    private func sortHeader(
+        _ title: String,
+        _ field: PricingSortField,
+        alignment: HorizontalAlignment = .trailing
+    ) -> some View {
+        let sort = self.model.sort
+        let isActive = sort.field == field
+        let leading = alignment == .leading
+        // Hovering an unsorted column previews the direction its click would land on.
+        let preview = PricingSortPolicy.next(after: sort, tapping: field)
+        let arrow = self.sortArrow(
+            ascending: isActive ? sort.ascending : preview.ascending,
+            opacity: isActive ? 1 : (self.hoveredSortField == field ? 0.4 : 0)
+        )
+
+        return Button {
+            self.model.toggleSort(field)
+        } label: {
+            HStack(spacing: 2) {
+                // The arrow sits on the outside of the label, so the numbers underneath a rate
+                // column stay flush with their title whichever column is sorted.
+                if !leading { arrow }
+                Text(title)
+                if leading { arrow }
+            }
+            .foregroundStyle(isActive ? Color.primary : Color.secondary)
+            .frame(
+                maxWidth: leading ? .infinity : Self.rateColumnWidth,
+                alignment: leading ? .leading : .trailing
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: leading ? .infinity : Self.rateColumnWidth)
+        .onHover { self.hoveredSortField = $0 ? field : nil }
+        .help(self.sortHint(title, field))
+    }
+
+    private func sortArrow(ascending: Bool, opacity: Double) -> some View {
+        Image(systemName: ascending ? "chevron.up" : "chevron.down")
+            .font(.system(size: 7, weight: .bold))
+            .opacity(opacity)
+    }
+
+    private func sortHint(_ title: String, _ field: PricingSortField) -> String {
+        let next = PricingSortPolicy.next(after: self.model.sort, tapping: field)
+        return next.ascending ? "Sort by \(title), ascending" : "Sort by \(title), descending"
     }
 
     private func row(_ row: PricingRow) -> some View {
