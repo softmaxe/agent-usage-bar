@@ -325,13 +325,10 @@ struct CostSectionView: View {
 
     // MARK: - Disclaimer
 
+    /// Both providers are priced the same way — local logs, published API rates, cache tokens
+    /// included — so the wording stays identical rather than drifting per provider.
     private var disclaimer: String {
-        var text = switch self.provider {
-        case .claude:
-            "Local-log estimate at API rates · cache tokens included"
-        case .codex:
-            "Estimated from token usage · not a subscription bill"
-        }
+        var text = "Local-log estimate at API rates, not a bill · cache tokens included"
         if self.snapshot.hasUnpricedTokens {
             text += " · unpriced models excluded"
         }
