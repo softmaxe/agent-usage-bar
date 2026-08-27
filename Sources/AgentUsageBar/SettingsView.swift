@@ -30,8 +30,12 @@ struct SettingsView: View {
             }
 
             Section("Menu bar") {
-                LabeledContent("Showing", value: self.settings.menuBarProvider.displayName)
-                Text("One item at a time. Right-click it to switch providers, or use "
+                Picker("Showing", selection: self.$settings.menuBarProvider) {
+                    ForEach(Provider.allCases, id: \.self) { provider in
+                        Text(provider.displayName).tag(provider)
+                    }
+                }
+                Text("One item at a time. Pick it here, right-click the item, or use "
                     + "\u{201C}Switch provider\u{201D} in its menu. Sign-in status does not change this.")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
