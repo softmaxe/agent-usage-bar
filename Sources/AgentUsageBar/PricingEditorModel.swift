@@ -86,6 +86,9 @@ final class PricingEditorModel: ObservableObject {
     /// Rows whose one-hour and long-context fields are unfolded. Kept here rather than in the
     /// view so a headless dump can capture an expanded row.
     @Published var expandedRowIDs: Set<String> = []
+    /// Which column the table is ordered by. Held here so the header arrows and the row order
+    /// cannot disagree, and so the order survives a reload of the rates.
+    @Published private(set) var sort: PricingSort = .default
 
     private var originalRows: [String: PricingRow] = [:]
     /// Position of each row in `rows`, so a field can reach its row without a linear scan.
@@ -202,15 +205,7 @@ final class PricingEditorModel: ObservableObject {
         }
 
         // Provider sections stay stable; active models rise within their section by actual usage.
-        built.sort { lhs, rhs in
-            let lhsGroup = PricingGroup.allCases.firstIndex(of: lhs.group) ?? .max
-            let rhsGroup = PricingGroup.allCases.firstIndex(of: rhs.group) ?? .max
-            if lhsGroup != rhsGroup { return lhsGroup < rhsGroup }
-            if lhs.usageTokens != rhs.usageTokens { return lhs.usageTokens > rhs.usageTokens }
-            if lhs.seenInLogs != rhs.seenInLogs { return lhs.seenInLogs }
-            if lhs.seenInLogs, lhs.isPriced != rhs.isPriced { return !lhs.isPriced }
-            return lhs.model < rhs.model
-        }
+        built.sort(by: PricingSortPolicy.defaultOrder)
 
         self.defaults = defaults
         self.setRows(built)
@@ -229,8 +224,26 @@ final class PricingEditorModel: ObservableObject {
     }
 
     func rows(in group: PricingGroup) -> [PricingRow] {
-        self.rows.filter { $0.group == group }
+        PricingSortPolicy.sorted(self.rows.filter { $0.group == group }, by: self.sort)
     }
+
+    /// Header click: flips the column that is already sorted, otherwise switches to the tapped one.
+    func toggleSort(_ field: PricingSortField) {
+        self.sort = PricingSortPolicy.next(after: self.sort, tapping: field)
+    }
+
+    /// Back to the order the pane loads in, most-used first.
+    func resetSort() {
+        self.sort = .default
+    }
+
+#if DEBUG
+    /// Lets a headless run drive the table without reading the pricing files on disk.
+    func debugSetRows(_ rows: [PricingRow]) {
+        self.setRows(rows.sorted(by: PricingSortPolicy.defaultOrder))
+        self.isLoading = false
+    }
+#endif
 
     func isExpanded(_ id: String) -> Bool {
         self.expandedRowIDs.contains(id)
