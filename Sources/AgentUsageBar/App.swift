@@ -48,6 +48,9 @@ enum AgentUsageBarApp {
         if CommandLine.arguments.contains("--verify-relative-time") {
             RelativeTimeVerifier.run()
         }
+        if CommandLine.arguments.contains("--verify-quota-reset-label") {
+            QuotaResetLabelVerifier.run()
+        }
         if CommandLine.arguments.contains("--verify-refresh-row") {
             RefreshRowVerifier.run()
         }

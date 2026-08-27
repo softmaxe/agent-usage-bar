@@ -44,12 +44,25 @@ public enum CostChartLabelMode: String {
     case cost
 }
 
+/// The two faces of a quota window's reset label. The countdown answers "how much longer", the
+/// clock answers "when exactly" — which one a reader wants depends on whether they are pacing
+/// themselves or planning around the reset, so the label carries both and swaps on a click.
+public enum QuotaResetDisplayMode: String {
+    case countdown
+    case clock
+
+    public var toggled: QuotaResetDisplayMode {
+        self == .countdown ? .clock : .countdown
+    }
+}
+
 @MainActor
 public final class SettingsStore: ObservableObject {
     private enum Key {
         static let refreshFrequency = "refreshFrequency"
         static let menuBarProvider = "menuBarProvider"
         static let costChartLabelMode = "costChartLabelMode"
+        static let quotaResetDisplayMode = "quotaResetDisplayMode"
         /// Pre-single-item builds stored one visibility switch per provider.
         static func providerEnabled(_ provider: Provider) -> String {
             "provider.\(provider.rawValue).enabled"
@@ -84,6 +97,15 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
+    /// Shared by both windows and both providers: the reader asked one question by clicking one
+    /// label, and answering it on that row alone would leave the card reading two different ways.
+    @Published public var quotaResetDisplayMode: QuotaResetDisplayMode {
+        didSet {
+            guard oldValue != self.quotaResetDisplayMode else { return }
+            self.defaults.set(self.quotaResetDisplayMode.rawValue, forKey: Key.quotaResetDisplayMode)
+        }
+    }
+
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         self.refreshFrequency = (defaults.string(forKey: Key.refreshFrequency))
@@ -91,6 +113,8 @@ public final class SettingsStore: ObservableObject {
         self.menuBarProvider = Self.initialMenuBarProvider(defaults: defaults)
         self.costChartLabelMode = (defaults.string(forKey: Key.costChartLabelMode))
             .flatMap(CostChartLabelMode.init(rawValue:)) ?? .tokens
+        self.quotaResetDisplayMode = (defaults.string(forKey: Key.quotaResetDisplayMode))
+            .flatMap(QuotaResetDisplayMode.init(rawValue:)) ?? .countdown
     }
 
     /// Moves the menu bar item to the next provider, which is what a right-click does.
