@@ -50,14 +50,15 @@ final class CelebrationClock: ObservableObject {
     }
 }
 
-/// Everything the reset animation draws outside the bar: charging motes around the moving head,
-/// then the synchronized landing ring and firework. One Canvas, no compositing modifiers.
+/// Everything the reset animation draws outside the bar: a glowing head while the fill charges,
+/// then one large circular firework on the landing point — core, shockwaves, and corona.
+/// One Canvas, no compositing modifiers.
 struct QuotaCelebrationLayer: View {
     let elapsed: TimeInterval
     let tint: Color
     let startPercent: Double
     let targetPercent: Double
-    /// How far the canvas reaches past each end of the bar, so sparks can fly off it.
+    /// How far the canvas reaches past each end of the bar, so the shell has room to open.
     let inset: CGFloat
 
     private static let warm = Color(red: 1, green: 0.83, blue: 0.42)
@@ -85,57 +86,67 @@ struct QuotaCelebrationLayer: View {
                 )
             }
 
-            if let ring = QuotaCelebration.ring(at: self.elapsed) {
-                let origin = CGPoint(x: centre.x + barWidth * QuotaCelebration.ringOriginX, y: centre.y)
-                let box = CGRect(
-                    x: origin.x - ring.radius,
-                    y: origin.y - ring.radius,
-                    width: ring.radius * 2,
-                    height: ring.radius * 2
+            let origin = CGPoint(x: centre.x + barWidth * QuotaCelebration.originX, y: centre.y)
+
+            if let core = QuotaCelebration.core(at: self.elapsed) {
+                context.fill(
+                    Path(ellipseIn: Self.box(around: origin, radius: core.glowRadius)),
+                    with: .radialGradient(
+                        Gradient(colors: [
+                            self.tint.opacity(0.35 * core.opacity),
+                            self.tint.opacity(0),
+                        ]),
+                        center: origin,
+                        startRadius: 0,
+                        endRadius: core.glowRadius
+                    )
                 )
+                context.fill(
+                    Path(ellipseIn: Self.box(around: origin, radius: core.radius)),
+                    with: .color(.white.opacity(core.opacity))
+                )
+            }
+
+            for ring in QuotaCelebration.rings(at: self.elapsed) {
                 context.stroke(
-                    Path(ellipseIn: box),
+                    Path(ellipseIn: Self.box(around: origin, radius: ring.radius)),
                     with: .color(self.tint.opacity(ring.opacity)),
                     lineWidth: ring.lineWidth
                 )
             }
 
-            let particles = QuotaCelebration.chargeMotes(
-                at: self.elapsed,
-                barWidth: barWidth,
-                startPercent: self.startPercent,
-                targetPercent: self.targetPercent
-            ) + QuotaCelebration.sparks(at: self.elapsed, barWidth: barWidth)
-            for spark in particles {
-                guard spark.opacity > 0.01, spark.radius > 0.05 else { continue }
-                let color = self.color(for: spark.tone)
-                let point = CGPoint(x: centre.x + spark.position.x, y: centre.y + spark.position.y)
-                let tail = CGPoint(x: centre.x + spark.previous.x, y: centre.y + spark.previous.y)
+            for ray in QuotaCelebration.rays(at: self.elapsed, barWidth: barWidth) {
+                let color = self.color(for: ray.tone)
+                let inner = CGPoint(x: centre.x + ray.inner.x, y: centre.y + ray.inner.y)
+                let outer = CGPoint(x: centre.x + ray.outer.x, y: centre.y + ray.outer.y)
 
-                // Streak first, dot on top: the dot is the spark, the streak is where it has been.
-                var trail = Path()
-                trail.move(to: tail)
-                trail.addLine(to: point)
+                // The streak fades out towards the centre, so the eye follows the heads outwards.
+                var streak = Path()
+                streak.move(to: inner)
+                streak.addLine(to: outer)
                 context.stroke(
-                    trail,
-                    with: .color(color.opacity(spark.opacity * 0.45)),
-                    style: StrokeStyle(lineWidth: spark.radius * 0.9, lineCap: .round)
+                    streak,
+                    with: .linearGradient(
+                        Gradient(colors: [color.opacity(0), color.opacity(ray.opacity * 0.75)]),
+                        startPoint: inner,
+                        endPoint: outer
+                    ),
+                    style: StrokeStyle(lineWidth: ray.width, lineCap: .round)
                 )
                 context.fill(
-                    Path(ellipseIn: CGRect(
-                        x: point.x - spark.radius,
-                        y: point.y - spark.radius,
-                        width: spark.radius * 2,
-                        height: spark.radius * 2
-                    )),
-                    with: .color(color.opacity(spark.opacity))
+                    Path(ellipseIn: Self.box(around: outer, radius: ray.headRadius)),
+                    with: .color(color.opacity(ray.opacity))
                 )
             }
         }
         .allowsHitTesting(false)
     }
 
-    private func color(for tone: QuotaCelebration.SparkTone) -> Color {
+    private static func box(around point: CGPoint, radius: CGFloat) -> CGRect {
+        CGRect(x: point.x - radius, y: point.y - radius, width: radius * 2, height: radius * 2)
+    }
+
+    private func color(for tone: QuotaCelebration.Tone) -> Color {
         switch tone {
         case .tint: self.tint
         case .warm: Self.warm

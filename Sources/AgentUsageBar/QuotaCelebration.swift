@@ -7,9 +7,10 @@ enum QuotaWindowKind: String, Hashable, CaseIterable {
     case weekly
 }
 
-/// Choreography for a quota reset: the fill resumes from the last pre-reset reading, continuously
-/// slows into 100%, and carries charging motes along its head. The landing synchronizes the bar
-/// pop, flash, ring, and only firework burst.
+/// Choreography for a quota reset: the fill resumes from the last pre-reset reading and
+/// continuously slows into 100%. Nothing trails the head on the way there — the landing is the
+/// whole event, synchronizing the bar pop, flash, and one large circular firework centred just
+/// short of the 100% point.
 enum QuotaCelebration {
     // MARK: - Timeline
 
@@ -20,16 +21,15 @@ enum QuotaCelebration {
     static let popDuration: TimeInterval = 0.78
     /// The fill washes bright at the moment of landing and cools back to the tint.
     static let flashDuration: TimeInterval = 0.48
-    static let ringDuration: TimeInterval = 0.62
-    /// Longest a spark can live; each one picks a shorter life than this.
-    static let sparkLife: TimeInterval = 0.85
+    static let ringDuration: TimeInterval = 0.7
+    /// The white heart of the shell, at the instant of landing.
+    static let coreDuration: TimeInterval = 0.26
+    /// Longest a spoke of the shell can live.
+    static let burstLife: TimeInterval = 0.95
 
-    /// When the last spark of the last shell has faded, and therefore when the clock stops.
+    /// When the last spoke of the shell has faded, and therefore when the clock stops.
     static var duration: TimeInterval {
-        max(
-            Self.landing + max(Self.popDuration, Self.ringDuration),
-            (Self.shells.map(\.time).max() ?? 0) + Self.sparkLife
-        )
+        Self.landing + max(Self.popDuration, max(Self.burstLife, Self.ringDuration))
     }
 
 #if DEBUG
@@ -84,7 +84,39 @@ enum QuotaCelebration {
         return CGSize(width: 1 + 0.035 * pulse, height: 1 + 0.7 * pulse)
     }
 
-    // MARK: - Ring
+    // MARK: - Origin
+
+    /// Where along the bar the whole landing event is centred, as a fraction of the bar width.
+    /// Short of the very end on purpose: the bar stops 14 pt from the card's right edge, and a
+    /// burst centred on the last pixel would have half of itself cut away by that edge.
+    static let originX: Double = 0.92
+
+    /// How far the shell reaches at its widest. Sized so a burst on `originX` stays inside the
+    /// 280 pt card instead of being clipped by it.
+    static let maxRadius: CGFloat = 34
+
+    // MARK: - Core
+
+    struct Core: Equatable {
+        let radius: CGFloat
+        let glowRadius: CGFloat
+        let opacity: Double
+    }
+
+    /// The white heart of the shell at the instant of landing.
+    static func core(at time: TimeInterval) -> Core? {
+        let age = time - Self.landing
+        guard age >= 0, age < Self.coreDuration else { return nil }
+        let progress = age / Self.coreDuration
+        let eased = 1 - pow(1 - progress, 3)
+        return Core(
+            radius: 1.6 + 6 * (1 - progress),
+            glowRadius: 5 + 18 * eased,
+            opacity: pow(1 - progress, 1.6)
+        )
+    }
+
+    // MARK: - Rings
 
     struct Ring: Equatable {
         let radius: CGFloat
@@ -92,164 +124,127 @@ enum QuotaCelebration {
         let opacity: Double
     }
 
-    /// Where along the bar the ring is centred — the same place the last shell goes off, a hair
-    /// short of the end so the card's edge does not cut the whole right half of it away.
-    static let ringOriginX: Double = 0.985
-
-    /// The shockwave leaving the point where the head landed.
-    static func ring(at time: TimeInterval) -> Ring? {
-        let age = time - Self.landing
-        guard age >= 0, age < Self.ringDuration else { return nil }
-        let progress = age / Self.ringDuration
-        let eased = 1 - pow(1 - progress, 2.5)
-        return Ring(
-            radius: 4 + 26 * eased,
-            lineWidth: 2.3 * (1 - progress) + 0.3,
-            opacity: 0.55 * pow(1 - progress, 1.5)
-        )
+    /// Two concentric shockwaves leaving the landing point, the second a beat behind the first.
+    static func rings(at time: TimeInterval) -> [Ring] {
+        [(0.0, 30.0, 2.4, 0.5), (0.12, 19.0, 1.3, 0.3)].compactMap { delay, reach, weight, peak in
+            let age = time - Self.landing - delay
+            guard age >= 0, age < Self.ringDuration else { return nil }
+            let progress = age / Self.ringDuration
+            let eased = 1 - pow(1 - progress, 2.6)
+            return Ring(
+                radius: 3 + reach * eased,
+                lineWidth: weight * (1 - progress) + 0.3,
+                opacity: peak * pow(1 - progress, 1.6)
+            )
+        }
     }
 
-    // MARK: - Sparks
+    // MARK: - Corona
 
-    enum SparkTone: Equatable {
+    enum Tone: Equatable {
         /// The provider's own accent, so the burst still belongs to the card.
         case tint
         case warm
         case white
     }
 
+    /// One spark of the shell: the streak it has swept, plus the bright head leading it.
     /// Bar-local: `x` measured from the bar's left edge, `y` from its centre, positive downwards.
-    struct Spark: Equatable {
-        let position: CGPoint
-        /// Where the spark was a few frames ago, which is what the streak is drawn along.
-        let previous: CGPoint
-        let radius: CGFloat
+    struct Ray: Equatable {
+        let inner: CGPoint
+        let outer: CGPoint
+        let width: CGFloat
         let opacity: Double
-        let tone: SparkTone
+        /// Radius of the bright head; the streak behind it is drawn faded.
+        let headRadius: CGFloat
+        let tone: Tone
     }
 
-    private struct Shell {
-        /// Seconds from the start of the whole sequence.
-        let time: TimeInterval
-        /// Fraction of the bar width the shell goes off at.
-        let originX: Double
-        let originY: CGFloat
+    /// Evenly spaced spokes are what keep the shell round; a small per-spoke speed jitter is what
+    /// keeps it from reading as a gear. Three layers give the burst a fast white fringe, a body in
+    /// the card's own tint, and a slow warm centre.
+    private struct Layer {
         let count: Int
-        let speed: ClosedRange<Double>
-        /// Sideways bias. The shell at the head of the bar leans back over the card, because the
-        /// card's own edge is only a few points to the right of it.
-        let driftX: Double
+        /// Radians, so the layers interleave instead of sitting on top of each other.
+        let offset: Double
+        let speed: Double
+        /// Fraction of `speed` a spoke may deviate by, so the rim is a ring and not a stencil.
+        let jitter: Double
+        let width: CGFloat
+        let life: TimeInterval
+        let tone: Tone
         let seed: UInt64
     }
 
-    /// Charging motes carry the motion; fireworks are reserved for the synchronized landing.
-    private static let shells: [Shell] = [
-        Shell(time: Self.landing, originX: Self.ringOriginX, originY: 0, count: 25, speed: 55...170, driftX: -34, seed: 0x9E37_79B9),
+    private static let layers: [Layer] = [
+        Layer(count: 34, offset: 0, speed: 118, jitter: 0.2, width: 1.9,
+              life: Self.burstLife, tone: .tint, seed: 0x9E37_79B9),
+        Layer(count: 26, offset: .pi / 26, speed: 74, jitter: 0.26, width: 1.5,
+              life: Self.burstLife * 0.86, tone: .warm, seed: 0x51ED_2701),
+        Layer(count: 13, offset: .pi / 13, speed: 122, jitter: 0.14, width: 1.1,
+              life: Self.burstLife * 0.53, tone: .white, seed: 0xC2B2_AE35),
     ]
 
-    /// Air drag, so sparks decelerate instead of flying off in straight lines.
-    private static let drag: Double = 3.2
-    /// Points per second squared, positive downwards.
-    private static let gravity: Double = 250
-    /// How far back the streak behind a spark reaches.
-    private static let trailSeconds: TimeInterval = 0.05
+    /// Radial drag, so every spoke eases out instead of flying off in a straight line.
+    private static let drag: Double = 3.6
+    /// A hint of gravity: enough for the shell to sag as it dies, not enough to break the circle.
+    private static let gravity: Double = 30
+    /// How much of the streak trails behind each head.
+    private static let tailSeconds: TimeInterval = 0.16
 
-    static func sparks(at time: TimeInterval, barWidth: CGFloat) -> [Spark] {
-        var sparks: [Spark] = []
-        for shell in Self.shells {
-            let age = time - shell.time
-            guard age >= 0 else { continue }
-            var random = SeededRandom(seed: shell.seed)
-            let origin = CGPoint(x: Double(barWidth) * shell.originX, y: Double(shell.originY))
-            for _ in 0..<shell.count {
-                let angle = random.next(in: 0...(2 * .pi))
-                let speed = random.next(in: shell.speed)
-                // Nudged upwards: a burst that rises before gravity takes it reads as a firework
-                // rather than as something spilling out of the bar.
-                let velocity = CGVector(
-                    dx: cos(angle) * speed + shell.driftX,
-                    dy: sin(angle) * speed - 34
-                )
-                let life = Self.sparkLife * random.next(in: 0.62...1)
-                let radius = random.next(in: 0.95...2.25)
+    /// The one firework, centred on `originX` and opening as a circle.
+    static func rays(at time: TimeInterval, barWidth: CGFloat) -> [Ray] {
+        let age = time - Self.landing
+        guard age >= 0 else { return [] }
+        let origin = CGPoint(x: Double(barWidth) * Self.originX, y: 0)
+
+        var rays: [Ray] = []
+        for layer in Self.layers {
+            guard age < layer.life else { continue }
+            let progress = age / layer.life
+            var random = SeededRandom(seed: layer.seed)
+            for index in 0..<layer.count {
+                let angle = layer.offset + 2 * .pi * Double(index) / Double(layer.count)
+                let speed = layer.speed * random.next(in: (1 - layer.jitter)...(1 + layer.jitter))
                 let phase = random.next(in: 0...(2 * .pi))
-                let tone = Self.tone(&random)
-                guard age < life else { continue }
-                let progress = age / life
-                let position = Self.displaced(origin: origin, velocity: velocity, age: age)
-                let previous = Self.displaced(
-                    origin: origin,
-                    velocity: velocity,
-                    age: max(0, age - Self.trailSeconds)
-                )
-                // Twinkle keeps a static-looking cloud of dots alive while it falls.
-                let twinkle = 0.74 + 0.26 * sin(age * 17 + phase)
-                sparks.append(Spark(
-                    position: position,
-                    previous: previous,
-                    radius: radius * (1 - 0.35 * progress),
-                    opacity: min(1, age / 0.04) * pow(1 - progress, 1.45) * twinkle,
-                    tone: tone
+                let head = Self.radius(speed: speed, age: age)
+                let tail = Self.radius(speed: speed, age: max(0, age - Self.tailSeconds))
+                // Twinkle keeps the rim alive while it fades, the way real sparks flicker out.
+                let twinkle = 0.78 + 0.22 * sin(age * 21 + phase)
+                let opacity = min(1, age / 0.035) * pow(1 - progress, 1.6) * twinkle
+                guard opacity > 0.015 else { continue }
+                rays.append(Ray(
+                    inner: Self.point(
+                        origin: origin,
+                        angle: angle,
+                        radius: tail,
+                        age: max(0, age - Self.tailSeconds)
+                    ),
+                    outer: Self.point(origin: origin, angle: angle, radius: head, age: age),
+                    width: layer.width * (1 - 0.4 * progress),
+                    opacity: opacity,
+                    headRadius: layer.width * 0.85 * (1 - 0.5 * progress),
+                    tone: layer.tone
                 ))
             }
         }
-        return sparks
+        return rays
     }
 
-    /// Small motes stream into the moving head for the whole charge. They use the same tint,
-    /// warm, and white palette as the landing burst, but never fan out like fireworks.
-    static func chargeMotes(
-        at time: TimeInterval,
-        barWidth: CGFloat,
-        startPercent: Double,
-        targetPercent: Double
-    ) -> [Spark] {
-        guard time >= 0, time < Self.landing else { return [] }
-        let start = min(1, max(0, startPercent / 100))
-        let target = min(1, max(0, targetPercent / 100))
-        let head = start + (target - start) * Self.fillFraction(at: time)
-        let startX = Double(barWidth) * start
-        let headX = Double(barWidth) * head
-
-        return (0..<7).map { index in
-            let rate = 2.1 + Double(index) * 0.17
-            let phase = (time * rate + Double(index) * 0.137).truncatingRemainder(dividingBy: 1)
-            let distance = 8 + phase * 46
-            let x = max(startX, headX - distance)
-            let spread = 4.5 + Double(index % 3) * 2.1
-            let y = sin(time * 17 + Double(index) * 2.3) * spread
-            let opacity = sin(phase * .pi) * 0.76
-            let radius = 0.8 + Double(index % 3) * 0.28
-            let tone: SparkTone = switch index % 3 {
-            case 0: .tint
-            case 1: .warm
-            default: .white
-            }
-            return Spark(
-                position: CGPoint(x: x, y: y),
-                previous: CGPoint(x: max(startX, x - (4 + phase * 5)), y: y),
-                radius: radius,
-                opacity: opacity,
-                tone: tone
-            )
-        }
+    /// Closed form of `v' = -kv`, so a spoke's reach never depends on the frame rate.
+    private static func radius(speed: Double, age: TimeInterval) -> Double {
+        speed * (1 - exp(-Self.drag * age)) / Self.drag
     }
 
-    private static func tone(_ random: inout SeededRandom) -> SparkTone {
-        switch random.next(in: 0...1) {
-        case ..<0.55: .tint
-        case ..<0.82: .warm
-        default: .white
-        }
-    }
-
-    /// Closed form of `v' = -kv + g`, so a spark's position never depends on the frame rate.
-    private static func displaced(origin: CGPoint, velocity: CGVector, age: TimeInterval) -> CGPoint {
-        let decay = (1 - exp(-Self.drag * age)) / Self.drag
-        let terminal = Self.gravity / Self.drag
-        return CGPoint(
-            x: origin.x + velocity.dx * decay,
-            y: origin.y + (velocity.dy - terminal) * decay + terminal * age
+    private static func point(
+        origin: CGPoint,
+        angle: Double,
+        radius: Double,
+        age: TimeInterval
+    ) -> CGPoint {
+        CGPoint(
+            x: origin.x + cos(angle) * radius,
+            y: origin.y + sin(angle) * radius + 0.5 * Self.gravity * age * age
         )
     }
 
@@ -302,8 +297,8 @@ enum QuotaCelebration {
         }
     }
 
-    /// splitmix64. The burst has to look scattered but land in the same place every replay, or
-    /// the demo would be judging a different animation each time.
+    /// splitmix64. The jitter has to look natural but be identical on every replay, or the demo
+    /// would be judging a different shell each time.
     private struct SeededRandom {
         private var state: UInt64
 

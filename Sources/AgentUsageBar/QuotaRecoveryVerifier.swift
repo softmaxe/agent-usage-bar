@@ -290,39 +290,43 @@ enum QuotaRecoveryVerifier {
         if QuotaCelebration.flashOpacity(at: synchronized) <= 0 {
             failures.append("the landing flash did not share the final beat")
         }
-        if QuotaCelebration.ring(at: synchronized) == nil {
-            failures.append("the landing ring did not share the final beat")
+        if QuotaCelebration.rings(at: synchronized).isEmpty {
+            failures.append("the landing rings did not share the final beat")
+        }
+        if QuotaCelebration.core(at: synchronized) == nil {
+            failures.append("the firework core did not share the final beat")
         }
         if QuotaCelebration.barScale(at: synchronized).height <= 1 {
             failures.append("the bar did not start enlarging on the final beat")
         }
 
         let width: CGFloat = 252
-        if !QuotaCelebration.sparks(at: QuotaCelebration.landing - 0.01, barWidth: width).isEmpty {
-            failures.append("fireworks appeared before the 100% landing")
+        let originX = width * QuotaCelebration.originX
+        if !QuotaCelebration.rays(at: QuotaCelebration.landing - 0.01, barWidth: width).isEmpty {
+            failures.append("the firework appeared before the 100% landing")
         }
-        if QuotaCelebration.sparks(at: synchronized, barWidth: width)
-            .filter({ $0.opacity > 0 && $0.position.x > width * 0.8 }).count < 8 {
+
+        let burst = QuotaCelebration.rays(at: synchronized, barWidth: width)
+        if burst.count < 40 {
             failures.append("the only firework did not go off at the synchronized 100% landing")
         }
-        if QuotaCelebration.chargeMotes(
-            at: QuotaCelebration.landing * 0.5,
-            barWidth: width,
-            startPercent: start,
-            targetPercent: 100
-        ).isEmpty {
-            failures.append("the moving fill had no charging particles")
+        // A circle, not a fan: every spoke leaves the same point, none of them reaches further
+        // than the card can hold, and all four quadrants are covered.
+        var quadrants = Set<Int>()
+        for ray in burst {
+            let dx = ray.outer.x - originX
+            let dy = ray.outer.y
+            if (dx * dx + dy * dy).squareRoot() > Double(QuotaCelebration.maxRadius) {
+                failures.append("a firework spoke reached past the width the card can show")
+                break
+            }
+            quadrants.insert((dx >= 0 ? 1 : 0) << 1 | (dy >= 0 ? 1 : 0))
         }
-        if !QuotaCelebration.chargeMotes(
-            at: QuotaCelebration.landing,
-            barWidth: width,
-            startPercent: start,
-            targetPercent: 100
-        ).isEmpty {
-            failures.append("charging particles continued after the landing")
+        if quadrants.count < 4 {
+            failures.append("the firework did not open as a full circle")
         }
-        if !QuotaCelebration.sparks(at: QuotaCelebration.duration, barWidth: width).isEmpty {
-            failures.append("fireworks were still on screen when the clock stopped")
+        if !QuotaCelebration.rays(at: QuotaCelebration.duration, barWidth: width).isEmpty {
+            failures.append("the firework was still on screen when the clock stopped")
         }
 
         if QuotaCelebrationReplay.fillPercent(at: 0, from: start, to: start) != start {
