@@ -33,7 +33,7 @@ struct PricingSort: Equatable {
     var field: PricingSortField
     var ascending: Bool
 
-    /// Most-used first, which is what `PricingEditorModel.load` builds the list in.
+    /// Whitelist models keep their configured order; Others are most-used first.
     static let `default` = PricingSort(field: .usage, ascending: false)
 
     var isDefault: Bool { self == .default }
@@ -70,12 +70,22 @@ enum PricingSortPolicy {
         }
     }
 
-    /// The order the list is built in: provider sections stay put, and inside a section the
-    /// models the logs actually spend tokens on rise above the ones that are only in the table.
+    /// The order the list is built in: provider sections stay put, API whitelist models keep
+    /// their configured order, and Others with local usage rise above the remaining rows.
     static func defaultOrder(_ lhs: PricingRow, _ rhs: PricingRow) -> Bool {
         let lhsGroup = PricingGroup.allCases.firstIndex(of: lhs.group) ?? .max
         let rhsGroup = PricingGroup.allCases.firstIndex(of: rhs.group) ?? .max
         if lhsGroup != rhsGroup { return lhsGroup < rhsGroup }
+
+        if lhs.group != .others {
+            let whitelist = PricingGroup.whitelist(for: lhs.provider)
+            let lhsWhitelistIndex = whitelist.firstIndex(of: lhs.model) ?? Int.max
+            let rhsWhitelistIndex = whitelist.firstIndex(of: rhs.model) ?? Int.max
+            if lhsWhitelistIndex != rhsWhitelistIndex {
+                return lhsWhitelistIndex < rhsWhitelistIndex
+            }
+        }
+
         if lhs.usageTokens != rhs.usageTokens { return lhs.usageTokens > rhs.usageTokens }
         if lhs.seenInLogs != rhs.seenInLogs { return lhs.seenInLogs }
         if lhs.seenInLogs, lhs.isPriced != rhs.isPriced { return !lhs.isPriced }

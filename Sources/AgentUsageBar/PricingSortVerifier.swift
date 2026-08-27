@@ -72,10 +72,44 @@ enum PricingSortVerifier {
             failures.append("sorting the table marked the rates as edited")
         }
 
+        // API whitelist rows keep their product order even when usage differs; only Others use
+        // token usage for the default order.
+        let whitelistModel = PricingEditorModel(costService: CostService())
+        whitelistModel.debugSetRows([
+            Self.row("claude-fable-5", usageTokens: 10, input: "10", output: "50", cacheRead: "1"),
+            Self.row("claude-opus-5", usageTokens: 900, input: "15", output: "75", cacheRead: "1.5"),
+            Self.row("claude-sonnet-5", usageTokens: 20, input: "3", output: "15", cacheRead: "0.3"),
+            Self.row("claude-haiku-4-5", usageTokens: 500, input: "1", output: "5", cacheRead: "0.1"),
+            Self.row("gpt-5.6-sol", usageTokens: 10, input: "5", output: "25", cacheRead: "0.5", group: .codex),
+            Self.row("gpt-5.6-terra", usageTokens: 900, input: "3", output: "15", cacheRead: "0.3", group: .codex),
+            Self.row("gpt-5.6-luna", usageTokens: 20, input: "1", output: "5", cacheRead: "0.1", group: .codex),
+            Self.row("other-heavy", usageTokens: 900, input: "", output: "", cacheRead: "", group: .others),
+            Self.row("other-light", usageTokens: 10, input: "", output: "", cacheRead: "", group: .others),
+        ])
+        let expectedClaude = ["claude-fable-5", "claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"]
+        let expectedCodex = ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]
+        let expectedOthers = ["other-heavy", "other-light"]
+        if whitelistModel.rows(in: .claude).map(\.model) != expectedClaude {
+            failures.append("default Claude order changed with usage: \(whitelistModel.rows(in: .claude).map(\.model))")
+        }
+        if whitelistModel.rows(in: .codex).map(\.model) != expectedCodex {
+            failures.append("default Codex order changed with usage: \(whitelistModel.rows(in: .codex).map(\.model))")
+        }
+        if whitelistModel.rows(in: .others).map(\.model) != expectedOthers {
+            failures.append("default Others order changed with usage: \(whitelistModel.rows(in: .others).map(\.model))")
+        }
+        whitelistModel.toggleSort(.model)
+        whitelistModel.resetSort()
+        if whitelistModel.rows(in: .claude).map(\.model) != expectedClaude
+            || whitelistModel.rows(in: .codex).map(\.model) != expectedCodex
+            || whitelistModel.rows(in: .others).map(\.model) != expectedOthers {
+            failures.append("reset did not restore whitelist order and Others usage order")
+        }
+
         // Groups sort independently, so a click never drags a model out of its provider section.
         model.debugSetRows([
             Self.row("claude-opus-4", usageTokens: 10, input: "15", output: "75", cacheRead: "1.5"),
-            Self.row("gpt-5", usageTokens: 10, input: "1.25", output: "10", cacheRead: "0.125"),
+            Self.row("gpt-5", usageTokens: 10, input: "1.25", output: "10", cacheRead: "0.125", group: .codex),
         ])
         model.toggleSort(.input)
         if model.rows(in: .claude).map(\.model) != ["claude-opus-4"]
@@ -90,7 +124,7 @@ enum PricingSortVerifier {
             exit(1)
         }
 
-        print("pricing columns sorted both ways, sank blank rates, and reset to most-used-first")
+        print("pricing columns sorted both ways, sank blank rates, and reset to the configured default order")
         exit(0)
     }
 
@@ -99,11 +133,12 @@ enum PricingSortVerifier {
         usageTokens: Int,
         input: String,
         output: String,
-        cacheRead: String
+        cacheRead: String,
+        group: PricingGroup = .claude
     ) -> PricingRow {
         PricingRow(
-            provider: PricingGroup.classify(model: model) == .claude ? .claude : .codex,
-            group: PricingGroup.classify(model: model),
+            provider: group == .claude ? .claude : .codex,
+            group: group,
             model: model,
             seenInLogs: usageTokens > 0,
             hasDefault: !input.isEmpty,
