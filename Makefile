@@ -4,7 +4,7 @@ CONFIG ?= debug
 BIN := $(BUILD_DIR)/$(CONFIG)/$(APP_NAME)
 LOG_SUBSYSTEM := com.agentusagebar.app
 
-.PHONY: build run probe logs kill test app demo demo-number clean
+.PHONY: build run probe logs kill test app demo demo-number demo-bar-hover clean
 
 build:
 	swift build -c $(CONFIG)
@@ -40,6 +40,11 @@ demo:
 demo-number:
 	swift build -c debug --product $(APP_NAME)
 	$(BUILD_DIR)/debug/$(APP_NAME) --demo-number-animation
+
+## Compare the candidate hover treatments for the cost chart bars.
+demo-bar-hover:
+	swift build -c debug --product $(APP_NAME)
+	$(BUILD_DIR)/debug/$(APP_NAME) --demo-bar-hover
 
 ## Assemble a double-clickable AgentUsageBar.app under build/.
 app:
