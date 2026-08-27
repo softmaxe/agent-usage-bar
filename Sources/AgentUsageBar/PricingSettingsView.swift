@@ -7,6 +7,7 @@ import SwiftUI
 struct PricingSettingsView: View {
     @ObservedObject var model: PricingEditorModel
     @State private var expandedGroups = Set(PricingGroup.allCases)
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static let rateColumnWidth: CGFloat = 68
     /// Click target for the per-row disclosure chevron, sized to the row rather than the glyph.
@@ -71,43 +72,84 @@ struct PricingSettingsView: View {
         }
     }
 
+    /// Hand-rolled rather than a `DisclosureGroup`, because the native control owns its own
+    /// chevron and its own timing; the group opens on the app's easing instead, and its rows
+    /// arrive one beat apart so the list unrolls from under the header.
     private func group(_ group: PricingGroup) -> some View {
         let rows = self.model.rows(in: group)
-        return DisclosureGroup(isExpanded: self.expansionBinding(for: group)) {
-            if rows.isEmpty {
-                Text("No models")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.tertiary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 28)
-                    .padding(.vertical, 8)
-            } else {
-                ForEach(rows) { row in
-                    self.row(row)
-                    if self.model.isExpanded(row.id) {
-                        self.detail(row)
+        let isExpanded = self.expandedGroups.contains(group)
+        return VStack(alignment: .leading, spacing: 0) {
+            self.groupHeader(group, count: rows.count, isExpanded: isExpanded)
+            if isExpanded {
+                if rows.isEmpty {
+                    Text("No models")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 28)
+                        .padding(.vertical, 8)
+                        .transition(self.rowTransition(index: 0))
+                } else {
+                    ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                        VStack(alignment: .leading, spacing: 0) {
+                            self.row(row)
+                            if self.model.isExpanded(row.id) {
+                                self.detail(row)
+                                    .transition(self.detailTransition)
+                            }
+                            Divider().padding(.leading, 28)
+                        }
+                        .transition(self.rowTransition(index: index))
                     }
-                    Divider().padding(.leading, 28)
                 }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 5)
+    }
+
+    private func groupHeader(_ group: PricingGroup, count: Int, isExpanded: Bool) -> some View {
+        Button {
+            withAnimation(DisclosureMotion.open(reduceMotion: self.reduceMotion)) {
+                self.expansionBinding(for: group).wrappedValue.toggle()
             }
         } label: {
             HStack(spacing: 6) {
+                DisclosureChevron(isOpen: isExpanded, size: 11, reduceMotion: self.reduceMotion)
+                    .foregroundStyle(.primary)
+                    .frame(width: 6)
                 Text(group.rawValue)
                     .font(.system(size: 12, weight: .semibold))
-                Text("\(rows.count)")
+                Text("\(count)")
                     .font(.system(size: 10, weight: .medium, design: .rounded))
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 1)
                     .background(.quaternary, in: Capsule())
             }
-            // Keep the native disclosure control while making the full header row clickable.
+            // The whole header row is the control, not just the chevron.
             .frame(maxWidth: .infinity, minHeight: Self.disclosureHitSize.height, alignment: .leading)
             .contentShape(Rectangle())
-            .onTapGesture { self.expansionBinding(for: group).wrappedValue.toggle() }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 5)
+        .buttonStyle(DisclosurePressStyle(reduceMotion: self.reduceMotion))
+    }
+
+    /// Rows arrive on the group's easing, each one a beat after the row above it. They leave all
+    /// at once: a group being closed is one movement, and staggering it only delays the collapse.
+    private func rowTransition(index: Int) -> AnyTransition {
+        guard !self.reduceMotion else { return .identity }
+        return .asymmetric(
+            insertion: .opacity
+                .combined(with: .offset(y: -4))
+                .animation(DisclosureMotion.rowArrival(index: index)),
+            removal: .opacity.animation(DisclosureMotion.openCurve)
+        )
+    }
+
+    /// The per-row disclosure is one block, not a list, so it has no beat of its own to keep.
+    private var detailTransition: AnyTransition {
+        guard !self.reduceMotion else { return .identity }
+        return .opacity.combined(with: .offset(y: -4)).animation(DisclosureMotion.openCurve)
     }
 
     private func expansionBinding(for group: PricingGroup) -> Binding<Bool> {
@@ -143,17 +185,18 @@ struct PricingSettingsView: View {
     private func row(_ row: PricingRow) -> some View {
         HStack(spacing: 8) {
             Button {
-                self.model.toggleExpanded(row.id)
+                withAnimation(DisclosureMotion.open(reduceMotion: self.reduceMotion)) {
+                    self.model.toggleExpanded(row.id)
+                }
             } label: {
-                Image(systemName: self.model.isExpanded(row.id) ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 9, weight: .semibold))
+                DisclosureChevron(isOpen: self.model.isExpanded(row.id), reduceMotion: self.reduceMotion)
                     .foregroundStyle(.secondary)
                     // A 9pt chevron is a hard target to hit; the hit area covers the whole
                     // column instead of just the glyph.
                     .frame(width: Self.disclosureHitSize.width, height: Self.disclosureHitSize.height)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(DisclosurePressStyle(reduceMotion: self.reduceMotion))
             .frame(width: Self.disclosureHitSize.width)
             .help("One-hour cache write and long-context rates")
 
