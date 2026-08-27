@@ -43,7 +43,8 @@ enum QuotaCelebration {
 
     // MARK: - Fill
 
-    private static let fillDecay: Double = 5.2
+    /// Shared with the headline above the bar, which blurs its count by the same decay.
+    static let fillDecay: Double = 5.2
 
     /// Share of the final percentage the bar shows, 0...1.
     static func fillFraction(at time: TimeInterval) -> Double {

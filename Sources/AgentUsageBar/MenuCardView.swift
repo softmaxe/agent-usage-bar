@@ -134,31 +134,65 @@ struct MenuCardView: View {
             ? HistoricalUsagePace.evaluate(window: window, dataset: self.display.history)
             : nil)
             ?? UsagePace.evaluate(window: window, context: context)
-        return VStack(alignment: .leading, spacing: 6) {
+        return QuotaWindowRow(
+            provider: self.provider,
+            title: title,
+            window: window,
+            pace: pace,
+            paceLine: pace.map { Self.paceLine(for: $0, context: context) },
+            animatesFill: self.animatesFill,
+            celebrationToken: self.recoveries[kind] == nil ? 0 : self.celebrationTokens[kind] ?? 0,
+            celebrationStartPercent: self.recoveries[kind]?.fromRemainingPercent
+        )
+    }
+}
+
+/// One quota window: the headline, the bar, and the pace line. It is its own view so the headline
+/// and the bar can share a reset — the bar owns the clock and publishes every frame into the relay
+/// held here, which is also how the headline follows the hidden replay it knows nothing about.
+private struct QuotaWindowRow: View {
+    let provider: Provider
+    let title: String
+    let window: UsageWindow
+    let pace: UsagePace?
+    let paceLine: String?
+    let animatesFill: Bool
+    let celebrationToken: Int
+    let celebrationStartPercent: Double?
+
+    @StateObject private var celebration = QuotaCelebrationRelay()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("\(title) \(Formatters.percent(window.remainingPercent)) left")
-                    .font(.system(size: 14, weight: .semibold))
+                QuotaHeadline(
+                    title: self.title,
+                    percent: self.window.remainingPercent,
+                    tint: Theme.accent(for: self.provider),
+                    frame: self.celebration.frame
+                )
                 Spacer(minLength: 8)
-                if let resetsAt = window.resetsAt {
+                if let resetsAt = self.window.resetsAt {
                     Text("Resets in \(Formatters.compactDuration(resetsAt.timeIntervalSinceNow))")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
             }
             UsageProgressBar(
-                percent: window.remainingPercent,
+                percent: self.window.remainingPercent,
                 tint: Theme.accent(for: self.provider),
                 // The bar shows what is left, so the pace tip marks the remaining side too.
-                pacePercent: pace?.expectedRemainingPercent,
-                paceIsDeficit: pace?.stage.isAhead ?? false,
+                pacePercent: self.pace?.expectedRemainingPercent,
+                paceIsDeficit: self.pace?.stage.isAhead ?? false,
                 animatesFill: self.animatesFill,
-                celebrationToken: self.recoveries[kind] == nil ? 0 : self.celebrationTokens[kind] ?? 0,
-                celebrationStartPercent: self.recoveries[kind]?.fromRemainingPercent,
-                allowsCelebrationReplay: true
+                celebrationToken: self.celebrationToken,
+                celebrationStartPercent: self.celebrationStartPercent,
+                allowsCelebrationReplay: true,
+                celebrationRelay: self.celebration
             )
-            if let pace {
+            if let paceLine = self.paceLine {
                 // One Text, not an HStack: split across views the line wraps mid-phrase.
-                Text(Self.paceLine(for: pace, context: context))
+                Text(paceLine)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

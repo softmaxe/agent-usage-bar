@@ -2,6 +2,7 @@
 import AgentUsageBarCore
 import AppKit
 import Foundation
+import SwiftUI
 
 /// No XCTest without Xcode, so reset detection, persistence, and animation curves are asserted
 /// from a launch flag the way the fill policy and chart highlighting are.
@@ -11,6 +12,7 @@ enum QuotaRecoveryVerifier {
         var failures: [String] = []
         failures += Self.trackerFailures()
         failures += Self.choreographyFailures()
+        failures += Self.relayFailures()
         return Self.finish(failures)
     }
 
@@ -252,7 +254,64 @@ enum QuotaRecoveryVerifier {
     // MARK: - Choreography
 
     private static func choreographyFailures() -> [String] {
-        Self.fillFailures() + Self.landingFailures() + Self.replayFailures()
+        Self.fillFailures() + Self.landingFailures() + Self.replayFailures() + Self.headlineFailures()
+    }
+
+    /// What the headline above the bar owes the same timeline: the digits are the fill's own
+    /// easing, the blur belongs to the charge and nothing else, and every landing effect is over
+    /// when the clock stops.
+    private static func headlineFailures() -> [String] {
+        var failures: [String] = []
+        let start = 37.0
+        let landing = QuotaCelebration.landing
+        let duration = QuotaCelebration.duration
+
+        for step in 0...200 {
+            let time = landing * Double(step) / 200
+            let counted = QuotaNumberMotion.value(at: time, from: start, to: 100)
+            let filled = QuotaCelebration.fillPercent(at: time, from: start, to: 100)
+            if abs(counted - filled) > 1e-9 {
+                failures.append("the headline count drifted from the fill at \(step)/200")
+                break
+            }
+        }
+
+        if QuotaNumberMotion.speed(at: 0) != 1 {
+            failures.append("the headline blur did not peak at the start of the charge")
+        }
+        if QuotaNumberMotion.speed(at: landing * 0.5) >= QuotaNumberMotion.speed(at: landing * 0.1) {
+            failures.append("the headline blur did not decay with the count")
+        }
+        if QuotaNumberMotion.speed(at: landing) != 0 || QuotaNumberMotion.speed(at: duration) != 0 {
+            failures.append("the headline was still blurred once the count had landed")
+        }
+
+        if QuotaNumberMotion.flash(at: landing - 0.01) != 0 {
+            failures.append("the headline washed warm before the landing")
+        }
+        if QuotaNumberMotion.flash(at: landing) <= 0 {
+            failures.append("the headline did not take the landing beat")
+        }
+        if QuotaNumberMotion.glow(at: landing - 0.01) != nil {
+            failures.append("the headline bloom rose before the landing")
+        }
+        if QuotaNumberMotion.glow(at: landing + 0.05) == nil {
+            failures.append("the headline bloom did not rise on the landing")
+        }
+
+        if QuotaNumberMotion.scale(at: landing) != 1 {
+            failures.append("the headline pop did not start from rest on the landing")
+        }
+        if QuotaNumberMotion.scale(at: landing + 0.1) <= 1 {
+            failures.append("the headline did not overshoot after the landing")
+        }
+        if QuotaNumberMotion.scale(at: duration) != 1
+            || QuotaNumberMotion.flash(at: duration) != 0
+            || QuotaNumberMotion.glow(at: duration) != nil {
+            failures.append("the headline was still animating when the clock stopped")
+        }
+
+        return failures
     }
 
     private static func fillFailures() -> [String] {
@@ -389,6 +448,63 @@ enum QuotaRecoveryVerifier {
             failures.append("the five-click replay did not fade out and back in during its return")
         }
 
+        return failures
+    }
+
+    // MARK: - Relay
+
+    /// The headline renders from frames the bar publishes, so the wiring between them is worth an
+    /// assertion of its own: the maths above all still pass if nothing is ever handed over.
+    @MainActor
+    private static func relayFailures() -> [String] {
+        // Reduce Motion turns the celebration off entirely, and with it the frames this checks for.
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return [] }
+
+        var failures: [String] = []
+        let relay = QuotaCelebrationRelay()
+        let start = 20.0
+        let hosting = NSHostingView(rootView: UsageProgressBar(
+            percent: 100,
+            tint: .orange,
+            celebrationToken: 1,
+            celebrationStartPercent: start,
+            celebrationRelay: relay
+        ).frame(width: Self.barWidth))
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: Self.barWidth, height: 40),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = hosting
+        window.orderFront(nil)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.25))
+
+        guard let frame = relay.frame else {
+            window.orderOut(nil)
+            return ["the bar published no frame for the headline to render"]
+        }
+        if frame.elapsed <= 0 {
+            failures.append("the published frame never advanced past the first instant")
+        }
+        if frame.percent <= start || frame.percent > 100 {
+            failures.append("the published frame carried \(frame.percent), outside the charge")
+        }
+        if frame.isReplay {
+            failures.append("a real reset was published as a five-click replay")
+        }
+        if abs(frame.percent - QuotaCelebration.fillPercent(at: frame.elapsed, from: start, to: 100)) > 1e-9 {
+            failures.append("the published percentage was not the percentage the fill was drawing")
+        }
+
+        // Closing the card has to end the sequence for the headline too, or the number would be
+        // left mid-count the next time the menu opens.
+        window.contentView = nil
+        window.orderOut(nil)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        if relay.frame != nil {
+            failures.append("the headline was left mid-animation after the bar went away")
+        }
         return failures
     }
 

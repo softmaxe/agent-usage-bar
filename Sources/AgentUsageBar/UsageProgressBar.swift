@@ -26,6 +26,9 @@ struct UsageProgressBar: View {
     let celebrationStartPercent: Double?
     /// Session and weekly bars opt in to a hidden five-click replay. Other uses stay inert.
     let allowsCelebrationReplay: Bool
+    /// Where the bar publishes the frame it is drawing, so the headline above it can render the
+    /// same choreography. The bar stays the only clock; nothing else decides when a reset plays.
+    let celebrationRelay: QuotaCelebrationRelay?
 
     @Environment(\.displayScale) private var displayScale
 
@@ -53,7 +56,8 @@ struct UsageProgressBar: View {
         animatesFill: Bool = true,
         celebrationToken: Int = 0,
         celebrationStartPercent: Double? = nil,
-        allowsCelebrationReplay: Bool = false
+        allowsCelebrationReplay: Bool = false,
+        celebrationRelay: QuotaCelebrationRelay? = nil
     ) {
         self.percent = percent
         self.tint = tint
@@ -63,6 +67,7 @@ struct UsageProgressBar: View {
         self.celebrationToken = celebrationToken
         self.celebrationStartPercent = celebrationStartPercent
         self.allowsCelebrationReplay = allowsCelebrationReplay
+        self.celebrationRelay = celebrationRelay
         self._displayedPercent = State(initialValue: min(100, max(0, percent)))
     }
 
@@ -166,11 +171,16 @@ struct UsageProgressBar: View {
         .onDisappear {
             self.celebration.stop()
             self.replayStartPercent = nil
+            // Published here rather than left to the change handler: a view on its way out gets no
+            // further updates, and a stale frame would freeze the headline mid-count if the card's
+            // hosting view is reused the next time the menu opens.
+            self.celebrationRelay?.publish(nil)
         }
         .onChange(of: self.celebration.elapsed) { oldValue, newValue in
             if oldValue != nil, newValue == nil {
                 self.replayStartPercent = nil
             }
+            self.publishFrame(at: newValue)
         }
         .onChange(of: self.celebrationToken) { _, _ in
             _ = self.startCelebrationIfWanted()
@@ -193,6 +203,10 @@ struct UsageProgressBar: View {
     /// the rest of the time.
     private var fillPercent: Double {
         guard let time = self.celebration.elapsed else { return self.displayedPercent }
+        return self.celebrationFill(at: time)
+    }
+
+    private func celebrationFill(at time: TimeInterval) -> Double {
         if let replayStartPercent {
             return QuotaCelebrationReplay.fillPercent(
                 at: time,
@@ -205,6 +219,21 @@ struct UsageProgressBar: View {
             from: self.celebrationStartPercent ?? 0,
             to: self.clamped
         )
+    }
+
+    /// Hands the current frame to whatever is drawing alongside the bar. Nil ends the sequence for
+    /// the headline at the same instant it ends for the fill.
+    private func publishFrame(at time: TimeInterval?) {
+        guard let relay = self.celebrationRelay else { return }
+        guard let time else {
+            relay.publish(nil)
+            return
+        }
+        relay.publish(QuotaCelebrationFrame(
+            elapsed: time,
+            percent: self.celebrationFill(at: time),
+            isReplay: self.replayStartPercent != nil
+        ))
     }
 
     private var barScale: CGSize {
