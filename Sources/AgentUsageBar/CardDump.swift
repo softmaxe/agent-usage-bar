@@ -193,7 +193,6 @@ enum CardDump {
                     error: errors[name]
                 ),
                 isRefreshing: false,
-                presentationToken: 0,
                 animatesFill: false
             )
             let hosting = NSHostingView(rootView: view)

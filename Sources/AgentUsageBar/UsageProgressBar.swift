@@ -1,14 +1,14 @@
 // Adapted from CodexBar (MIT, © 2026 Peter Steinberger): Sources/CodexBar/UsageProgressBar.swift
 // Kept: the single-Canvas track, fill, and pace marker.
 // Dropped: quota/workday markers, highlight-state theming, and accessibility values.
-// Added: the sweep-from-empty fill, which CodexBar draws statically, and the reset animation that
-// resumes from the final reading of the previous quota window.
+// Added: animated value changes and the reset animation that resumes from the final reading of the
+// previous quota window.
 
 import AppKit
 import SwiftUI
 
-/// Progress fill for one quota window. The fill sweeps in from the left when the card is opened
-/// and again when the window rolls over; ordinary spending just glides.
+/// Progress fill for one quota window. Presenting an existing reading is static, a window rollover
+/// sweeps in, and ordinary spending glides from the value already on screen.
 struct UsageProgressBar: View {
     /// Percentage *remaining*, 0...100 — the bar fills from the left with what is left.
     let percent: Double
@@ -17,19 +17,17 @@ struct UsageProgressBar: View {
     let pacePercent: Double?
     /// Red marks burning faster than the clock; green marks a reserve.
     let paceIsDeficit: Bool
-    /// Changes each time the card is presented, which is what replays the sweep.
-    let presentationToken: Int
     /// Offscreen renders capture a single frame, so they need the bar to start at its final value.
     let animatesFill: Bool
-    /// Non-zero, and changing, means this window reset: play the celebration instead of the
-    /// ordinary sweep. Zero for every bar that has nothing to celebrate.
+    /// Non-zero, and changing, means this window reset: play the celebration instead of static
+    /// presentation. Zero for every bar that has nothing to celebrate.
     let celebrationToken: Int
     /// The final remaining percentage observed before this window reset.
     let celebrationStartPercent: Double?
 
     @Environment(\.displayScale) private var displayScale
 
-    /// Drives the fill. Starts empty so the first paint is always a sweep.
+    /// Drives ordinary value changes between provider readings.
     @State private var displayedPercent: Double = 0
     /// Owns the celebration's frame clock; nil elapsed means nothing is playing.
     @StateObject private var celebration = CelebrationClock()
@@ -48,7 +46,6 @@ struct UsageProgressBar: View {
         tint: Color,
         pacePercent: Double? = nil,
         paceIsDeficit: Bool = false,
-        presentationToken: Int = 0,
         animatesFill: Bool = true,
         celebrationToken: Int = 0,
         celebrationStartPercent: Double? = nil
@@ -57,11 +54,10 @@ struct UsageProgressBar: View {
         self.tint = tint
         self.pacePercent = pacePercent
         self.paceIsDeficit = paceIsDeficit
-        self.presentationToken = presentationToken
         self.animatesFill = animatesFill
         self.celebrationToken = celebrationToken
         self.celebrationStartPercent = celebrationStartPercent
-        self._displayedPercent = State(initialValue: animatesFill ? 0 : min(100, max(0, percent)))
+        self._displayedPercent = State(initialValue: min(100, max(0, percent)))
     }
 
     private var clamped: Double { min(100, max(0, self.percent)) }
@@ -152,17 +148,14 @@ struct UsageProgressBar: View {
         }
         .onAppear {
             guard self.animatesFill else { return }
-            // A card that opens with a celebration already queued starts on it, not on a sweep.
+            // A card that opens with a celebration already queued starts on it, not on the static
+            // presentation path.
             if self.startCelebrationIfWanted() { return }
             self.apply(UsageBarFillPolicy.onPresentation())
         }
         .onDisappear { self.celebration.stop() }
         .onChange(of: self.celebrationToken) { _, _ in
             _ = self.startCelebrationIfWanted()
-        }
-        .onChange(of: self.presentationToken) { _, _ in
-            guard self.animatesFill, !self.celebration.isRunning else { return }
-            self.apply(UsageBarFillPolicy.onPresentation())
         }
         .onChange(of: self.percent) { oldValue, newValue in
             guard self.animatesFill else {
@@ -194,7 +187,7 @@ struct UsageProgressBar: View {
         return QuotaCelebration.barScale(at: time)
     }
 
-    /// Returns whether a celebration was started, so the caller knows to skip the ordinary sweep.
+    /// Returns whether a celebration was started, so the caller knows to skip static presentation.
     @discardableResult
     private func startCelebrationIfWanted() -> Bool {
         guard self.celebrationToken != 0,
@@ -222,6 +215,10 @@ struct UsageProgressBar: View {
 
     private func apply(_ fill: UsageBarFillPolicy.Fill) {
         switch fill {
+        case .snap:
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) { self.displayedPercent = self.clamped }
         case let .sweepFromEmpty(duration):
             var snap = Transaction()
             snap.disablesAnimations = true

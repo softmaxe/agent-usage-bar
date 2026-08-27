@@ -19,8 +19,6 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private var menu: NSMenu?
     private var cancellables: Set<AnyCancellable> = []
 
-    /// Bumped every time the menu opens, which is what replays the bars' fill animation.
-    private var presentationToken = 0
     /// Only true between menuWillOpen and menuDidClose: a celebration is claimed when a card is
     /// there to play it, never while the menu is closed.
     private var isMenuOpen = false
@@ -207,7 +205,6 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             provider: self.settings.menuBarProvider,
             display: ProviderDisplay(),
             isRefreshing: false,
-            presentationToken: 0,
             now: self.now()
         ))
         hosting.frame = NSRect(x: 0, y: 0, width: Self.cardWidth, height: 200)
@@ -283,7 +280,6 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             provider: provider,
             display: display,
             isRefreshing: self.store.isRefreshing,
-            presentationToken: self.presentationToken,
             recoveries: self.recoveries[provider] ?? [:],
             celebrationTokens: self.celebrationTokens[provider] ?? [:],
             now: self.now()
@@ -357,7 +353,6 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         // Each click is an explicit manual refresh. The store coalesces it with an in-flight
         // request, and its independent timer keeps the configured background cadence unchanged.
         self.store.refresh()
-        self.presentationToken += 1
         self.isMenuOpen = true
         // A celebration belongs to one viewing of the card. Whatever the last one played is over.
         self.recoveries = [:]
