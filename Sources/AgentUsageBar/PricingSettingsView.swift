@@ -14,6 +14,7 @@ struct PricingSettingsView: View {
     private static let detailLabelWidth: CGFloat = 138
     private static let claudePricingURL = URL(string: "https://platform.claude.com/docs/en/about-claude/pricing")!
     private static let openAIPricingURL = URL(string: "https://developers.openai.com/api/docs/pricing")!
+    private static let openRouterPricingURL = URL(string: "https://openrouter.ai/models")!
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -48,6 +49,9 @@ struct PricingSettingsView: View {
                 }
                 Link(destination: Self.openAIPricingURL) {
                     Label("OpenAI API pricing", systemImage: "arrow.up.right.square")
+                }
+                Link(destination: Self.openRouterPricingURL) {
+                    Label("OpenRouter API pricing", systemImage: "arrow.up.right.square")
                 }
             }
             .buttonStyle(.bordered)
