@@ -39,9 +39,9 @@ struct UsageProgressBar: View {
     private static let pacePunchWidth: CGFloat = 4
     private static let paceStripeWidth: CGFloat = 2
     private static let punchOpacity: Double = 1
-    /// How far the firework canvas reaches past each end of the bar.
+    /// How far the celebration canvas reaches past each end of the bar.
     private static let celebrationInset: CGFloat = 20
-    /// Tall enough that the shell fades out before it reaches the canvas edge; the card clips it
+    /// Tall enough that the glow fades out before it reaches the canvas edge; the card clips it
     /// long before that, which is the boundary that should be doing the cutting.
     private static let celebrationHeight: CGFloat = 170
 
@@ -139,7 +139,7 @@ struct UsageProgressBar: View {
         .frame(height: 6)
         .scaleEffect(self.barScale, anchor: .center)
         .opacity(self.barOpacity)
-        // Outside the bar and unscaled: the firework is in the card's space, not the pill's.
+        // Outside the bar and unscaled: the glow is in the card's space, not the pill's.
         .overlay {
             if let time = self.celebration.elapsed {
                 QuotaCelebrationLayer(
@@ -232,8 +232,8 @@ struct UsageProgressBar: View {
               self.celebrationStartPercent != nil,
               self.animatesFill
         else { return false }
-        // Reduce Motion turns the whole thing off: a firework going off in the menu bar is exactly
-        // what that setting exists to stop.
+        // Reduce Motion turns the whole thing off: a bar springing and glowing in the menu bar is
+        // exactly what that setting exists to stop.
         guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
             self.apply(UsageBarFillPolicy.onPresentation())
             return true

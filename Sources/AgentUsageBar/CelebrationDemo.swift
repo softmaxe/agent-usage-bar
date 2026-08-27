@@ -101,8 +101,8 @@ private struct CelebrationDemoView: View {
 
             Text(
                 "One continuous motion carries the fill from its previous position to 100%. "
-                    + "Nothing trails the head on the way; the pop and one circular firework share "
-                    + "the landing beat."
+                    + "Nothing trails the head on the way; the pop, the flash, and a soft glow "
+                    + "rising under the whole bar share the landing beat."
             )
             .font(.system(size: 11))
             .foregroundStyle(.secondary)
