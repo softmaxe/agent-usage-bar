@@ -4,7 +4,7 @@ CONFIG ?= debug
 BIN := $(BUILD_DIR)/$(CONFIG)/$(APP_NAME)
 LOG_SUBSYSTEM := com.agentusagebar.app
 
-.PHONY: build run probe logs kill test app demo clean
+.PHONY: build run probe logs kill test app demo demo-number clean
 
 build:
 	swift build -c $(CONFIG)
@@ -35,6 +35,11 @@ kill:
 demo:
 	swift build -c debug --product $(APP_NAME)
 	$(BUILD_DIR)/debug/$(APP_NAME) --demo-celebration
+
+## Compare the candidate treatments for the headline percentage on the shared reset timeline.
+demo-number:
+	swift build -c debug --product $(APP_NAME)
+	$(BUILD_DIR)/debug/$(APP_NAME) --demo-number-animation
 
 ## Assemble a double-clickable AgentUsageBar.app under build/.
 app:
