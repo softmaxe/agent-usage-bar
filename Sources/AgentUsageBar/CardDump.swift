@@ -42,7 +42,9 @@ enum CardDump {
     private static func captureSettings(_ view: AnyView, named name: String, into root: URL) {
         let hosting = NSHostingView(rootView: view)
         hosting.appearance = NSAppearance(named: .darkAqua)
-        hosting.frame = NSRect(x: 0, y: 0, width: 620, height: 460)
+        // The settings window is a tab bar over a 620x460 pane and the pricing pane is that pane
+        // on its own, so the height comes from the view rather than from a constant here.
+        hosting.frame = NSRect(origin: .zero, size: hosting.fittingSize)
 
         let window = NSWindow(
             contentRect: hosting.frame,
