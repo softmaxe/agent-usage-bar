@@ -66,6 +66,7 @@ test:
 	$(BUILD_DIR)/debug/$(APP_NAME) --verify-menu-pointer-follow
 	$(BUILD_DIR)/debug/$(APP_NAME) --verify-quota-recovery
 	$(BUILD_DIR)/debug/$(APP_NAME) --verify-relative-time
+	$(BUILD_DIR)/debug/$(APP_NAME) --verify-quota-reset-label
 	$(BUILD_DIR)/debug/$(APP_NAME) --verify-refresh-row
 	$(BUILD_DIR)/debug/$(APP_NAME) --verify-pricing-sort
 	$(BUILD_DIR)/debug/$(APP_NAME) --verify-pricing-model-filter

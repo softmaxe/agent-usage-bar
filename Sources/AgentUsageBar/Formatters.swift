@@ -13,6 +13,41 @@ enum Formatters {
         return "\(minutes)m"
     }
 
+    /// "3:30 PM", "Sat 3:30 PM", "Sep 2, 3:30 PM" — the wall clock the reset countdown is
+    /// counting down to. A bare time is only unambiguous for today, so the day is spelled out
+    /// from tomorrow on, and the weekday gives way to a date once it would wrap around.
+    static func resetClock(
+        _ date: Date,
+        now: Date = Date(),
+        calendar: Calendar = .current,
+        locale: Locale = .current
+    ) -> String {
+        let time = Self.style(calendar, locale).hour().minute().format(date)
+        let days = calendar.dateComponents(
+            [.day],
+            from: calendar.startOfDay(for: now),
+            to: calendar.startOfDay(for: date)
+        ).day ?? 0
+
+        if days <= 0 { return time }
+        if days < 7 {
+            let weekday = Self.style(calendar, locale).weekday(.abbreviated).format(date)
+            return "\(weekday) \(time)"
+        }
+        let day = Self.style(calendar, locale).month(.abbreviated).day().format(date)
+        return "\(day), \(time)"
+    }
+
+    /// Field-free base style: the caller adds only the components it wants, and the calendar
+    /// carries the time zone so a fixed one makes the output testable.
+    private static func style(_ calendar: Calendar, _ locale: Locale) -> Date.FormatStyle {
+        Date.FormatStyle(
+            locale: locale,
+            calendar: calendar,
+            timeZone: calendar.timeZone
+        )
+    }
+
     /// "just now", "5m ago", "2h ago".
     static func relativeAge(since date: Date, now: Date = Date()) -> String {
         let seconds = Int(max(0, now.timeIntervalSince(date)))

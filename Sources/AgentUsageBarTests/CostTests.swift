@@ -677,6 +677,22 @@ enum SettingsTests {
         Harness.expectEqual(store.refreshFrequency, .fiveMinutes, "default cadence")
         Harness.expectEqual(store.menuBarProvider, Provider.allCases[0], "one provider shows by default")
         Harness.expectEqual(store.costChartLabelMode, .tokens, "chart labels default to tokens")
+        // The countdown is the reading nobody has to be taught, so it stays the one on first open.
+        Harness.expectEqual(
+            store.quotaResetDisplayMode,
+            .countdown,
+            "reset labels default to the countdown"
+        )
+        Harness.expectEqual(
+            QuotaResetDisplayMode.countdown.toggled,
+            .clock,
+            "a click swaps the countdown for the clock"
+        )
+        Harness.expectEqual(
+            QuotaResetDisplayMode.clock.toggled,
+            .countdown,
+            "a second click swaps back"
+        )
 
         Harness.expectEqual(RefreshFrequency.manual.seconds, nil, "manual runs no timer")
         Harness.expectEqual(RefreshFrequency.oneMinute.seconds, 60, "one minute in seconds")
@@ -701,6 +717,7 @@ enum SettingsTests {
 
         store.menuBarProvider = .claude
         store.costChartLabelMode = .cost
+        store.quotaResetDisplayMode = .clock
 
         let reloaded = SettingsStore(defaults: defaults)
         Harness.expectEqual(reloaded.refreshFrequency, .fifteenMinutes, "cadence survives a reload")
@@ -711,6 +728,11 @@ enum SettingsTests {
             SettingsStore(defaults: defaults).costChartLabelMode,
             .tokens,
             "chart label mode can switch back to tokens"
+        )
+        Harness.expectEqual(
+            reloaded.quotaResetDisplayMode,
+            .clock,
+            "the reset label face survives a reload"
         )
 
         // A machine upgrading from the two-toggle build keeps the item it had left enabled.

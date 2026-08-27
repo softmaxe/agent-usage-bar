@@ -231,6 +231,13 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             costChartLabelMode: self.settings.costChartLabelMode,
             onCostChartLabelModeChanged: { [weak self] mode in
                 self?.settings.costChartLabelMode = mode
+            },
+            quotaResetDisplayMode: self.settings.quotaResetDisplayMode,
+            onQuotaResetDisplayModeChanged: { [weak self] mode in
+                // Both windows read the label the same way, so the click has to redraw the whole
+                // card rather than only the row it landed on.
+                self?.settings.quotaResetDisplayMode = mode
+                self?.refreshOpenCard()
             }
         ))
         hosting.frame = NSRect(x: 0, y: 0, width: Self.cardWidth, height: 200)
@@ -324,6 +331,13 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             costChartLabelMode: self.settings.costChartLabelMode,
             onCostChartLabelModeChanged: { [weak self] mode in
                 self?.settings.costChartLabelMode = mode
+            },
+            quotaResetDisplayMode: self.settings.quotaResetDisplayMode,
+            onQuotaResetDisplayModeChanged: { [weak self] mode in
+                // Both windows read the label the same way, so the click has to redraw the whole
+                // card rather than only the row it landed on.
+                self?.settings.quotaResetDisplayMode = mode
+                self?.refreshOpenCard()
             }
         )
         // The card's height depends on how many windows the provider reported, so resize to fit.
