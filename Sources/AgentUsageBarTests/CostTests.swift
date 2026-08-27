@@ -568,16 +568,54 @@ enum RateLimitTests {
     }
 }
 
-/// Menu opens refresh immediately, then share a cooldown so rapid reopenings cannot spam APIs.
-enum MenuOpenRefreshGateTests {
+/// One cooldown for every refresh path, so a poll and a click cannot both hit the endpoints.
+enum RefreshCooldownGateTests {
     static func run() {
-        var gate = MenuOpenRefreshGate()
+        var gate = RefreshCooldownGate()
 
-        Harness.expect(gate.claimRefresh(at: 1_000), "the first menu open refreshes")
-        Harness.expect(!gate.claimRefresh(at: 1_001), "a rapid reopen does not refresh")
-        Harness.expect(!gate.claimRefresh(at: 1_059.999), "the cooldown lasts a full minute")
-        Harness.expect(gate.claimRefresh(at: 1_060), "a reopen at one minute refreshes")
-        Harness.expect(!gate.claimRefresh(at: 1_061), "the refreshed cooldown starts over")
+        Harness.expect(gate.claimRefresh(at: 1_000), "the first refresh runs")
+        Harness.expect(!gate.claimRefresh(at: 1_001), "a click right after does not refresh")
+        Harness.expect(!gate.claimRefresh(at: 1_058.9), "the cooldown lasts about a minute")
+        Harness.expect(gate.claimRefresh(at: 1_059), "the scheduling tolerance lets a 60s poll through")
+        Harness.expect(!gate.claimRefresh(at: 1_060), "the refreshed cooldown starts over")
+
+        // A forced refresh answers a settings change rather than a tick, but it still quiets the
+        // minute after it.
+        var forced = RefreshCooldownGate()
+        Harness.expect(forced.claimRefresh(at: 2_000), "the first refresh runs")
+        forced.recordRefresh(at: 2_030)
+        Harness.expect(!forced.claimRefresh(at: 2_059), "a forced refresh restarts the cooldown")
+        Harness.expect(forced.claimRefresh(at: 2_089), "and the cooldown runs from the forced refresh")
+
+        // A cadence faster than the cooldown would otherwise drop ticks; the tolerance is only
+        // slack for scheduling, not a second knob.
+        var tight = RefreshCooldownGate(minimumInterval: 10, tolerance: 0)
+        Harness.expect(tight.claimRefresh(at: 0), "the first refresh runs")
+        Harness.expect(!tight.claimRefresh(at: 9.999), "a custom interval is honoured")
+        Harness.expect(tight.claimRefresh(at: 10), "and elapses exactly")
+    }
+}
+
+/// What the Refresh row says while the cooldown runs.
+enum RefreshRowPolicyTests {
+    static func run() {
+        let idle = RefreshRowPolicy.state(cooldownRemaining: 0, isRefreshing: false)
+        Harness.expectEqual(idle.title, "Refresh", "an elapsed cooldown leaves the plain title")
+        Harness.expect(idle.isEnabled, "and the row accepts clicks")
+
+        let waiting = RefreshRowPolicy.state(cooldownRemaining: 42, isRefreshing: false)
+        Harness.expectEqual(waiting.title, "Refresh in 42s", "the cooldown is spelled out")
+        Harness.expect(!waiting.isEnabled, "and the row refuses clicks it would drop")
+
+        // Rounded up, so the last partial second never reads as a refresh that would be honoured.
+        let sliver = RefreshRowPolicy.state(cooldownRemaining: 0.2, isRefreshing: false)
+        Harness.expectEqual(sliver.title, "Refresh in 1s", "a partial second still counts")
+        Harness.expect(!sliver.isEnabled, "and still refuses clicks")
+
+        // An in-flight refresh holds the cooldown too, but a countdown would misdescribe it.
+        let running = RefreshRowPolicy.state(cooldownRemaining: 59, isRefreshing: true)
+        Harness.expectEqual(running.title, "Refreshing…", "a running refresh says so")
+        Harness.expect(!running.isEnabled, "and the row refuses a second one")
     }
 }
 

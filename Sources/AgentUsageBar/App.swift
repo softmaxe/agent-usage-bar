@@ -51,6 +51,9 @@ enum AgentUsageBarApp {
         if CommandLine.arguments.contains("--verify-relative-time") {
             RelativeTimeVerifier.run()
         }
+        if CommandLine.arguments.contains("--verify-refresh-row") {
+            RefreshRowVerifier.run()
+        }
         if CommandLine.arguments.contains("--demo-celebration") {
             CelebrationDemo.run()
         }
