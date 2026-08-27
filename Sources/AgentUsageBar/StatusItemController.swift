@@ -11,6 +11,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private let settings: SettingsStore
     private let settingsWindow: SettingsWindowController
     private let now: () -> Date
+    private let menuRefreshClock: () -> TimeInterval
     private let openMenuClockInterval: TimeInterval
     private var statusItem: NSStatusItem?
     private var hostingView: NSHostingView<MenuCardView>?
@@ -29,6 +30,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     /// "Updated 2m ago" and "Resets in 4h 53m" are strings built at render time, so an open menu
     /// needs its own clock; nothing else publishes between two scheduled refreshes.
     private var openMenuClock: Timer?
+    /// Opening the menu is an explicit refresh, but rapid reopenings share a one-minute cooldown.
+    private var menuOpenRefreshGate = MenuOpenRefreshGate()
     /// One autosave name for the one item, so switching providers leaves it where the user
     /// dragged it instead of moving the icon around.
     private static let autosaveName = "agentusagebar"
@@ -40,12 +43,14 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         settings: SettingsStore,
         pricing: PricingEditorModel,
         now: @escaping () -> Date = { Date() },
+        menuRefreshClock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
         openMenuClockInterval: TimeInterval = 15
     ) {
         self.store = store
         self.settings = settings
         self.settingsWindow = SettingsWindowController(settings: settings, pricing: pricing)
         self.now = now
+        self.menuRefreshClock = menuRefreshClock
         self.openMenuClockInterval = openMenuClockInterval
         super.init()
 
@@ -358,9 +363,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     // MARK: - NSMenuDelegate
 
     func menuWillOpen(_: NSMenu) {
-        // Each click is an explicit manual refresh. The store coalesces it with an in-flight
-        // request, and its independent timer keeps the configured background cadence unchanged.
-        self.store.refresh()
+        // The first open refreshes immediately. Reopenings within one minute reuse that result,
+        // while the independent polling timer and the explicit Refresh action stay unchanged.
+        if self.menuOpenRefreshGate.claimRefresh(at: self.menuRefreshClock()) {
+            self.store.refresh()
+        }
         self.isMenuOpen = true
         // A celebration belongs to one viewing of the card. Whatever the last one played is over.
         self.recoveries = [:]

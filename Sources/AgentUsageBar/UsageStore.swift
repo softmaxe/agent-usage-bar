@@ -2,8 +2,8 @@ import AgentUsageBarCore
 import Combine
 import Foundation
 
-/// Owns provider state and the refresh schedule. Fixed-interval polling plus a manual
-/// refresh whenever the status-item menu opens.
+/// Owns provider state and the refresh schedule. Fixed-interval polling plus manual refreshes
+/// requested by status-item interactions.
 @MainActor
 final class UsageStore: ObservableObject {
     @Published private(set) var displays: [Provider: ProviderDisplay] = [:]

@@ -568,6 +568,19 @@ enum RateLimitTests {
     }
 }
 
+/// Menu opens refresh immediately, then share a cooldown so rapid reopenings cannot spam APIs.
+enum MenuOpenRefreshGateTests {
+    static func run() {
+        var gate = MenuOpenRefreshGate()
+
+        Harness.expect(gate.claimRefresh(at: 1_000), "the first menu open refreshes")
+        Harness.expect(!gate.claimRefresh(at: 1_001), "a rapid reopen does not refresh")
+        Harness.expect(!gate.claimRefresh(at: 1_059.999), "the cooldown lasts a full minute")
+        Harness.expect(gate.claimRefresh(at: 1_060), "a reopen at one minute refreshes")
+        Harness.expect(!gate.claimRefresh(at: 1_061), "the refreshed cooldown starts over")
+    }
+}
+
 /// Settings persistence and the refresh cadence table.
 enum SettingsTests {
     @MainActor

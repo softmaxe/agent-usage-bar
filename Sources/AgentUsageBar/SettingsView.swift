@@ -50,7 +50,7 @@ struct SettingsView: View {
             "The quota endpoints are shared with the Codex and Claude CLIs. "
                 + "Polling this often can get you rate-limited."
         default:
-            "Opening the menu requests an additional refresh without changing this schedule."
+            "Opening the menu requests at most one additional refresh per minute without changing this schedule."
         }
     }
 }
