@@ -11,6 +11,9 @@ struct CostSectionView: View {
     private static let maxBars = 10
     private static let chartHeight: CGFloat = 56
     private static let barSpacing: CGFloat = 4
+    /// Room for the selected bar's lift plus its label, so neither the card nor the KPI row above
+    /// it moves when the highlight changes bars.
+    private static let chartTopPadding: CGFloat = 14 + CostChartHoverMotion.lift
     /// Four covers a normal day for either provider; the rest collapse into a "+N more" line.
     private static let maxBreakdownRows = 4
     private static let summaryLineHeight: CGFloat = 14
@@ -118,7 +121,7 @@ struct CostSectionView: View {
             }
         }
         .frame(height: Self.chartHeight)
-        .padding(.top, 14)
+        .padding(.top, Self.chartTopPadding)
         .overlay {
             GeometryReader { geometry in
                 MouseLocationReader(
@@ -155,10 +158,15 @@ struct CostSectionView: View {
             tokens: day.tokens.total,
             costUSD: day.costUSD
         )
+        let isSelected = day.dayKey == selectedDayKey
         return RoundedRectangle(cornerRadius: 2)
-            .fill(Theme.accent(for: self.provider).opacity(opacity))
-            // A day with a trace of spend still deserves a visible sliver.
-            .frame(height: max(4, Self.chartHeight * ratio))
+            .fill(Theme.accent(for: self.provider))
+            // Opacity as a modifier rather than folded into the fill, so the tone change is a
+            // plain animatable value.
+            .opacity(opacity)
+            // A day with a trace of spend still deserves a visible sliver. The selected bar stands
+            // up on top of that, which is what makes the highlight a shape and not only a tone.
+            .frame(height: max(4, Self.chartHeight * ratio) + (isSelected ? CostChartHoverMotion.lift : 0))
             .frame(maxWidth: .infinity)
             .overlay(alignment: .top) {
                 if let labelText {
@@ -167,6 +175,7 @@ struct CostSectionView: View {
                         .foregroundStyle(.primary)
                         .fixedSize()
                         .offset(y: -14)
+                        .transition(CostChartHoverMotion.labelTransition)
                 }
             }
     }
@@ -261,7 +270,7 @@ struct CostSectionView: View {
         // Leaving the chart clears hover selection, which restores today's default highlight.
         // Inside the chart the policy decides, so a gap between bars holds the current day.
         guard let location, !self.bars.isEmpty, width > 0 else {
-            if self.hoveredDayKey != nil { self.hoveredDayKey = nil }
+            if self.hoveredDayKey != nil { self.select(nil) }
             return
         }
         let index = CostChartHighlightPolicy.barIndex(
@@ -275,7 +284,17 @@ struct CostSectionView: View {
             afterMovingTo: key,
             currentDayKey: self.hoveredDayKey
         )
-        if self.hoveredDayKey != nextKey { self.hoveredDayKey = nextKey }
+        if self.hoveredDayKey != nextKey { self.select(nextKey) }
+    }
+
+    /// Clearing the hover is the one move the reader did not aim at a bar, so it is the one that
+    /// gets the slower curve back to today.
+    private func select(_ dayKey: String?) {
+        let animation = CostChartHoverMotion.animation(
+            returningToToday: dayKey == nil,
+            reduceMotion: CostChartHoverMotion.systemReduceMotion
+        )
+        withAnimation(animation) { self.hoveredDayKey = dayKey }
     }
 
     private var selectedDayKey: String? {

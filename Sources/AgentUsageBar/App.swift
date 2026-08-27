@@ -76,6 +76,9 @@ enum AgentUsageBarApp {
         if CommandLine.arguments.contains("--demo-number-animation") {
             NumberAnimationDemo.run()
         }
+        if CommandLine.arguments.contains("--demo-bar-hover") {
+            BarHoverDemo.run()
+        }
         if CommandLine.arguments.contains("--demo-disclosure") {
             DisclosureAnimationDemo.run()
         }
