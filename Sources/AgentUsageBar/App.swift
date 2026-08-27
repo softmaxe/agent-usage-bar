@@ -54,6 +54,14 @@ enum AgentUsageBarApp {
         if CommandLine.arguments.contains("--demo-celebration") {
             CelebrationDemo.run()
         }
+        if CommandLine.arguments.contains("--demo-number-animation") {
+            NumberAnimationDemo.run()
+        }
+        if let index = CommandLine.arguments.firstIndex(of: "--dump-number-animation"),
+           index + 1 < CommandLine.arguments.count {
+            NumberAnimationDemo.dumpFrames(directory: CommandLine.arguments[index + 1])
+            return
+        }
         if let index = CommandLine.arguments.firstIndex(of: "--dump-celebration"),
            index + 1 < CommandLine.arguments.count {
             CelebrationDemo.dumpFrames(directory: CommandLine.arguments[index + 1])

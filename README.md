@@ -133,6 +133,7 @@ make test        # Run the assertion-based test suite
 make probe       # Check both provider integrations from the terminal
 make probe-cost  # Rescan the local logs and print cost totals, without credentials or network
 make demo        # Replay the quota-recovery animation in a plain window
+make demo-number # Compare candidate treatments for the headline percentage
 make logs        # Stream app logs
 make app         # Build the release .app bundle
 make clean       # Remove SwiftPM and app build output
