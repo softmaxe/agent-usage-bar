@@ -24,6 +24,8 @@ struct UsageProgressBar: View {
     let celebrationToken: Int
     /// The final remaining percentage observed before this window reset.
     let celebrationStartPercent: Double?
+    /// Session and weekly bars opt in to a hidden five-click replay. Other uses stay inert.
+    let allowsCelebrationReplay: Bool
 
     @Environment(\.displayScale) private var displayScale
 
@@ -31,6 +33,8 @@ struct UsageProgressBar: View {
     @State private var displayedPercent: Double = 0
     /// Owns the celebration's frame clock; nil elapsed means nothing is playing.
     @StateObject private var celebration = CelebrationClock()
+    /// Captures the reading that the hidden replay charges from and returns to.
+    @State private var replayStartPercent: Double?
 
     private static let pacePunchWidth: CGFloat = 4
     private static let paceStripeWidth: CGFloat = 2
@@ -48,7 +52,8 @@ struct UsageProgressBar: View {
         paceIsDeficit: Bool = false,
         animatesFill: Bool = true,
         celebrationToken: Int = 0,
-        celebrationStartPercent: Double? = nil
+        celebrationStartPercent: Double? = nil,
+        allowsCelebrationReplay: Bool = false
     ) {
         self.percent = percent
         self.tint = tint
@@ -57,6 +62,7 @@ struct UsageProgressBar: View {
         self.animatesFill = animatesFill
         self.celebrationToken = celebrationToken
         self.celebrationStartPercent = celebrationStartPercent
+        self.allowsCelebrationReplay = allowsCelebrationReplay
         self._displayedPercent = State(initialValue: min(100, max(0, percent)))
     }
 
@@ -132,20 +138,24 @@ struct UsageProgressBar: View {
         }
         .frame(height: 6)
         .scaleEffect(self.barScale, anchor: .center)
+        .opacity(self.barOpacity)
         // Outside the bar and unscaled: the sparks are in the card's space, not the pill's.
         .overlay {
             if let time = self.celebration.elapsed {
                 QuotaCelebrationLayer(
                     elapsed: time,
                     tint: self.tint,
-                    startPercent: self.celebrationStartPercent ?? 0,
-                    targetPercent: self.clamped,
+                    startPercent: self.activeCelebrationStartPercent,
+                    targetPercent: self.activeCelebrationTargetPercent,
                     inset: Self.celebrationInset
                 )
                     .frame(height: Self.celebrationHeight)
                     .padding(.horizontal, -Self.celebrationInset)
             }
         }
+        // The explicit shape keeps the transparent track and pace-marker cutout clickable too.
+        .contentShape(Rectangle())
+        .onTapGesture(count: 5) { self.startCelebrationReplay() }
         .onAppear {
             guard self.animatesFill else { return }
             // A card that opens with a celebration already queued starts on it, not on the static
@@ -153,7 +163,15 @@ struct UsageProgressBar: View {
             if self.startCelebrationIfWanted() { return }
             self.apply(UsageBarFillPolicy.onPresentation())
         }
-        .onDisappear { self.celebration.stop() }
+        .onDisappear {
+            self.celebration.stop()
+            self.replayStartPercent = nil
+        }
+        .onChange(of: self.celebration.elapsed) { oldValue, newValue in
+            if oldValue != nil, newValue == nil {
+                self.replayStartPercent = nil
+            }
+        }
         .onChange(of: self.celebrationToken) { _, _ in
             _ = self.startCelebrationIfWanted()
         }
@@ -175,6 +193,13 @@ struct UsageProgressBar: View {
     /// the rest of the time.
     private var fillPercent: Double {
         guard let time = self.celebration.elapsed else { return self.displayedPercent }
+        if let replayStartPercent {
+            return QuotaCelebrationReplay.fillPercent(
+                at: time,
+                from: replayStartPercent,
+                to: self.clamped
+            )
+        }
         return QuotaCelebration.fillPercent(
             at: time,
             from: self.celebrationStartPercent ?? 0,
@@ -185,6 +210,19 @@ struct UsageProgressBar: View {
     private var barScale: CGSize {
         guard let time = self.celebration.elapsed else { return CGSize(width: 1, height: 1) }
         return QuotaCelebration.barScale(at: time)
+    }
+
+    private var barOpacity: Double {
+        guard let time = self.celebration.elapsed, self.replayStartPercent != nil else { return 1 }
+        return QuotaCelebrationReplay.opacity(at: time)
+    }
+
+    private var activeCelebrationStartPercent: Double {
+        self.replayStartPercent ?? self.celebrationStartPercent ?? 0
+    }
+
+    private var activeCelebrationTargetPercent: Double {
+        self.replayStartPercent == nil ? self.clamped : 100
     }
 
     /// Returns whether a celebration was started, so the caller knows to skip static presentation.
@@ -200,6 +238,7 @@ struct UsageProgressBar: View {
             self.apply(UsageBarFillPolicy.onPresentation())
             return true
         }
+        self.replayStartPercent = nil
         // The clock owns the visible fill from the persisted pre-reset value to the new reading.
         // The handoff when it stops lands on that real value without a snap.
         var snap = Transaction()
@@ -211,6 +250,29 @@ struct UsageProgressBar: View {
         self.celebration.start(duration: QuotaCelebration.duration)
 #endif
         return true
+    }
+
+    /// Replays the real reset choreography without mutating quota data, then dissolves back to the
+    /// reading that is still current. SwiftUI's counted gesture owns the consecutive-click timing.
+    private func startCelebrationReplay() {
+        guard self.allowsCelebrationReplay,
+              self.animatesFill,
+              !self.celebration.isRunning,
+              !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        else { return }
+
+        self.replayStartPercent = self.clamped
+        var snap = Transaction()
+        snap.disablesAnimations = true
+        withTransaction(snap) { self.displayedPercent = self.clamped }
+#if DEBUG
+        self.celebration.start(
+            duration: QuotaCelebrationReplay.duration,
+            timeScale: QuotaCelebration.timeScale
+        )
+#else
+        self.celebration.start(duration: QuotaCelebrationReplay.duration)
+#endif
     }
 
     private func apply(_ fill: UsageBarFillPolicy.Fill) {

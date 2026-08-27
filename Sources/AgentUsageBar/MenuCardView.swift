@@ -153,7 +153,8 @@ struct MenuCardView: View {
                 paceIsDeficit: pace?.stage.isAhead ?? false,
                 animatesFill: self.animatesFill,
                 celebrationToken: self.recoveries[kind] == nil ? 0 : self.celebrationTokens[kind] ?? 0,
-                celebrationStartPercent: self.recoveries[kind]?.fromRemainingPercent
+                celebrationStartPercent: self.recoveries[kind]?.fromRemainingPercent,
+                allowsCelebrationReplay: true
             )
             if let pace {
                 // One Text, not an HStack: split across views the line wraps mid-phrase.

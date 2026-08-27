@@ -320,3 +320,41 @@ enum QuotaCelebration {
         }
     }
 }
+
+/// The hidden replay keeps the approved reset choreography intact, then quietly returns the bar
+/// to live data. One deterministic timeline avoids delayed callbacks inside an NSMenu run loop.
+enum QuotaCelebrationReplay {
+    static let returnDuration: TimeInterval = 0.82
+    static var duration: TimeInterval { QuotaCelebration.duration + Self.returnDuration }
+
+    private static let minimumOpacity = 0.52
+
+    static func fillPercent(at time: TimeInterval, from start: Double, to target: Double) -> Double {
+        let start = min(100, max(0, start))
+        let target = min(100, max(0, target))
+        guard time > QuotaCelebration.duration else {
+            return QuotaCelebration.fillPercent(at: time, from: start, to: 100)
+        }
+        let progress = Self.returnProgress(at: time)
+        return 100 + (target - 100) * Self.smoothStep(progress)
+    }
+
+    /// A restrained dissolve makes the change of direction read as an intentional return rather
+    /// than a second quota event. The track never vanishes, preserving spatial continuity.
+    static func opacity(at time: TimeInterval) -> Double {
+        let progress = Self.returnProgress(at: time)
+        guard progress > 0, progress < 1 else { return 1 }
+        let distanceFromMiddle = abs(progress * 2 - 1)
+        return Self.minimumOpacity
+            + (1 - Self.minimumOpacity) * Self.smoothStep(distanceFromMiddle)
+    }
+
+    private static func returnProgress(at time: TimeInterval) -> Double {
+        min(1, max(0, (time - QuotaCelebration.duration) / Self.returnDuration))
+    }
+
+    /// Symmetric ease-in/ease-out with zero velocity at both ends.
+    private static func smoothStep(_ value: Double) -> Double {
+        value * value * (3 - 2 * value)
+    }
+}

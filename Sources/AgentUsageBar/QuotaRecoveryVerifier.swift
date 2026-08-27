@@ -325,6 +325,43 @@ enum QuotaRecoveryVerifier {
             failures.append("fireworks were still on screen when the clock stopped")
         }
 
+        if QuotaCelebrationReplay.fillPercent(at: 0, from: start, to: start) != start {
+            failures.append("the five-click replay did not start at the live reading")
+        }
+        if QuotaCelebrationReplay.fillPercent(
+            at: QuotaCelebration.duration,
+            from: start,
+            to: start
+        ) != 100 {
+            failures.append("the five-click replay did not finish the real reset animation")
+        }
+        if QuotaCelebrationReplay.fillPercent(
+            at: QuotaCelebrationReplay.duration,
+            from: start,
+            to: start
+        ) != start {
+            failures.append("the five-click replay did not return to the live reading")
+        }
+
+        var previousReturnValue = 100.0
+        for step in 1...100 {
+            let time = QuotaCelebration.duration
+                + QuotaCelebrationReplay.returnDuration * Double(step) / 100
+            let value = QuotaCelebrationReplay.fillPercent(at: time, from: start, to: start)
+            if value > previousReturnValue + 1e-9 {
+                failures.append("the five-click replay reversed direction during its return")
+                break
+            }
+            previousReturnValue = value
+        }
+
+        let returnMiddle = QuotaCelebration.duration + QuotaCelebrationReplay.returnDuration / 2
+        if QuotaCelebrationReplay.opacity(at: QuotaCelebration.duration) != 1
+            || QuotaCelebrationReplay.opacity(at: returnMiddle) >= 1
+            || QuotaCelebrationReplay.opacity(at: QuotaCelebrationReplay.duration) != 1 {
+            failures.append("the five-click replay did not fade out and back in during its return")
+        }
+
         return failures
     }
 
