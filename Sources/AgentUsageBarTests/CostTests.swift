@@ -10,6 +10,7 @@ enum CostTests {
         Self.normalization()
         Self.longContextTiering()
         Self.overlayParsing()
+        Self.catalogRefreshBackoff()
         await Self.scanning()
         await Self.pricingEditsApplyForward()
     }
@@ -137,6 +138,42 @@ enum CostTests {
             CostPricing.pricing(for: "claude-opus-5", provider: .claude, overlay: overlay)?.input,
             99,
             "user override beats the models.dev catalog"
+        )
+    }
+
+    // MARK: - models.dev refresh
+
+    /// The pricing pane used to wait on this refresh, and a host that cannot reach models.dev
+    /// paid the request timeout on every open because a failure writes no cache and so never
+    /// stops looking stale. The backoff is what turns that into one attempt an hour.
+    private static func catalogRefreshBackoff() {
+        let hour: TimeInterval = 60 * 60
+
+        Harness.expect(
+            PricingCatalogRefreshPolicy.shouldRefresh(catalogAge: nil, lastAttemptAge: nil),
+            "a catalog that was never fetched is worth fetching"
+        )
+        Harness.expect(
+            !PricingCatalogRefreshPolicy.shouldRefresh(catalogAge: 12 * hour, lastAttemptAge: nil),
+            "a catalog inside its TTL is left alone"
+        )
+        Harness.expect(
+            PricingCatalogRefreshPolicy.shouldRefresh(catalogAge: 25 * hour, lastAttemptAge: 2 * hour),
+            "a catalog past its TTL refreshes once the backoff has run out"
+        )
+        Harness.expect(
+            !PricingCatalogRefreshPolicy.shouldRefresh(catalogAge: nil, lastAttemptAge: 60),
+            "a failure a minute ago is not retried"
+        )
+        Harness.expect(
+            PricingCatalogRefreshPolicy.shouldRefresh(catalogAge: nil, lastAttemptAge: 2 * hour),
+            "a failure an hour old is retried"
+        )
+        // A stale catalog still in backoff keeps serving its prices rather than blocking on a
+        // fetch; that is the whole point of keeping the old cache on failure.
+        Harness.expect(
+            !PricingCatalogRefreshPolicy.shouldRefresh(catalogAge: 30 * hour, lastAttemptAge: 5 * 60),
+            "a stale catalog waits out the backoff instead of retrying on every call"
         )
     }
 
@@ -601,20 +638,24 @@ enum RefreshRowPolicyTests {
     static func run() {
         let idle = RefreshRowPolicy.state(cooldownRemaining: 0, isRefreshing: false)
         Harness.expectEqual(idle.title, "Refresh", "an elapsed cooldown leaves the plain title")
+        Harness.expectEqual(idle.trailingText, nil, "an elapsed cooldown leaves the shortcut column empty")
         Harness.expect(idle.isEnabled, "and the row accepts clicks")
 
         let waiting = RefreshRowPolicy.state(cooldownRemaining: 42, isRefreshing: false)
-        Harness.expectEqual(waiting.title, "Refresh in 42s", "the cooldown is spelled out")
+        Harness.expectEqual(waiting.title, "Refresh", "the cooldown keeps the plain title")
+        Harness.expectEqual(waiting.trailingText, "42s", "the cooldown is spelled out in the shortcut column")
         Harness.expect(!waiting.isEnabled, "and the row refuses clicks it would drop")
 
         // Rounded up, so the last partial second never reads as a refresh that would be honoured.
         let sliver = RefreshRowPolicy.state(cooldownRemaining: 0.2, isRefreshing: false)
-        Harness.expectEqual(sliver.title, "Refresh in 1s", "a partial second still counts")
+        Harness.expectEqual(sliver.title, "Refresh", "a partial second keeps the plain title")
+        Harness.expectEqual(sliver.trailingText, "1s", "a partial second still counts")
         Harness.expect(!sliver.isEnabled, "and still refuses clicks")
 
         // An in-flight refresh holds the cooldown too, but a countdown would misdescribe it.
         let running = RefreshRowPolicy.state(cooldownRemaining: 59, isRefreshing: true)
         Harness.expectEqual(running.title, "Refreshing…", "a running refresh says so")
+        Harness.expectEqual(running.trailingText, nil, "a running refresh leaves the shortcut column empty")
         Harness.expect(!running.isEnabled, "and the row refuses a second one")
     }
 }

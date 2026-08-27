@@ -8,6 +8,10 @@ import SwiftUI
 struct PricingSettingsView: View {
     @ObservedObject var model: PricingEditorModel
     @State private var expandedGroups = Set(PricingGroup.allCases)
+    /// The column under the pointer, so an unsorted header can show the arrow a click would
+    /// give it. Without it a sorted-by-nothing header looks like plain text.
+    @State private var hoveredSortField: PricingSortField?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static let paneWidth: CGFloat = 620
     private static let rateColumnWidth: CGFloat = 68
@@ -16,14 +20,12 @@ struct PricingSettingsView: View {
     /// both states instead of letting every trailing column slide over by its width.
     private static let scrollerGutter = NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy)
     private static let tableContentWidth = Self.paneWidth - Self.scrollerGutter
-    /// Folding from the row rather than the native chevron went through unanimated, so the same
-    /// click read as a jump in one spot and as motion in the other.
-    private static let fold = Animation.easeInOut(duration: 0.22)
     /// Click target for the per-row disclosure chevron, sized to the row rather than the glyph.
     private static let disclosureHitSize = CGSize(width: 22, height: 28)
     private static let detailLabelWidth: CGFloat = 138
     private static let claudePricingURL = URL(string: "https://platform.claude.com/docs/en/about-claude/pricing")!
     private static let openAIPricingURL = URL(string: "https://developers.openai.com/api/docs/pricing")!
+    private static let openRouterPricingURL = URL(string: "https://openrouter.ai/models")!
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -59,6 +61,9 @@ struct PricingSettingsView: View {
                 Link(destination: Self.openAIPricingURL) {
                     Label("OpenAI API pricing", systemImage: "arrow.up.right.square")
                 }
+                Link(destination: Self.openRouterPricingURL) {
+                    Label("OpenRouter API pricing", systemImage: "arrow.up.right.square")
+                }
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
@@ -86,45 +91,84 @@ struct PricingSettingsView: View {
         }
     }
 
+    /// Hand-rolled rather than a `DisclosureGroup`, because the native control owns its own
+    /// chevron and its own timing; the group opens on the app's easing instead, and its rows
+    /// arrive one beat apart so the list unrolls from under the header.
     private func group(_ group: PricingGroup) -> some View {
         let rows = self.model.rows(in: group)
-        return DisclosureGroup(isExpanded: self.expansionBinding(for: group)) {
-            if rows.isEmpty {
-                Text("No models")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.tertiary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 28)
-                    .padding(.vertical, 8)
-            } else {
-                ForEach(rows) { row in
-                    self.row(row)
-                    if self.model.isExpanded(row.id) {
-                        self.detail(row)
+        let isExpanded = self.expandedGroups.contains(group)
+        return VStack(alignment: .leading, spacing: 0) {
+            self.groupHeader(group, count: rows.count, isExpanded: isExpanded)
+            if isExpanded {
+                if rows.isEmpty {
+                    Text("No models")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 28)
+                        .padding(.vertical, 8)
+                        .transition(self.rowTransition(index: 0))
+                } else {
+                    ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                        VStack(alignment: .leading, spacing: 0) {
+                            self.row(row)
+                            if self.model.isExpanded(row.id) {
+                                self.detail(row)
+                                    .transition(self.detailTransition)
+                            }
+                            Divider().padding(.leading, 28)
+                        }
+                        .transition(self.rowTransition(index: index))
                     }
-                    Divider().padding(.leading, 28)
                 }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 5)
+    }
+
+    private func groupHeader(_ group: PricingGroup, count: Int, isExpanded: Bool) -> some View {
+        Button {
+            withAnimation(DisclosureMotion.open(reduceMotion: self.reduceMotion)) {
+                self.expansionBinding(for: group).wrappedValue.toggle()
             }
         } label: {
             HStack(spacing: 6) {
+                DisclosureChevron(isOpen: isExpanded, size: 11, reduceMotion: self.reduceMotion)
+                    .foregroundStyle(.primary)
+                    .frame(width: 6)
                 Text(group.rawValue)
                     .font(.system(size: 12, weight: .semibold))
-                Text("\(rows.count)")
+                Text("\(count)")
                     .font(.system(size: 10, weight: .medium, design: .rounded))
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 1)
                     .background(.quaternary, in: Capsule())
             }
-            // Keep the native disclosure control while making the full header row clickable.
+            // The whole header row is the control, not just the chevron.
             .frame(maxWidth: .infinity, minHeight: Self.disclosureHitSize.height, alignment: .leading)
             .contentShape(Rectangle())
-            .onTapGesture {
-                withAnimation(Self.fold) { self.expansionBinding(for: group).wrappedValue.toggle() }
-            }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 5)
+        .buttonStyle(DisclosurePressStyle(reduceMotion: self.reduceMotion))
+    }
+
+    /// Rows arrive on the group's easing, each one a beat after the row above it. They leave all
+    /// at once: a group being closed is one movement, and staggering it only delays the collapse.
+    private func rowTransition(index: Int) -> AnyTransition {
+        guard !self.reduceMotion else { return .identity }
+        return .asymmetric(
+            insertion: .opacity
+                .combined(with: .offset(y: -4))
+                .animation(DisclosureMotion.rowArrival(index: index)),
+            removal: .opacity.animation(DisclosureMotion.openCurve)
+        )
+    }
+
+    /// The per-row disclosure is one block, not a list, so it has no beat of its own to keep.
+    private var detailTransition: AnyTransition {
+        guard !self.reduceMotion else { return .identity }
+        return .opacity.combined(with: .offset(y: -4)).animation(DisclosureMotion.openCurve)
     }
 
     private func expansionBinding(for group: PricingGroup) -> Binding<Bool> {
@@ -143,12 +187,20 @@ struct PricingSettingsView: View {
     private var columnHeader: some View {
         HStack(spacing: 8) {
             Color.clear.frame(width: Self.disclosureHitSize.width)
-            Text("Model").frame(maxWidth: .infinity, alignment: .leading)
-            Text("Input").frame(width: Self.rateColumnWidth, alignment: .trailing)
-            Text("Output").frame(width: Self.rateColumnWidth, alignment: .trailing)
-            Text("Cache w").frame(width: Self.rateColumnWidth, alignment: .trailing)
-            Text("Cache r").frame(width: Self.rateColumnWidth, alignment: .trailing)
-            Color.clear.frame(width: 22)
+            self.sortHeader("Model", .model, alignment: .leading)
+            self.sortHeader("Input", .input)
+            self.sortHeader("Output", .output)
+            self.sortHeader("Cache w", .cacheWrite)
+            self.sortHeader("Cache r", .cacheRead)
+            Button {
+                self.model.resetSort()
+            } label: {
+                Image(systemName: "line.3.horizontal.decrease")
+            }
+            .buttonStyle(.borderless)
+            .frame(width: 22)
+            .help("Back to the default order: API whitelist fixed order; Others most-used first")
+            .disabled(self.model.sort.isDefault)
         }
         .font(.system(size: 11, weight: .medium))
         .foregroundStyle(.secondary)
@@ -157,20 +209,72 @@ struct PricingSettingsView: View {
         .background(.background)
     }
 
+    /// A clickable column title. The arrow only shows on the column in force, so the header
+    /// reads as one sorted column rather than five controls competing for attention.
+    private func sortHeader(
+        _ title: String,
+        _ field: PricingSortField,
+        alignment: HorizontalAlignment = .trailing
+    ) -> some View {
+        let sort = self.model.sort
+        let isActive = sort.field == field
+        let leading = alignment == .leading
+        // Hovering an unsorted column previews the direction its click would land on.
+        let preview = PricingSortPolicy.next(after: sort, tapping: field)
+        let arrow = self.sortArrow(
+            ascending: isActive ? sort.ascending : preview.ascending,
+            opacity: isActive ? 1 : (self.hoveredSortField == field ? 0.4 : 0)
+        )
+
+        return Button {
+            self.model.toggleSort(field)
+        } label: {
+            HStack(spacing: 2) {
+                // The arrow sits on the outside of the label, so the numbers underneath a rate
+                // column stay flush with their title whichever column is sorted.
+                if !leading { arrow }
+                Text(title)
+                if leading { arrow }
+            }
+            .foregroundStyle(isActive ? Color.primary : Color.secondary)
+            .frame(
+                maxWidth: leading ? .infinity : Self.rateColumnWidth,
+                alignment: leading ? .leading : .trailing
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: leading ? .infinity : Self.rateColumnWidth)
+        .onHover { self.hoveredSortField = $0 ? field : nil }
+        .help(self.sortHint(title, field))
+    }
+
+    private func sortArrow(ascending: Bool, opacity: Double) -> some View {
+        Image(systemName: ascending ? "chevron.up" : "chevron.down")
+            .font(.system(size: 7, weight: .bold))
+            .opacity(opacity)
+    }
+
+    private func sortHint(_ title: String, _ field: PricingSortField) -> String {
+        let next = PricingSortPolicy.next(after: self.model.sort, tapping: field)
+        return next.ascending ? "Sort by \(title), ascending" : "Sort by \(title), descending"
+    }
+
     private func row(_ row: PricingRow) -> some View {
         HStack(spacing: 8) {
             Button {
-                self.model.toggleExpanded(row.id)
+                withAnimation(DisclosureMotion.open(reduceMotion: self.reduceMotion)) {
+                    self.model.toggleExpanded(row.id)
+                }
             } label: {
-                Image(systemName: self.model.isExpanded(row.id) ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 9, weight: .semibold))
+                DisclosureChevron(isOpen: self.model.isExpanded(row.id), reduceMotion: self.reduceMotion)
                     .foregroundStyle(.secondary)
                     // A 9pt chevron is a hard target to hit; the hit area covers the whole
                     // column instead of just the glyph.
                     .frame(width: Self.disclosureHitSize.width, height: Self.disclosureHitSize.height)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(DisclosurePressStyle(reduceMotion: self.reduceMotion))
             .frame(width: Self.disclosureHitSize.width)
             .help("One-hour cache write and long-context rates")
 

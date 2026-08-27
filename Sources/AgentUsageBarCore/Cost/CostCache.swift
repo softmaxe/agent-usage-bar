@@ -21,7 +21,17 @@ struct FileCursor {
 final class CostCache {
     private var db: OpaquePointer?
 
-    init(path: URL) throws {
+    /// `readOnly` opens a second connection alongside the writer's. WAL lets it read while a
+    /// scan is running, which is how a query can skip the queue behind `CostService`'s actor.
+    /// Such a connection creates nothing: no directory, no schema, no semantics rebuild.
+    init(path: URL, readOnly: Bool = false) throws {
+        if readOnly {
+            guard sqlite3_open_v2(path.path, &self.db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
+                throw CostCacheError.openFailed(self.lastErrorMessage)
+            }
+            return
+        }
+
         try FileManager.default.createDirectory(
             at: path.deletingLastPathComponent(),
             withIntermediateDirectories: true

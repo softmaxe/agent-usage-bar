@@ -16,6 +16,10 @@ enum CollapseShiftDemo {
         func applicationShouldTerminateAfterLastWindowClosed(_: NSApplication) -> Bool { true }
     }
 
+    /// Short enough that an open group has to scroll and a folded one does not — the demo has
+    /// nothing to show on either side of that line.
+    static let paneHeight: CGFloat = 280
+
     private static var window: NSWindow?
     private static var delegate: Delegate?
 
@@ -54,8 +58,8 @@ enum CollapseShiftDemo {
         let model = CollapseDemoModel()
         model.expanded = state == "collapsed" ? [] : ["Claude"]
         let table = CollapseDemoTable(model: model, reserveGutter: variant == "fixed", showGuide: false)
-        let hosting = NSHostingView(rootView: table.frame(width: 620, height: 320))
-        hosting.frame = NSRect(x: 0, y: 0, width: 620, height: 320)
+        let hosting = NSHostingView(rootView: table.frame(width: 620, height: Self.paneHeight))
+        hosting.frame = NSRect(x: 0, y: 0, width: 620, height: Self.paneHeight)
         let window = NSWindow(
             contentRect: hosting.frame,
             styleMask: [.titled, .closable],
@@ -69,7 +73,10 @@ enum CollapseShiftDemo {
         print("--- \(variant) / \(state) ---")
         for key in CollapseDemoMetrics.shared.frames.keys.sorted() {
             let rect = CollapseDemoMetrics.shared.frames[key]!
-            print(String(format: "%-16@ x=%.1f w=%.1f", key as NSString, rect.minX, rect.width))
+            print(String(
+                format: "%-16@ x=%.1f w=%.1f h=%.1f",
+                key as NSString, rect.minX, rect.width, rect.height
+            ))
         }
         exit(0)
     }
@@ -82,11 +89,16 @@ final class CollapseDemoModel: ObservableObject {
     @Published var animated = true
 
     func toggle(_ group: String) {
+        self.set(group, expanded: !self.expanded.contains(group))
+    }
+
+    func set(_ group: String, expanded: Bool) {
+        guard expanded != self.expanded.contains(group) else { return }
         let body = {
-            if self.expanded.contains(group) {
-                self.expanded.remove(group)
-            } else {
+            if expanded {
                 self.expanded.insert(group)
+            } else {
+                self.expanded.remove(group)
             }
         }
         if self.animated {
@@ -125,8 +137,10 @@ private extension View {
     }
 }
 
-/// A stand-in for the real rate table: same column widths, same disclosure structure, same
-/// `ScrollView` + pinned header, with stub rows so the demo needs no cost scan.
+/// A stand-in for the real rate table: same column widths, same `ScrollView` + pinned header,
+/// folding on the same `DisclosureMotion` curve, with stub rows so the demo needs no cost scan.
+/// The disclosure itself is the plain native one — what is under test here is the width the
+/// scroll view hands its content, which no disclosure control has a say in.
 struct CollapseDemoTable: View {
     @ObservedObject var model: CollapseDemoModel
     /// The fix under test: pin the table's content to a constant width instead of letting the
@@ -134,7 +148,7 @@ struct CollapseDemoTable: View {
     let reserveGutter: Bool
     var showGuide = true
 
-    static let fold = Animation.easeInOut(duration: 0.22)
+    static let fold = DisclosureMotion.openCurve
     static let paneWidth: CGFloat = 620
     static let scrollerGutter = NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy)
     /// Trailing edge of the last rate field when the scroller is not reserving width.
@@ -208,7 +222,7 @@ struct CollapseDemoTable: View {
     private func binding(for name: String) -> Binding<Bool> {
         Binding(
             get: { self.model.expanded.contains(name) },
-            set: { _ in self.model.toggle(name) }
+            set: { expanded in self.model.set(name, expanded: expanded) }
         )
     }
 
@@ -341,6 +355,10 @@ private struct CollapseShiftDemoView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            Text(self.scrollerNote)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 12) {
                 Button(self.current.expanded.isEmpty ? "Expand both" : "Collapse both") {
                     self.current.toggle("Claude")
@@ -364,7 +382,7 @@ private struct CollapseShiftDemoView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title).font(.system(size: 12, weight: .semibold))
             CollapseDemoTable(model: model, reserveGutter: reserveGutter)
-                .frame(width: CollapseDemoTable.paneWidth, height: 330)
+                .frame(width: CollapseDemoTable.paneWidth, height: CollapseShiftDemo.paneHeight)
                 .background(.background, in: RoundedRectangle(cornerRadius: 8))
                 .overlay(RoundedRectangle(cornerRadius: 8).stroke(.quaternary))
             Text(self.readout(reserveGutter ? "fixed" : "current"))
@@ -376,6 +394,21 @@ private struct CollapseShiftDemoView: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(width: CollapseDemoTable.paneWidth, alignment: .leading)
         }
+    }
+
+    /// macOS only reserves the gutter while it is drawing legacy scroll bars, which it does with a
+    /// mouse attached or with Show scroll bars set to Always. On overlay bars nothing is reserved
+    /// and nothing jumps, so the demo says which of the two it is looking at rather than letting a
+    /// quiet left pane read as a fixed bug.
+    private var scrollerNote: String {
+        guard let header = self.metrics.frames["current.header"] else { return " " }
+        if header.width < CollapseDemoTable.paneWidth {
+            return "This Mac is drawing legacy scroll bars, so the gutter is being reserved and the "
+                + "left table has the jump in it."
+        }
+        return "This Mac is drawing overlay scroll bars, so nothing is reserved and the left table "
+            + "holds still too. Attach a mouse, or set System Settings → Appearance → Show scroll "
+            + "bars to Always, to see the jump the right-hand layout is guarding against."
     }
 
     private func readout(_ prefix: String) -> String {
