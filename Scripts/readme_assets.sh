@@ -1,0 +1,81 @@
+#!/bin/bash
+# Regenerates every image the README links to, from the app's own offscreen dumps.
+#
+# The screenshots are renders of the shipped views against fixture data, not captures of a
+# running menu bar, so they are reproducible and carry nobody's real account in them. The GIFs
+# are frame dumps of the production animation timings assembled by ffmpeg.
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+BIN=.build/debug/AgentUsageBar
+OUT=docs/images
+WORK=$(mktemp -d)
+trap 'rm -rf "$WORK"' EXIT
+
+command -v ffmpeg >/dev/null || { echo "ffmpeg is required: brew install ffmpeg" >&2; exit 1; }
+
+swift build -c debug --product AgentUsageBar
+mkdir -p "$OUT"
+
+echo "==> rendering frames"
+"$BIN" --dump-card "$WORK/card" >/dev/null
+"$BIN" --dump-icons "$WORK/icons" >/dev/null
+"$BIN" --dump-settings "$WORK/settings" >/dev/null
+"$BIN" --dump-card-celebration "$WORK/reset" claude >/dev/null
+"$BIN" --dump-chart-hover "$WORK/hover" claude >/dev/null
+"$BIN" --dump-tab-switch "$WORK/tab" >/dev/null
+"$BIN" --dump-disclosure "$WORK/disclosure" >/dev/null
+"$BIN" --dump-chart-motion "$WORK/chart-motion" >/dev/null
+
+echo "==> hero"
+# The two cards are different heights — Codex carries a credits block Claude has no equivalent
+# for — so they sit top-aligned on the page ground rather than being padded to match.
+ffmpeg -v error -y \
+  -i "$WORK/card/claude-loaded.png" -i "$WORK/card/codex-loaded.png" \
+  -filter_complex "color=c=0x1a1a1a:s=1240x1220[bg];[bg][0:v]overlay=40:40[t];[t][1:v]overlay=640:40" \
+  -frames:v 1 "$OUT/hero.png"
+
+echo "==> quota reset gif"
+ffmpeg -v error -y -framerate 25 -i "$WORK/reset/frame-%04d.png" \
+  -filter_complex "fps=25,scale=560:-1:flags=lanczos,split [a][b];[a] palettegen=max_colors=128:stats_mode=diff [p];[b][p] paletteuse=dither=sierra2_4a:diff_mode=rectangle" \
+  "$OUT/quota-reset.gif"
+
+echo "==> chart hover gif"
+ffmpeg -v error -y -framerate 2.2 -i "$WORK/hover/frame-%04d.png" \
+  -filter_complex "fps=2.2,scale=560:-1:flags=lanczos,split [a][b];[a] palettegen=max_colors=96 [p];[b][p] paletteuse=dither=bayer:bayer_scale=4" \
+  "$OUT/chart-hover.gif"
+
+echo "==> motion strips"
+# All three are dumped at 25fps, which is a whole number of GIF delay units, so they play back at
+# the speed the app animates at.
+strip() {
+  ffmpeg -v error -y -framerate 25 -i "$WORK/$1/frame-%04d.png" \
+    -filter_complex "fps=25,scale=$2:-1:flags=lanczos,split [a][b];[a] palettegen=max_colors=96:stats_mode=diff [p];[b][p] paletteuse=dither=sierra2_4a:diff_mode=rectangle" \
+    "$OUT/$3"
+}
+strip tab 480 tab-switch.gif
+strip disclosure 560 disclosure.gif
+strip chart-motion 500 chart-motion.gif
+
+echo "==> menu bar icons"
+ffmpeg -v error -y \
+  -i "$WORK/icons/claude-full.png" -i "$WORK/icons/claude-half.png" -i "$WORK/icons/claude-low.png" \
+  -i "$WORK/icons/claude-session-only.png" -i "$WORK/icons/claude-stale.png" \
+  -i "$WORK/icons/codex-full.png" -i "$WORK/icons/codex-half.png" -i "$WORK/icons/codex-low.png" \
+  -i "$WORK/icons/codex-session-only.png" -i "$WORK/icons/codex-stale.png" \
+  -filter_complex "color=c=0x1a1a1a:s=680x232[bg];\
+[0:v]scale=72:72[a0];[1:v]scale=72:72[a1];[2:v]scale=72:72[a2];[3:v]scale=72:72[a3];[4:v]scale=72:72[a4];\
+[5:v]scale=72:72[b0];[6:v]scale=72:72[b1];[7:v]scale=72:72[b2];[8:v]scale=72:72[b3];[9:v]scale=72:72[b4];\
+[bg][a0]overlay=40:36[x0];[x0][a1]overlay=160:36[x1];[x1][a2]overlay=280:36[x2];[x2][a3]overlay=400:36[x3];[x3][a4]overlay=520:36[x4];\
+[x4][b0]overlay=40:124[y0];[y0][b1]overlay=160:124[y1];[y1][b2]overlay=280:124[y2];[y2][b3]overlay=400:124[y3];[y3][b4]overlay=520:124" \
+  -frames:v 1 "$OUT/menu-bar-icons.png"
+
+echo "==> settings"
+# The General pane is a short form in a tall window; the empty half below it says nothing.
+ffmpeg -v error -y -i "$WORK/settings/settings.png" -vf "crop=1240:620:0:0" -frames:v 1 "$OUT/settings-general.png"
+cp "$WORK/settings/settings-pricing-expanded.png" "$OUT/settings-pricing.png"
+
+echo
+echo "wrote:"
+ls -1 "$OUT"

@@ -20,11 +20,12 @@ enum CostChartHoverMotion {
 
     /// A move between bars, on the spring that carries the height with the tone.
     static let hoverResponse: TimeInterval = 0.27
-    private static let hoverDamping: Double = 0.9
+    /// Internal rather than private so the README film strip can sample the same spring.
+    static let hoverDamping: Double = 0.9
     /// The trip home: longer, and critically damped, so the highlight settles onto today instead
     /// of springing onto it.
     static let returnResponse: TimeInterval = 0.33
-    private static let returnDamping: Double = 1
+    static let returnDamping: Double = 1
 
     static var systemReduceMotion: Bool {
         NSWorkspace.shared.accessibilityDisplayShouldReduceMotion

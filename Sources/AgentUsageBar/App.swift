@@ -90,6 +90,25 @@ enum AgentUsageBarApp {
             CelebrationDemo.dumpFrames(directory: directory)
             return
         }
+        if let directory = value(after: "--dump-tab-switch") {
+            MotionFilmStrip.dumpTabSwitch(directory: directory)
+            return
+        }
+        if let directory = value(after: "--dump-disclosure") {
+            MotionFilmStrip.dumpDisclosure(directory: directory)
+            return
+        }
+        if let directory = value(after: "--dump-chart-motion") {
+            MotionFilmStrip.dumpChartMotion(directory: directory)
+            return
+        }
+        if let pair = values(after: "--dump-card-celebration", count: 2) {
+            CelebrationDemo.dumpCardFrames(
+                directory: pair[0],
+                provider: Provider(rawValue: pair[1]) ?? .claude
+            )
+            return
+        }
 #endif
         if let directory = value(after: "--dump-icons") {
             IconDump.run(directory: directory)
@@ -101,6 +120,13 @@ enum AgentUsageBarApp {
         }
         if let directory = value(after: "--dump-settings") {
             CardDump.dumpSettings(directory: directory)
+            return
+        }
+        if let pair = values(after: "--dump-chart-hover", count: 2) {
+            CardDump.dumpChartHover(
+                directory: pair[0],
+                provider: Provider(rawValue: pair[1]) ?? .claude
+            )
             return
         }
 
