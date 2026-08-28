@@ -86,7 +86,7 @@ struct RateField: View {
                 cornerRadius: RateFieldFocusMotion.cornerRadius,
                 style: .continuous
             )
-            .strokeBorder(Theme.accent(for: .codex), lineWidth: 1)
+            .strokeBorder(Color.accentColor, lineWidth: 1)
             .opacity(self.isFocused ? 1 : 0)
             .animation(
                 RateFieldFocusMotion.animation(
