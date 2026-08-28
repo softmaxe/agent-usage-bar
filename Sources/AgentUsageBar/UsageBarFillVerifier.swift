@@ -1,3 +1,4 @@
+#if DEBUG
 import AppKit
 import SwiftUI
 
@@ -70,3 +71,5 @@ enum UsageBarFillVerifier {
         return VerifierReport.finish(failures, label: Self.label, passed: Self.passed)
     }
 }
+
+#endif

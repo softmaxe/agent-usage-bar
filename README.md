@@ -61,7 +61,7 @@ the only clock and publishes the frames it draws; the number renders those. They
 
 Five-hour and weekly resets are tracked separately. Ordinary spending never triggers it. Both the
 last reading and a pending reset survive a restart. Five clicks on a bar replays it if you want to
-see it again, and `make demo` opens it in a plain window with speed controls.
+see it again.
 
 ## Everything else that moves
 
@@ -85,8 +85,8 @@ overshoots its own height pushes every row below it, which reads as a bug rather
 A press is answered at the size of what was pressed. A model row's chevron is a 9pt glyph, so it
 dips to 0.86 and comes back on the settle spring. A provider header is a full-width row, and the
 same dip on something that wide reads as the table flinching, so it dips to 0.985 over 100ms and
-comes back on an ease-out that cannot overshoot. `make demo-provider-group-press` puts that against
-a chevron-only dip, a tint, and no press at all.
+comes back on an ease-out that cannot overshoot. It was picked over a chevron-only dip, a tint,
+and no press at all.
 
 <img src="docs/images/disclosure.gif" width="500" alt="A pricing group unrolling four rows one beat apart">
 
@@ -121,8 +121,8 @@ remembered, and a click that lands in the gap between two bars does nothing.
 **A rate field** in the pricing table marks focus with a one-pixel border in the system accent
 color, faded in over 90ms. The field is the same size focused as unfocused and the border is drawn
 inside the frame it already had, because four of these sit on every row and a ring that took its
-own space would nudge the row it landed in. `make demo-rate-field-focus` holds it against an inner
-ring, a wash, an underline and the stock `.roundedBorder` field it replaced.
+own space would nudge the row it landed in. It was picked over an inner ring, a wash, an underline
+and the stock `.roundedBorder` field it replaced.
 
 **The pointer** moves too. The Codex card is taller than the Claude card, and a menu can only grow
 downwards, so a provider switch slides every row out from under a pointer that never moved. The
@@ -267,26 +267,13 @@ make clean
 ```
 
 There is no XCTest without Xcode, so the suite is a plain executable of assertions plus twelve
-verifiers that sample the motion curves frame by frame. The design studies are launch flags on the
-same debug binary:
-
-```bash
-make demo                      # The reset animation, with speed controls
-make demo-number               # Candidate treatments for the headline percentage
-make demo-bar-hover            # Candidate hover treatments for the chart bars
-make demo-label-toggle         # Candidate treatments for the chart label's unit swap
-make demo-disclosure           # Candidate collapse controls for the pricing table
-make demo-provider-group-press # Candidate press feedback for a provider group header
-make demo-rate-field-focus     # Candidate focus treatments for a pricing rate field
-make demo-tab-switch           # Candidate treatments for the settings tab switch
-make demo-pricing-links        # Candidate layouts for the pricing header's vendor links
-make demo-collapse             # Folding the pricing groups with and without a scroller gutter
-```
+verifiers that sample the motion curves frame by frame.
 
 The dumps behind `make readme-assets` are flags on the same binary: `--dump-card`, `--dump-icons`,
 `--dump-settings`, `--dump-card-celebration`, `--dump-chart-hover`, `--dump-reset-toggle`,
 `--dump-tab-switch`, `--dump-disclosure`, `--dump-chart-motion` and `--dump-label-toggle`, each
-taking an output directory.
+taking an output directory. Along with the verifiers they are compiled out of a release build, so
+the shipped app answers to no flags at all.
 
 Every image above is generated, not captured. The screenshots are offscreen renders of the shipped
 views against fixture data, including the pricing pane, which takes made-up model totals and the

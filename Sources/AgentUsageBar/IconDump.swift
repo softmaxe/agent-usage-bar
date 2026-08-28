@@ -1,3 +1,4 @@
+#if DEBUG
 import AgentUsageBarCore
 import AppKit
 
@@ -70,3 +71,5 @@ enum IconDump {
         return (try? data.write(to: url)) != nil
     }
 }
+
+#endif

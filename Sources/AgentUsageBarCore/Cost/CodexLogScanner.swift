@@ -13,14 +13,7 @@ enum CodexLogScanner {
     private static let turnContextMarker = Array(#""turn_context""#.utf8)
 
     static func sessionRoots(env: [String: String] = ProcessInfo.processInfo.environment) -> [URL] {
-        let home: URL
-        if let codexHome = env["CODEX_HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !codexHome.isEmpty {
-            home = URL(fileURLWithPath: (codexHome as NSString).expandingTildeInPath)
-        } else {
-            home = FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent(".codex", isDirectory: true)
-        }
+        let home = CodexHome.url(env: env)
         return [
             home.appendingPathComponent("sessions", isDirectory: true),
             home.appendingPathComponent("archived_sessions", isDirectory: true),
@@ -134,13 +127,13 @@ enum CodexLogScanner {
 
         // Codex reports input_tokens as the whole prompt, with the cached reads and the cache
         // writes both carved out of it. Peel them off in turn so each bucket is priced once.
-        let rawInput = max(0, Self.int(usage["input_tokens"]))
-        let cacheRead = min(max(0, Self.int(usage["cached_input_tokens"])), rawInput)
-        let cacheWrite = min(max(0, Self.int(usage["cache_write_input_tokens"])), rawInput - cacheRead)
+        let rawInput = max(0, JSONNumber.int(usage["input_tokens"]))
+        let cacheRead = min(max(0, JSONNumber.int(usage["cached_input_tokens"])), rawInput)
+        let cacheWrite = min(max(0, JSONNumber.int(usage["cache_write_input_tokens"])), rawInput - cacheRead)
         let totals = TokenTotals(
             input: rawInput - cacheRead - cacheWrite,
             // reasoning_output_tokens is a subset of output_tokens, which is what OpenAI bills.
-            output: Self.int(usage["output_tokens"]),
+            output: JSONNumber.int(usage["output_tokens"]),
             cacheWrite: cacheWrite,
             cacheRead: cacheRead
         )
@@ -206,11 +199,5 @@ enum CodexLogScanner {
     private static func totals(_ value: Any?) -> [String: Int]? {
         guard let usage = value as? [String: Any] else { return nil }
         return usage.compactMapValues { ($0 as? NSNumber)?.intValue }
-    }
-
-    private static func int(_ value: Any?) -> Int {
-        if let number = value as? NSNumber { return number.intValue }
-        if let string = value as? String { return Int(string) ?? 0 }
-        return 0
     }
 }

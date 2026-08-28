@@ -12,7 +12,6 @@ final class CelebrationClock: ObservableObject {
     private var timer: Timer?
     private var startedAt = Date()
     private var duration: TimeInterval = 0
-    private var scale: Double = 1
 
     /// 120 Hz so the sweep is smooth on a ProMotion display; the work per frame is one small
     /// Canvas redraw.
@@ -20,10 +19,9 @@ final class CelebrationClock: ObservableObject {
 
     var isRunning: Bool { self.elapsed != nil }
 
-    func start(duration: TimeInterval, timeScale: Double = 1) {
+    func start(duration: TimeInterval) {
         self.stop()
         self.duration = duration
-        self.scale = max(0.01, timeScale)
         self.startedAt = Date()
         self.elapsed = 0
 
@@ -41,7 +39,7 @@ final class CelebrationClock: ObservableObject {
     }
 
     private func tick() {
-        let time = Date().timeIntervalSince(self.startedAt) * self.scale
+        let time = Date().timeIntervalSince(self.startedAt)
         if time >= self.duration {
             self.stop()
         } else {

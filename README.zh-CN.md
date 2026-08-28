@@ -52,7 +52,7 @@
 时钟只有一个，由进度条持有并逐帧发布，数字只负责渲染这些帧，两者不可能对不齐。
 
 五小时和每周窗口各自独立跟踪。正常消耗不会触发这段动效。重启之后，最后的读数和尚未播放的重置都
-还在。想再看一次就在进度条上连点五下；`make demo` 会在一个普通窗口里打开它，还带倍速控制。
+还在。想再看一次就在进度条上连点五下。
 
 ## 其他会动的地方
 
@@ -72,8 +72,8 @@
 
 按下的反馈按被按的东西的大小给。模型行的箭头只有 9pt，所以它按下去缩到 0.86，再顺着落地那条
 弹簧弹回来。供应商表头是整行那么宽，同样的幅度放在这么大一块上，读起来像整张表抖了一下，所以它
-只缩到 0.985，走 100ms 的 ease-out 回来，不会超调。`make demo-provider-group-press` 把它和「只有
-箭头缩」「只有底色变」「完全不给反馈」摆在一起比。
+只缩到 0.985，走 100ms 的 ease-out 回来，不会超调。它是和「只有箭头缩」「只有底色变」「完全
+不给反馈」比过之后定下来的。
 
 <img src="docs/images/disclosure.gif" width="500" alt="价格分组把四行错开一拍依次卷出">
 
@@ -102,8 +102,8 @@
 
 **价格表里的费率输入框**拿到焦点时，会在 90ms 里淡入一圈 1 像素的系统强调色描边。聚焦前后框
 的尺寸完全一样，描边画在它原本就占的那个框里面：每行有四个这样的框，一圈自己要占地方的焦点环
-会把整行顶一下。`make demo-rate-field-focus` 把它和内描边、淡色底、下划线，以及它替掉的那个原生
-`.roundedBorder` 输入框放在一起比。
+会把整行顶一下。它是和内描边、淡色底、下划线，以及它替掉的那个原生 `.roundedBorder` 输入框
+比过之后定下来的。
 
 **指针**也会动。Codex 卡片比 Claude 卡片高，而菜单只能向下长，所以切换供应商时下面每一行都会
 从没动过的指针底下滑走。指针会跟着位移同样的距离，继续指着原来那一行。
@@ -234,25 +234,12 @@ make clean
 ```
 
 没有 Xcode 就没有 XCTest，所以测试套件是一个纯断言的可执行文件，外加十二个逐帧采样动效曲线的
-验证器。各个设计对比稿都是同一个 debug 二进制上的启动参数：
-
-```bash
-make demo                      # 重置动效，带倍速控制
-make demo-number               # 标题百分比的候选方案对比
-make demo-bar-hover            # 图表柱子悬停的候选方案对比
-make demo-label-toggle         # 图表标签单位切换的候选方案对比
-make demo-disclosure           # 价格表折叠控件的候选方案对比
-make demo-provider-group-press # 供应商分组表头按下反馈的候选方案对比
-make demo-rate-field-focus     # 价格表费率输入框聚焦态的候选方案对比
-make demo-tab-switch           # 设置页标签切换的候选方案对比
-make demo-pricing-links        # 价格表头三个厂商链接的候选布局
-make demo-collapse             # 有无预留滚动条槽位时，价格分组折叠的对比
-```
+验证器。
 
 `make readme-assets` 背后的各个 dump 也是同一个二进制上的参数：`--dump-card`、`--dump-icons`、
 `--dump-settings`、`--dump-card-celebration`、`--dump-chart-hover`、`--dump-reset-toggle`、
 `--dump-tab-switch`、`--dump-disclosure`、`--dump-chart-motion`、`--dump-label-toggle`，每个都
-接一个输出目录。
+接一个输出目录。它们和验证器一样都不会编进 release 构建，所以发布出去的 app 不认任何参数。
 
 上面所有图片都是生成的，不是截屏。静态图是拿固定假数据对线上视图做的离屏渲染，价格面板也是：
 它用的是编好的模型用量和内置费率表，不读运行它的这台机器。`quota-reset.gif`、`chart-hover.gif`

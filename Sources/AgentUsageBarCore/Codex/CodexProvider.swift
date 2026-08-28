@@ -83,8 +83,6 @@ public enum CodexProvider {
 
     /// `plus` -> `Plus`, `free_workspace` -> `Free Workspace`.
     public static func planLabel(_ raw: String) -> String {
-        raw.split(separator: "_")
-            .map { $0.prefix(1).uppercased() + $0.dropFirst() }
-            .joined(separator: " ")
+        PlanLabel.humanize(raw)
     }
 }

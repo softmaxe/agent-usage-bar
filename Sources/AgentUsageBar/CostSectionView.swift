@@ -118,8 +118,10 @@ struct CostSectionView: View {
 
     private var chart: some View {
         HStack(alignment: .bottom, spacing: Self.barSpacing) {
+            // Hoisted: `bar(for:)` needs it for every bar, and it walks the whole day list.
+            let maxValue = self.maxValue
             ForEach(self.bars, id: \.dayKey) { day in
-                self.bar(for: day)
+                self.bar(for: day, maxValue: maxValue)
             }
         }
         .frame(height: Self.chartHeight)
@@ -128,9 +130,9 @@ struct CostSectionView: View {
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
 
-    private func bar(for day: CostDay) -> some View {
+    private func bar(for day: CostDay, maxValue: Double) -> some View {
         let value = CostChartHighlightPolicy.value(for: day, mode: self.selectedLabelMode)
-        let ratio = self.maxValue > 0 ? value / self.maxValue : 0
+        let ratio = maxValue > 0 ? value / maxValue : 0
         let selectedDayKey = self.selectedDayKey
         // Exactly one selected bar is fully opaque; every other day shares one quiet tone.
         let opacity = CostChartHighlightPolicy.opacity(

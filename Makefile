@@ -5,9 +5,8 @@ BIN := $(BUILD_DIR)/$(CONFIG)/$(APP_NAME)
 DEBUG_BIN := $(BUILD_DIR)/debug/$(APP_NAME)
 LOG_SUBSYSTEM := com.agentusagebar.app
 
-## The design studies and the assertion suite are launch flags on the debug app rather than
-## products of their own, so both build it first and then run it with one flag.
-DEMO = swift build -c debug --product $(APP_NAME) && $(DEBUG_BIN)
+## The assertion suite is a set of launch flags on the debug app rather than a product of its
+## own, so `test` builds that app and then runs it once per flag.
 VERIFIERS := \
 	cost-chart-highlighting \
 	usage-bar-fill \
@@ -22,7 +21,7 @@ VERIFIERS := \
 	disclosure-motion \
 	tab-switch-motion
 
-.PHONY: build run probe probe-cost logs kill test app readme-assets demo demo-number demo-bar-hover demo-label-toggle demo-collapse demo-disclosure demo-provider-group-press demo-pricing-links demo-tab-switch demo-rate-field-focus clean
+.PHONY: build run probe probe-cost logs kill test app readme-assets clean
 
 build:
 	swift build -c $(CONFIG)
@@ -48,46 +47,6 @@ logs:
 ## Stop a running instance so `make run` never leaves two menu bar icons behind.
 kill:
 	@pkill -x $(APP_NAME) 2>/dev/null || true
-
-## Replay the quota-recovery celebration in a plain window, without waiting for a real reset.
-demo:
-	$(DEMO) --demo-celebration
-
-## Fold the pricing table's groups with and without the reserved scroller gutter, side by side.
-demo-collapse:
-	$(DEMO) --demo-collapse
-
-## Compare the candidate treatments for the headline percentage on the shared reset timeline.
-demo-number:
-	$(DEMO) --demo-number-animation
-
-## Compare the candidate hover treatments for the cost chart bars.
-demo-bar-hover:
-	$(DEMO) --demo-bar-hover
-
-## Compare the candidate treatments for the chart label's tokens-to-cost switch.
-demo-label-toggle:
-	$(DEMO) --demo-label-toggle
-
-## Compare the candidate collapse-button treatments for the pricing table.
-demo-disclosure:
-	$(DEMO) --demo-disclosure
-
-## Compare press feedback for the pricing table's provider group header.
-demo-provider-group-press:
-	$(DEMO) --demo-provider-group-press
-
-## Compare the candidate layouts for the pricing header's three vendor links.
-demo-pricing-links:
-	$(DEMO) --demo-pricing-links
-
-## Compare the candidate focus treatments for the pricing table's API rate field.
-demo-rate-field-focus:
-	$(DEMO) --demo-rate-field-focus
-
-## Compare the candidate treatments for switching the settings window's tabs.
-demo-tab-switch:
-	$(DEMO) --demo-tab-switch
 
 ## Re-render every image the README links to. Needs ffmpeg.
 readme-assets:

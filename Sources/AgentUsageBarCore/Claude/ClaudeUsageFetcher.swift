@@ -38,12 +38,7 @@ public struct ClaudeUsageResponse: Decodable, Sendable {
             )
         }
 
-        static func parseDate(_ raw: String) -> Date? {
-            let withFraction = ISO8601DateFormatter()
-            withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            if let date = withFraction.date(from: raw) { return date }
-            return ISO8601DateFormatter().date(from: raw)
-        }
+        static func parseDate(_ raw: String) -> Date? { ISO8601.parse(raw) }
     }
 }
 

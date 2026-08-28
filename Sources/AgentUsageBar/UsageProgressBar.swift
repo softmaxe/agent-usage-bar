@@ -273,11 +273,7 @@ struct UsageProgressBar: View {
         var snap = Transaction()
         snap.disablesAnimations = true
         withTransaction(snap) { self.displayedPercent = self.clamped }
-#if DEBUG
-        self.celebration.start(duration: QuotaCelebration.duration, timeScale: QuotaCelebration.timeScale)
-#else
         self.celebration.start(duration: QuotaCelebration.duration)
-#endif
         return true
     }
 
@@ -294,14 +290,7 @@ struct UsageProgressBar: View {
         var snap = Transaction()
         snap.disablesAnimations = true
         withTransaction(snap) { self.displayedPercent = self.clamped }
-#if DEBUG
-        self.celebration.start(
-            duration: QuotaCelebrationReplay.duration,
-            timeScale: QuotaCelebration.timeScale
-        )
-#else
         self.celebration.start(duration: QuotaCelebrationReplay.duration)
-#endif
     }
 
     private func apply(_ fill: UsageBarFillPolicy.Fill) {
