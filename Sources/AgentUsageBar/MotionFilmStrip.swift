@@ -172,8 +172,9 @@ enum MotionFilmStrip {
     // MARK: - Cost chart label
 
     /// `--dump-label-toggle <dir>`: a click on the highlighted bar swapping its label between
-    /// tokens and cost, twice, on the shipped blur-and-resolve. The reading is what changes, so
-    /// the bar under it holds still.
+    /// tokens and cost, twice, on the shipped blur-and-resolve. The click changes the chart's
+    /// height metric as well as the reading, so the bars rescale under the label on the same
+    /// curve.
     static func dumpLabelToggle(directory: String) {
         let root = OffscreenCapture.directory(directory)
         let hold: TimeInterval = 0.9
@@ -404,27 +405,48 @@ private struct ChartHighlightFrame: View {
     }
 }
 
-/// The highlighted bar's label changing unit. The bars are the stand-in; the label is not — the
-/// text comes from `CostChartHighlightPolicy`, and the two readings are drawn through the same
-/// `LabelResolve` the shipped transition ends on, one arriving as the other leaves.
+/// The highlighted bar's label changing unit, and the whole chart rescaling under it. The layout
+/// is the stand-in; the readings and the heights are not. The text comes from
+/// `CostChartHighlightPolicy`, the two readings are drawn through the same `LabelResolve` the
+/// shipped transition ends on, and every bar is scaled by `CostChartHighlightPolicy.value` against
+/// that metric's own maximum, which is the height the shipped chart animates to on the same click.
 private struct ChartLabelSwapFrame: View {
     /// The unit arriving. The one leaving is the other one; there are only two.
     let mode: CostChartLabelMode
     let progress: Double
 
-    private static let values: [Double] = [62, 90, 48, 71, 9, 88, 41, 37]
+    /// A week the two metrics disagree about, because a cheap model spends tokens a dear one does
+    /// not: the tallest token day is the second, the tallest cost day is the third. A fixture that
+    /// read the same in both units would hold the chart still and show half of what the click does.
+    /// The selected day is the one place they agree, at 37M tokens and $37, so the two readings are
+    /// the same length and the swap is worth watching rather than a change of width.
+    private static let fixture: [(tokensM: Double, costUSD: Double)] = [
+        (62, 18), (90, 24), (48, 40), (71, 30), (9, 7), (88, 22), (41, 35), (37, 37),
+    ]
     private static let chartHeight: CGFloat = 56
     private static let spacing: CGFloat = 4
     private static let chartWidth: CGFloat = 252
 
-    /// A day of the fixture bills a dollar a million tokens, which is what makes the two readings
-    /// the same length and the swap worth watching rather than a change of width.
+    private static let days: [CostDay] = Self.fixture.enumerated().map { index, day in
+        CostDay(
+            dayKey: String(format: "2026-08-%02d", 17 + index),
+            byModel: [
+                "opus-5": ModelDayUsage(
+                    tokens: TokenTotals(input: Int(day.tokensM * 1_000_000)),
+                    costUSD: day.costUSD
+                ),
+            ],
+            costUSD: day.costUSD,
+            unpricedTokens: 0
+        )
+    }
+
     private func text(for mode: CostChartLabelMode) -> some View {
-        let value = Self.values[Self.values.count - 1]
+        let day = Self.days[Self.days.count - 1]
         return Text(CostChartHighlightPolicy.labelText(
             selectedMode: mode,
-            tokens: Int(value * 1_000_000),
-            costUSD: value
+            tokens: day.tokens.total,
+            costUSD: day.costUSD
         ))
         .font(.system(size: 10, weight: .medium))
         .foregroundStyle(.primary)
@@ -440,17 +462,32 @@ private struct ChartLabelSwapFrame: View {
         }
     }
 
+    /// Height as a share of the chart, interpolated on the swap's own progress. The shipped bars
+    /// get there the same way: the mode flips inside `withAnimation`, so SwiftUI runs the frame
+    /// from the old metric's ratio to the new one over the curve the label resolves on.
+    private func ratio(for day: CostDay) -> Double {
+        let leaving = self.mode == .tokens ? CostChartLabelMode.cost : .tokens
+        return Self.ratio(for: day, mode: leaving)
+            + (Self.ratio(for: day, mode: self.mode) - Self.ratio(for: day, mode: leaving))
+            * self.progress
+    }
+
+    private static func ratio(for day: CostDay, mode: CostChartLabelMode) -> Double {
+        let maxValue = CostChartHighlightPolicy.maxValue(for: Self.days, mode: mode)
+        guard maxValue > 0 else { return 0 }
+        return CostChartHighlightPolicy.value(for: day, mode: mode) / maxValue
+    }
+
     var body: some View {
         let tint = Theme.accent(for: .claude)
-        let maxValue = Self.values.max() ?? 1
         return HStack(alignment: .bottom, spacing: Self.spacing) {
-            ForEach(Array(Self.values.enumerated()), id: \.offset) { index, value in
-                let isSelected = index == Self.values.count - 1
+            ForEach(Array(Self.days.enumerated()), id: \.offset) { index, day in
+                let isSelected = index == Self.days.count - 1
                 RoundedRectangle(cornerRadius: 2)
                     .fill(tint)
                     .opacity(isSelected ? 1 : CostChartHighlightPolicy.restingOpacity)
                     .frame(
-                        height: max(4, Self.chartHeight * value / maxValue)
+                        height: max(4, Self.chartHeight * self.ratio(for: day))
                             + (isSelected ? CostChartHoverMotion.lift : 0)
                     )
                     .frame(maxWidth: .infinity)
