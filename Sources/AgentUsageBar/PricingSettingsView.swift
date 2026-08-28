@@ -214,15 +214,19 @@ struct PricingSettingsView: View {
             self.sortHeader("Output", .output)
             self.sortHeader("Cache w", .cacheWrite)
             self.sortHeader("Cache r", .cacheRead)
+            // The default order is a sort like any other, but it has no column of its own to
+            // light up, so this control carries the highlight while it is the one in force.
             Button {
                 self.model.resetSort()
             } label: {
                 Image(systemName: "line.3.horizontal.decrease")
+                    .foregroundStyle(self.model.sort.isDefault ? Color.primary : Color.secondary)
+                    .frame(width: 22)
+                    .contentShape(Rectangle())
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.plain)
             .frame(width: 22)
             .help("Back to the default order: API whitelist fixed order; Others most-used first")
-            .disabled(self.model.sort.isDefault)
         }
         .font(.system(size: 11, weight: .medium))
         .foregroundStyle(.secondary)
