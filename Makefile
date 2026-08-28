@@ -22,7 +22,7 @@ VERIFIERS := \
 	disclosure-motion \
 	tab-switch-motion
 
-.PHONY: build run probe probe-cost logs kill test app readme-assets demo demo-number demo-bar-hover demo-label-toggle demo-collapse demo-disclosure demo-provider-group-press demo-pricing-links demo-tab-switch clean
+.PHONY: build run probe probe-cost logs kill test app readme-assets demo demo-number demo-bar-hover demo-label-toggle demo-collapse demo-disclosure demo-provider-group-press demo-pricing-links demo-tab-switch demo-rate-field-focus clean
 
 build:
 	swift build -c $(CONFIG)
@@ -80,6 +80,10 @@ demo-provider-group-press:
 ## Compare the candidate layouts for the pricing header's three vendor links.
 demo-pricing-links:
 	$(DEMO) --demo-pricing-links
+
+## Compare the candidate focus treatments for the pricing table's API rate field.
+demo-rate-field-focus:
+	$(DEMO) --demo-rate-field-focus
 
 ## Compare the candidate treatments for switching the settings window's tabs.
 demo-tab-switch:

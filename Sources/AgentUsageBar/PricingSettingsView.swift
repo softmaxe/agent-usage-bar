@@ -418,11 +418,7 @@ struct PricingSettingsView: View {
         _ keyPath: WritableKeyPath<PricingRow, String>,
         placeholder: String = "—"
     ) -> some View {
-        TextField(placeholder, text: self.model.binding(for: id, keyPath: keyPath))
-            .textFieldStyle(.roundedBorder)
-            .multilineTextAlignment(.trailing)
-            .font(.system(size: 11, design: .monospaced))
-            .frame(width: Self.rateColumnWidth)
+        RateField(placeholder, text: self.model.binding(for: id, keyPath: keyPath))
     }
 
     private static func rate(_ value: Double?) -> String {

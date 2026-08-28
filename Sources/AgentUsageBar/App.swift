@@ -71,6 +71,7 @@ enum AgentUsageBarApp {
             ("--demo-provider-group-press", ProviderGroupPressDemo.run),
             ("--demo-tab-switch", TabSwitchDemo.run),
             ("--demo-pricing-links", PricingLinksDemo.run),
+            ("--demo-rate-field-focus", RateFieldFocusDemo.run),
         ]
         if let entry = flagged.first(where: { arguments.contains($0.flag) }) {
             entry.run()
