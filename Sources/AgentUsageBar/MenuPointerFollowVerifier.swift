@@ -67,15 +67,11 @@ enum MenuPointerFollowVerifier {
             failures.append("a pointer outside the menu was moved to \(String(describing: offMenu))")
         }
 
-        guard failures.isEmpty else {
-            for failure in failures {
-                fputs("menu pointer follow verification failed: \(failure)\n", stderr)
-            }
-            exit(1)
-        }
-
-        print("menu rows keep the pointer across a card resize, and nothing else moves it")
-        exit(0)
+        VerifierReport.finish(
+            failures,
+            label: "menu pointer follow verification",
+            passed: "menu rows keep the pointer across a card resize, and nothing else moves it"
+        )
     }
 }
 #endif

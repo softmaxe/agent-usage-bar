@@ -5,8 +5,7 @@ import AppKit
 /// Lets the icon geometry be checked without a screenshot of the real menu bar.
 enum IconDump {
     static func run(directory: String) {
-        let root = URL(fileURLWithPath: (directory as NSString).expandingTildeInPath)
-        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let root = OffscreenCapture.directory(directory)
 
         let cases: [(String, Double?, Double?, Bool)] = [
             ("full", 100, 100, false),
@@ -50,17 +49,9 @@ enum IconDump {
         bounds.fill(using: .sourceAtop)
         tinted.unlockFocus()
 
-        guard let rep = NSBitmapImageRep(
-            bitmapDataPlanes: nil,
+        guard let rep = NSBitmapImageRep.rgba(
             pixelsWide: Int(size.width),
-            pixelsHigh: Int(size.height),
-            bitsPerSample: 8,
-            samplesPerPixel: 4,
-            hasAlpha: true,
-            isPlanar: false,
-            colorSpaceName: .deviceRGB,
-            bytesPerRow: 0,
-            bitsPerPixel: 0
+            pixelsHigh: Int(size.height)
         ) else { return false }
 
         rep.size = size

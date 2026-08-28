@@ -4,6 +4,9 @@ import SwiftUI
 /// No XCTest without Xcode, so the fill policy is asserted from a launch flag the way the chart
 /// highlighting and the menu toggles are.
 enum UsageBarFillVerifier {
+    private static let label = "usage bar fill verification"
+    private static let passed = "usage bar static presentation, rollover, and drift fill checks passed"
+
     @MainActor
     static func run() -> Never {
         var failures: [String] = []
@@ -16,7 +19,7 @@ enum UsageBarFillVerifier {
         let rollover = UsageBarFillPolicy.onValueChange(from: 2, to: 100)
         guard case let .sweepFromEmpty(duration) = rollover else {
             failures.append("a 2% -> 100% rollover did not sweep, got \(rollover)")
-            return Self.finish(failures)
+            return VerifierReport.finish(failures, label: Self.label, passed: Self.passed)
         }
         if duration <= UsageBarFillPolicy.glideDuration {
             failures.append("the rollover sweep was not slower than ordinary value drift")
@@ -64,17 +67,6 @@ enum UsageBarFillVerifier {
             failures.append("the pace marker render check did not produce an image")
         }
 
-        return Self.finish(failures)
-    }
-
-    private static func finish(_ failures: [String]) -> Never {
-        guard failures.isEmpty else {
-            for failure in failures {
-                fputs("usage bar fill verification failed: \(failure)\n", stderr)
-            }
-            exit(1)
-        }
-        print("usage bar static presentation, rollover, and drift fill checks passed")
-        exit(0)
+        return VerifierReport.finish(failures, label: Self.label, passed: Self.passed)
     }
 }

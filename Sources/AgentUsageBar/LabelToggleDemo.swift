@@ -15,36 +15,13 @@ import SwiftUI
 /// click. C won and ships; the rest stay here as the record of what it was chosen against.
 @MainActor
 enum LabelToggleDemo {
-    private final class Delegate: NSObject, NSApplicationDelegate {
-        func applicationShouldTerminateAfterLastWindowClosed(_: NSApplication) -> Bool { true }
-    }
-
-    private static var window: NSWindow?
-    private static var delegate: Delegate?
-
     static func run() -> Never {
-        let app = NSApplication.shared
-        app.setActivationPolicy(.regular)
-        let delegate = Delegate()
-        app.delegate = delegate
-        Self.delegate = delegate
-
-        let hosting = NSHostingView(rootView: LabelToggleDemoView())
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 1020, height: 860),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
-            backing: .buffered,
-            defer: false
+        DemoWindow.run(
+            title: "Cost chart label toggle prototypes",
+            width: 1020,
+            height: 860,
+            content: LabelToggleDemoView()
         )
-        window.title = "Cost chart label toggle prototypes"
-        window.contentView = hosting
-        window.center()
-        window.makeKeyAndOrderFront(nil)
-        Self.window = window
-
-        app.activate(ignoringOtherApps: true)
-        app.run()
-        exit(0)
     }
 }
 
@@ -55,11 +32,6 @@ enum LabelToggleDemo {
 /// as one number becoming another rather than as two numbers overlapping.
 private enum ToggleMotion {
     static let swap: TimeInterval = 0.2
-
-    /// The demo's speed picker is a playback rate, so a slower rate is a longer animation.
-    static func scaled(_ duration: TimeInterval, speed: Double) -> TimeInterval {
-        duration / max(0.01, speed)
-    }
 }
 
 // MARK: - Variants
@@ -117,7 +89,7 @@ private enum ToggleStyle: String, CaseIterable, Identifiable {
     /// Nil is a swap with no animation at all, which is what Reduce Motion asks for.
     func animation(speed: Double, reduceMotion: Bool) -> Animation? {
         guard !reduceMotion else { return nil }
-        let duration = ToggleMotion.scaled(ToggleMotion.swap, speed: speed)
+        let duration = CostChartHoverMotion.scaled(ToggleMotion.swap, timeScale: speed)
         switch self {
         case .crossfade: return .easeInOut(duration: duration)
         // The hover spring, so a label that moves on hover moves the same way on a click.
@@ -172,8 +144,8 @@ private struct LabelToggleDemoView: View {
         GridItem(.flexible(), spacing: 18),
     ]
 
-    private let days = LabelToggleDemoData.days()
-    private let todayDayKey = LabelToggleDemoData.todayDayKey()
+    private let days = CostChartDemoData.days()
+    private let todayDayKey = CostChartDemoData.todayDayKey()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -254,11 +226,7 @@ private struct ToggleVariantCard: View {
     let reduceMotion: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(self.style.title)
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                .foregroundStyle(.secondary)
-
+        DemoVariantCard(title: self.style.title, blurb: self.style.blurb) {
             ToggleChart(
                 style: self.style,
                 provider: self.provider,
@@ -267,24 +235,6 @@ private struct ToggleVariantCard: View {
                 speed: self.speed,
                 reduceMotion: self.reduceMotion
             )
-
-            Text(self.style.blurb)
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color(nsColor: .windowBackgroundColor))
-                .shadow(color: .black.opacity(0.1), radius: 12, y: 5)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color(nsColor: .separatorColor).opacity(0.8))
         }
     }
 }
@@ -309,7 +259,6 @@ private struct ToggleChart: View {
 
     private static let chartHeight: CGFloat = 56
     private static let barSpacing: CGFloat = 4
-    private static let restingOpacity: Double = 0.55
 
     private var tint: Color { Theme.accent(for: self.provider) }
 
@@ -334,18 +283,7 @@ private struct ToggleChart: View {
             }
             .frame(height: Self.chartHeight)
             .padding(.top, 14 + CostChartHoverMotion.lift)
-            .overlay {
-                GeometryReader { geometry in
-                    MouseLocationReader(
-                        onMoved: { location in
-                            self.updateHover(at: location, width: geometry.size.width)
-                        },
-                        onClicked: { location in
-                            self.toggleLabel(at: location, width: geometry.size.width)
-                        }
-                    )
-                }
-            }
+            .mouseLocation(onMoved: self.updateHover, onClicked: self.toggleLabel)
 
             Text(self.summaryLine)
                 .font(.system(size: 11))
@@ -366,7 +304,7 @@ private struct ToggleChart: View {
         return RoundedRectangle(cornerRadius: 2)
             .fill(self.tint)
             // Opacity as a modifier rather than inside the fill, so it is a plain animatable value.
-            .opacity(selected ? 1 : Self.restingOpacity)
+            .opacity(selected ? 1 : CostChartHighlightPolicy.restingOpacity)
             .frame(height: height)
             .frame(maxWidth: .infinity)
             .scaleEffect(x: 1, y: popScale, anchor: .bottom)
@@ -409,7 +347,7 @@ private struct ToggleChart: View {
         guard let key = self.selectedDayKey, let day = self.days.first(where: { $0.dayKey == key })
         else { return "hover a bar, then click it" }
         let tokens = Formatters.tokens(day.tokens.total)
-        return "\(LabelToggleDemoData.dayLabel(key)) · \(Formatters.cost(day.costUSD ?? 0)) · \(tokens) tokens"
+        return "\(Formatters.dayLabel(key)) · \(Formatters.cost(day.costUSD ?? 0)) · \(tokens) tokens"
     }
 
     // MARK: - Hover
@@ -474,73 +412,10 @@ private struct ToggleChart: View {
         // The decay has to be a separate update, or SwiftUI coalesces both writes and the pulse
         // never reaches the screen.
         DispatchQueue.main.async {
-            let response = ToggleMotion.scaled(0.34, speed: self.speed)
+            let response = CostChartHoverMotion.scaled(0.34, timeScale: self.speed)
             withAnimation(.spring(response: response, dampingFraction: 0.42)) { self.pop = 0 }
         }
     }
 }
 
-// MARK: - Demo data
-
-/// Ten days shaped like a real month, with a spike big enough that its token label and its cost
-/// label are different lengths -- "163M" against "$196" -- because a swap that only looks good on
-/// equal-width strings is not a swap that ships.
-private enum LabelToggleDemoData {
-    private static let costs: [Double] = [8, 12, 26, 41, 9, 30, 34, 196, 15, 22]
-
-    static func days(today: Date = Date()) -> [CostDay] {
-        let calendar = Calendar.current
-        return Self.costs.enumerated().compactMap { index, cost in
-            guard let date = calendar.date(
-                byAdding: .day,
-                value: index - (Self.costs.count - 1),
-                to: today
-            ) else { return nil }
-            return CostDay(
-                dayKey: Self.dayKey(for: date),
-                byModel: [
-                    "opus-5": ModelDayUsage(
-                        tokens: TokenTotals(
-                            input: Int(cost * 1_400),
-                            output: Int(cost * 320),
-                            cacheWrite: Int(cost * 2_100),
-                            cacheRead: Int(cost * 9_600)
-                        ),
-                        costUSD: cost * 0.72
-                    ),
-                    "haiku-4.5": ModelDayUsage(
-                        tokens: TokenTotals(
-                            input: Int(cost * 900),
-                            output: Int(cost * 180),
-                            cacheRead: Int(cost * 3_100)
-                        ),
-                        costUSD: cost * 0.28
-                    ),
-                ],
-                costUSD: cost,
-                unpricedTokens: 0
-            )
-        }
-    }
-
-    static func todayDayKey(today: Date = Date()) -> String {
-        Self.dayKey(for: today)
-    }
-
-    static func dayKey(for date: Date, calendar: Calendar = .current) -> String {
-        let components = calendar.dateComponents([.year, .month, .day], from: date)
-        guard let year = components.year, let month = components.month, let day = components.day
-        else { return "" }
-        return String(format: "%04d-%02d-%02d", year, month, day)
-    }
-
-    /// "2026-08-24" -> "Aug 24".
-    static func dayLabel(_ dayKey: String) -> String {
-        let parts = dayKey.split(separator: "-")
-        guard parts.count == 3, let month = Int(parts[1]), let day = Int(parts[2]),
-              (1...12).contains(month) else { return dayKey }
-        let names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-        return "\(names[month - 1]) \(day)"
-    }
-}
 #endif

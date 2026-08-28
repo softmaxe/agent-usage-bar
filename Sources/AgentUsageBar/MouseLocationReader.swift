@@ -8,6 +8,25 @@ import SwiftUI
 /// SwiftUI's `.onHover` gives no location, and `.help` tooltips never fire inside a menu at all:
 /// an NSMenu popup is not a key window, so anything relying on key-window event routing is dead
 /// there. An `.activeAlways` tracking area keeps working while the menu is up.
+extension View {
+    /// Reports the pointer over this view, along with the width it is being read against — every
+    /// chart that tracks the pointer needs both to turn an x into a bar.
+    @MainActor
+    func mouseLocation(
+        onMoved: @escaping (CGPoint?, CGFloat) -> Void,
+        onClicked: @escaping (CGPoint, CGFloat) -> Void = { _, _ in }
+    ) -> some View {
+        self.overlay {
+            GeometryReader { geometry in
+                MouseLocationReader(
+                    onMoved: { onMoved($0, geometry.size.width) },
+                    onClicked: { onClicked($0, geometry.size.width) }
+                )
+            }
+        }
+    }
+}
+
 @MainActor
 struct MouseLocationReader: NSViewRepresentable {
     let onMoved: (CGPoint?) -> Void

@@ -29,103 +29,78 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 enum AgentUsageBarApp {
     @MainActor
     static func main() {
+        let arguments = CommandLine.arguments
+
+        /// `--flag <value>...`: the `count` arguments after `flag`, when the caller passed that
+        /// many. Nil for a flag that is absent or short of its arguments, which leaves the app to
+        /// launch normally rather than acting on half a request.
+        func values(after flag: String, count: Int) -> [String]? {
+            guard let index = arguments.firstIndex(of: flag), index + count < arguments.count else {
+                return nil
+            }
+            return Array(arguments[(index + 1)...(index + count)])
+        }
+
+        func value(after flag: String) -> String? {
+            values(after: flag, count: 1)?[0]
+        }
+
 #if DEBUG
-        if CommandLine.arguments.contains("--verify-cost-chart-highlighting") {
-            CostChartHighlightVerifier.run()
+        // The suite and the design studies are launch flags rather than separate executables. Each
+        // entry owns the process once its flag is present, so the first match wins and the order
+        // here is the order the flags are checked in.
+        let flagged: [(flag: String, run: @MainActor () -> Never)] = [
+            ("--verify-cost-chart-highlighting", CostChartHighlightVerifier.run),
+            ("--verify-usage-bar-fill", UsageBarFillVerifier.run),
+            ("--verify-icon-rendering", IconRenderingVerifier.run),
+            ("--verify-menu-pointer-follow", MenuPointerFollowVerifier.run),
+            ("--verify-quota-recovery", QuotaRecoveryVerifier.run),
+            ("--verify-relative-time", RelativeTimeVerifier.run),
+            ("--verify-quota-reset-label", QuotaResetLabelVerifier.run),
+            ("--verify-refresh-row", RefreshRowVerifier.run),
+            ("--verify-pricing-sort", PricingSortVerifier.run),
+            ("--verify-pricing-model-filter", PricingModelFilterVerifier.run),
+            ("--verify-disclosure-motion", DisclosureMotionVerifier.run),
+            ("--verify-tab-switch-motion", TabSwitchMotionVerifier.run),
+            ("--demo-celebration", CelebrationDemo.run),
+            ("--demo-collapse", CollapseShiftDemo.run),
+            ("--demo-number-animation", NumberAnimationDemo.run),
+            ("--demo-bar-hover", BarHoverDemo.run),
+            ("--demo-label-toggle", LabelToggleDemo.run),
+            ("--demo-disclosure", DisclosureAnimationDemo.run),
+            ("--demo-tab-switch", TabSwitchDemo.run),
+            ("--demo-pricing-links", PricingLinksDemo.run),
+        ]
+        if let entry = flagged.first(where: { arguments.contains($0.flag) }) {
+            entry.run()
         }
-        if CommandLine.arguments.contains("--verify-usage-bar-fill") {
-            UsageBarFillVerifier.run()
+
+        if let pair = values(after: "--dump-collapse-shift", count: 2) {
+            CollapseShiftDemo.report(variant: pair[0], state: pair[1])
         }
-        if CommandLine.arguments.contains("--verify-icon-rendering") {
-            IconRenderingVerifier.run()
-        }
-        if CommandLine.arguments.contains("--verify-menu-pointer-follow") {
-            MenuPointerFollowVerifier.run()
-        }
-        if CommandLine.arguments.contains("--verify-quota-recovery") {
-            QuotaRecoveryVerifier.run()
-        }
-        if CommandLine.arguments.contains("--verify-relative-time") {
-            RelativeTimeVerifier.run()
-        }
-        if CommandLine.arguments.contains("--verify-quota-reset-label") {
-            QuotaResetLabelVerifier.run()
-        }
-        if CommandLine.arguments.contains("--verify-refresh-row") {
-            RefreshRowVerifier.run()
-        }
-        if CommandLine.arguments.contains("--verify-pricing-sort") {
-            PricingSortVerifier.run()
-        }
-        if CommandLine.arguments.contains("--verify-pricing-model-filter") {
-            PricingModelFilterVerifier.run()
-        }
-        if CommandLine.arguments.contains("--verify-disclosure-motion") {
-            DisclosureMotionVerifier.run()
-        }
-        if CommandLine.arguments.contains("--verify-tab-switch-motion") {
-            TabSwitchMotionVerifier.run()
-        }
-        if CommandLine.arguments.contains("--demo-celebration") {
-            CelebrationDemo.run()
-        }
-        if CommandLine.arguments.contains("--demo-collapse") {
-            CollapseShiftDemo.run()
-        }
-        if let index = CommandLine.arguments.firstIndex(of: "--dump-collapse-shift"),
-           index + 2 < CommandLine.arguments.count {
-            CollapseShiftDemo.report(
-                variant: CommandLine.arguments[index + 1],
-                state: CommandLine.arguments[index + 2]
-            )
-        }
-        if CommandLine.arguments.contains("--demo-number-animation") {
-            NumberAnimationDemo.run()
-        }
-        if CommandLine.arguments.contains("--demo-bar-hover") {
-            BarHoverDemo.run()
-        }
-        if CommandLine.arguments.contains("--demo-label-toggle") {
-            LabelToggleDemo.run()
-        }
-        if CommandLine.arguments.contains("--demo-disclosure") {
-            DisclosureAnimationDemo.run()
-        }
-        if CommandLine.arguments.contains("--demo-tab-switch") {
-            TabSwitchDemo.run()
-        }
-        if CommandLine.arguments.contains("--demo-pricing-links") {
-            PricingLinksDemo.run()
-        }
-        if let index = CommandLine.arguments.firstIndex(of: "--dump-pricing-links"),
-           index + 1 < CommandLine.arguments.count {
-            PricingLinksDemo.dumpCards(directory: CommandLine.arguments[index + 1])
+        if let directory = value(after: "--dump-pricing-links") {
+            PricingLinksDemo.dumpCards(directory: directory)
             return
         }
-        if let index = CommandLine.arguments.firstIndex(of: "--dump-number-animation"),
-           index + 1 < CommandLine.arguments.count {
-            NumberAnimationDemo.dumpFrames(directory: CommandLine.arguments[index + 1])
+        if let directory = value(after: "--dump-number-animation") {
+            NumberAnimationDemo.dumpFrames(directory: directory)
             return
         }
-        if let index = CommandLine.arguments.firstIndex(of: "--dump-celebration"),
-           index + 1 < CommandLine.arguments.count {
-            CelebrationDemo.dumpFrames(directory: CommandLine.arguments[index + 1])
+        if let directory = value(after: "--dump-celebration") {
+            CelebrationDemo.dumpFrames(directory: directory)
             return
         }
 #endif
-        if let index = CommandLine.arguments.firstIndex(of: "--dump-icons"),
-           index + 1 < CommandLine.arguments.count {
-            IconDump.run(directory: CommandLine.arguments[index + 1])
+        if let directory = value(after: "--dump-icons") {
+            IconDump.run(directory: directory)
             return
         }
-        if let index = CommandLine.arguments.firstIndex(of: "--dump-card"),
-           index + 1 < CommandLine.arguments.count {
-            CardDump.run(directory: CommandLine.arguments[index + 1])
+        if let directory = value(after: "--dump-card") {
+            CardDump.run(directory: directory)
             return
         }
-        if let index = CommandLine.arguments.firstIndex(of: "--dump-settings"),
-           index + 1 < CommandLine.arguments.count {
-            CardDump.dumpSettings(directory: CommandLine.arguments[index + 1])
+        if let directory = value(after: "--dump-settings") {
+            CardDump.dumpSettings(directory: directory)
             return
         }
 

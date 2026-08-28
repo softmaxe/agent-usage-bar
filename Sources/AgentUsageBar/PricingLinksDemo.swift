@@ -9,43 +9,19 @@ import SwiftUI
 /// that width and how much of each vendor's color the row is allowed to carry.
 @MainActor
 enum PricingLinksDemo {
-    private final class Delegate: NSObject, NSApplicationDelegate {
-        func applicationShouldTerminateAfterLastWindowClosed(_: NSApplication) -> Bool { true }
-    }
-
-    private static var window: NSWindow?
-    private static var delegate: Delegate?
-
     static func run() -> Never {
-        let app = NSApplication.shared
-        app.setActivationPolicy(.regular)
-        let delegate = Delegate()
-        app.delegate = delegate
-        Self.delegate = delegate
-
-        let hosting = NSHostingView(rootView: PricingLinksDemoView())
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 720, height: 860),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
-            backing: .buffered,
-            defer: false
+        DemoWindow.run(
+            title: "Pricing header link prototypes",
+            width: 720,
+            height: 860,
+            content: PricingLinksDemoView()
         )
-        window.title = "Pricing header link prototypes"
-        window.contentView = hosting
-        window.center()
-        window.makeKeyAndOrderFront(nil)
-        Self.window = window
-
-        app.activate(ignoringOtherApps: true)
-        app.run()
-        exit(0)
     }
 
     /// `AgentUsageBar --dump-pricing-links <dir>` renders every candidate header off screen, so the
     /// spacing can be read off a picture without opening the window.
     static func dumpCards(directory: String) {
-        let root = URL(fileURLWithPath: (directory as NSString).expandingTildeInPath)
-        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let root = OffscreenCapture.directory(directory)
         for style in LinkRowStyle.allCases {
             Self.capture(style, guides: false, named: style.rawValue, into: root)
             Self.capture(style, guides: true, named: "\(style.rawValue)-guides", into: root)
@@ -57,31 +33,9 @@ enum PricingLinksDemo {
         hosting.appearance = NSAppearance(named: .darkAqua)
         hosting.frame = NSRect(x: 0, y: 0, width: 620, height: hosting.fittingSize.height)
 
-        let window = NSWindow(
-            contentRect: hosting.frame,
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        window.appearance = NSAppearance(named: .darkAqua)
-        // cacheDisplay paints no window background, so give it an opaque ground of its own.
-        let ground = NSView(frame: hosting.frame)
-        ground.wantsLayer = true
-        ground.layer?.backgroundColor = NSColor(white: 0.13, alpha: 1).cgColor
-        ground.addSubview(hosting)
-        window.contentView = ground
-        window.orderFront(nil)
-        ground.layoutSubtreeIfNeeded()
-
-        guard let rep = ground.bitmapImageRepForCachingDisplay(in: ground.bounds) else { return }
-        ground.cacheDisplay(in: ground.bounds, to: rep)
-        guard let data = rep.representation(using: NSBitmapImageRep.FileType.png, properties: [:]) else {
-            return
+        if case let .written(url) = OffscreenCapture.writePNG(hosting, named: name, into: root, titled: true) {
+            print("wrote \(url.path)")
         }
-        let url = root.appendingPathComponent("\(name).png")
-        try? data.write(to: url)
-        print("wrote \(url.path)")
-        window.orderOut(nil)
     }
 }
 

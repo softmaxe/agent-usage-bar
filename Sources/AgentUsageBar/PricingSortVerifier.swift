@@ -117,15 +117,11 @@ enum PricingSortVerifier {
             failures.append("a rate sort moved a model across provider sections")
         }
 
-        guard failures.isEmpty else {
-            for failure in failures {
-                fputs("pricing sort verification failed: \(failure)\n", stderr)
-            }
-            exit(1)
-        }
-
-        print("pricing columns sorted both ways, sank blank rates, and reset to the configured default order")
-        exit(0)
+        VerifierReport.finish(
+            failures,
+            label: "pricing sort verification",
+            passed: "pricing columns sorted both ways, sank blank rates, and reset to the configured default order"
+        )
     }
 
     private static func row(

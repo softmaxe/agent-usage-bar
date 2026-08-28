@@ -171,15 +171,11 @@ enum PricingModelFilterVerifier {
             failures: &failures
         )
 
-        guard failures.isEmpty else {
-            for failure in failures {
-                fputs("pricing model filter verification failed: \(failure)\n", stderr)
-            }
-            exit(1)
-        }
-
-        print("pricing model filter kept the API whitelists and used unpriced models only")
-        exit(0)
+        VerifierReport.finish(
+            failures,
+            label: "pricing model filter verification",
+            passed: "pricing model filter kept the API whitelists and used unpriced models only"
+        )
     }
 
     private static func expect(_ condition: Bool, _ message: String, failures: inout [String]) {

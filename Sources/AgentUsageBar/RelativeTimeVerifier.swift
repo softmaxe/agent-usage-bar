@@ -75,7 +75,7 @@ enum RelativeTimeVerifier {
 
     private static func require(_ condition: @autoclosure () -> Bool, _ message: String) {
         guard condition() else {
-            fputs("relative-time verification failed: \(message)\n", stderr)
+            VerifierReport.report(message, label: "relative-time verification")
             Self.finish(1)
         }
     }

@@ -9,57 +9,30 @@ import SwiftUI
 /// it already does.
 @MainActor
 enum NumberAnimationDemo {
-    private final class Delegate: NSObject, NSApplicationDelegate {
-        func applicationShouldTerminateAfterLastWindowClosed(_: NSApplication) -> Bool { true }
-    }
-
-    private static var window: NSWindow?
-    private static var delegate: Delegate?
-
     static func run() -> Never {
-        let app = NSApplication.shared
-        app.setActivationPolicy(.regular)
-        let delegate = Delegate()
-        app.delegate = delegate
-        Self.delegate = delegate
-
-        let hosting = NSHostingView(rootView: NumberAnimationDemoView())
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 940, height: 700),
-            styleMask: [.titled, .closable, .miniaturizable],
-            backing: .buffered,
-            defer: false
+        DemoWindow.run(
+            title: "Quota reset number animation prototypes",
+            width: 940,
+            height: 700,
+            resizable: false,
+            content: NumberAnimationDemoView()
         )
-        window.title = "Quota reset number animation prototypes"
-        window.contentView = hosting
-        window.center()
-        window.makeKeyAndOrderFront(nil)
-        Self.window = window
-
-        app.activate(ignoringOtherApps: true)
-        app.run()
-        exit(0)
     }
 
     /// `--dump-number-animation <dir>` writes a contact sheet: every variant at the same handful of
     /// moments, so the frames can be compared side by side without watching five clocks at once.
     static func dumpFrames(directory: String) {
-        let root = URL(fileURLWithPath: (directory as NSString).expandingTildeInPath)
-        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let root = OffscreenCapture.directory(directory)
 
         let moments: [TimeInterval] = [0, 0.25, 0.7, 1.5, 2.79, 2.86, 3.05, 3.4]
         for moment in moments {
             let sheet = NumberAnimationContactSheet(elapsed: moment, startPercent: 3, provider: .claude)
                 .frame(width: 460, height: 300)
-            let renderer = ImageRenderer(content: sheet)
-            renderer.scale = 2
-            if let image = renderer.nsImage,
-               let tiff = image.tiffRepresentation,
-               let bitmap = NSBitmapImageRep(data: tiff),
-               let data = bitmap.representation(using: .png, properties: [:]) {
-                let url = root.appendingPathComponent(String(format: "t-%04d.png", Int(moment * 1000)))
-                try? data.write(to: url)
-            }
+            OffscreenCapture.renderPNG(
+                sheet,
+                named: String(format: "t-%04d", Int(moment * 1000)),
+                into: root
+            )
         }
         print("wrote number animation frames to \(root.path)")
     }
@@ -257,11 +230,7 @@ private struct NumberVariantCard: View {
     private var tint: Color { Theme.accent(for: self.provider) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(self.style.title)
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                .foregroundStyle(.secondary)
-
+        DemoVariantCard(title: self.style.title, blurb: self.style.blurb) {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     self.headline
@@ -280,24 +249,6 @@ private struct NumberVariantCard: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
-
-            Text(self.style.blurb)
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color(nsColor: .windowBackgroundColor))
-                .shadow(color: .black.opacity(0.1), radius: 12, y: 5)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color(nsColor: .separatorColor).opacity(0.8))
         }
         .onAppear { self.play() }
         .onChange(of: self.token) { _, _ in self.play() }
