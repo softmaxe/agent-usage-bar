@@ -36,11 +36,6 @@ enum QuotaCelebration {
             + Self.coolDown
     }
 
-#if DEBUG
-    /// The demo window slows the whole sequence down, so a 60 ms overshoot can be judged by eye.
-    static var timeScale: Double = 1
-#endif
-
     // MARK: - Fill
 
     /// Shared with the headline above the bar, which blurs its count by the same decay.
@@ -185,54 +180,6 @@ enum QuotaCelebration {
         }
     }
 
-    // MARK: - Helpers
-
-    /// Cubic bezier easing taking the two control points `cubic-bezier(...)` does, solved the way
-    /// WebKit solves it: Newton first, bisection when the curve is too flat for it.
-    struct Easing {
-        private let ax, bx, cx: Double
-        private let ay, by, cy: Double
-
-        init(_ x1: Double, _ y1: Double, _ x2: Double, _ y2: Double) {
-            self.cx = 3 * x1
-            self.bx = 3 * (x2 - x1) - self.cx
-            self.ax = 1 - self.cx - self.bx
-            self.cy = 3 * y1
-            self.by = 3 * (y2 - y1) - self.cy
-            self.ay = 1 - self.cy - self.by
-        }
-
-        func callAsFunction(_ x: Double) -> Double {
-            self.sampleY(at: self.parameter(for: min(1, max(0, x))))
-        }
-
-        private func sampleX(at t: Double) -> Double { ((self.ax * t + self.bx) * t + self.cx) * t }
-        private func sampleY(at t: Double) -> Double { ((self.ay * t + self.by) * t + self.cy) * t }
-        private func slopeX(at t: Double) -> Double { (3 * self.ax * t + 2 * self.bx) * t + self.cx }
-
-        private func parameter(for x: Double) -> Double {
-            var t = x
-            for _ in 0..<8 {
-                let error = self.sampleX(at: t) - x
-                if abs(error) < 1e-6 { return t }
-                let slope = self.slopeX(at: t)
-                if abs(slope) < 1e-6 { break }
-                t -= error / slope
-            }
-            var low = 0.0
-            var high = 1.0
-            t = x
-            while low < high {
-                let sample = self.sampleX(at: t)
-                if abs(sample - x) < 1e-6 { return t }
-                if x > sample { low = t } else { high = t }
-                let next = (high + low) / 2
-                if abs(next - t) < 1e-9 { break }
-                t = next
-            }
-            return t
-        }
-    }
 }
 
 /// The hidden replay keeps the approved reset choreography intact, then quietly returns the bar

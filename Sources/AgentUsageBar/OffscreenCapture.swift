@@ -1,3 +1,4 @@
+#if DEBUG
 import AppKit
 import SwiftUI
 
@@ -88,3 +89,5 @@ enum OffscreenCapture {
         return root
     }
 }
+
+#endif

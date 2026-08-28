@@ -344,10 +344,19 @@ final class CostCache {
         var unpricedTokens: Int
     }
 
+    /// The per-provider table. A `switch` rather than a ternary, so a third provider fails to
+    /// compile instead of being filed silently under Claude's.
+    private static func table(for provider: Provider) -> String {
+        switch provider {
+        case .codex: "codex_day"
+        case .claude: "claude_message"
+        }
+    }
+
     /// Locks pre-migration rows to the rates currently in force. New scanner writes always carry
     /// their own cost, so later override edits cannot flow backward into these rows.
     func freezeLegacyPrices(provider: Provider, overlay: PricingOverlay?) throws {
-        let table = provider == .codex ? "codex_day" : "claude_message"
+        let table = Self.table(for: provider)
         var select: OpaquePointer?
         guard sqlite3_prepare_v2(
             self.db,
@@ -406,7 +415,7 @@ final class CostCache {
 
     /// Day -> (model, tier) -> frozen usage, for days at or after `fromDay`.
     func aggregate(provider: Provider, fromDay: String) throws -> [String: [ModelTier: StoredUsage]] {
-        let table = provider == .codex ? "codex_day" : "claude_message"
+        let table = Self.table(for: provider)
         var stmt: OpaquePointer?
         defer { sqlite3_finalize(stmt) }
         guard sqlite3_prepare_v2(
@@ -450,7 +459,7 @@ final class CostCache {
 
     /// Distinct model names and token totals recorded for a provider, most-used first.
     func distinctModelUsage(provider: Provider) throws -> [(model: String, tokens: Int)] {
-        let table = provider == .codex ? "codex_day" : "claude_message"
+        let table = Self.table(for: provider)
         var stmt: OpaquePointer?
         defer { sqlite3_finalize(stmt) }
         guard sqlite3_prepare_v2(

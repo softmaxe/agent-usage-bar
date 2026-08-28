@@ -1,3 +1,4 @@
+#if DEBUG
 import AgentUsageBarCore
 import AppKit
 
@@ -60,3 +61,5 @@ enum IconRenderingVerifier {
         }
     }
 }
+
+#endif

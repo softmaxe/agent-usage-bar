@@ -1,3 +1,4 @@
+#if DEBUG
 import AgentUsageBarCore
 import AppKit
 import SwiftUI
@@ -305,3 +306,5 @@ enum CardDump {
         }
     }
 }
+
+#endif

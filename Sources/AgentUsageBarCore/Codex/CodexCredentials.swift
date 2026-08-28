@@ -50,15 +50,7 @@ public enum CodexCredentialsStore {
     public static func authFileURL(
         env: [String: String] = ProcessInfo.processInfo.environment
     ) -> URL {
-        let home: URL
-        if let codexHome = env["CODEX_HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !codexHome.isEmpty {
-            home = URL(fileURLWithPath: (codexHome as NSString).expandingTildeInPath)
-        } else {
-            home = FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent(".codex", isDirectory: true)
-        }
-        return home.appendingPathComponent("auth.json")
+        CodexHome.url(env: env).appendingPathComponent("auth.json")
     }
 
     /// Reads auth.json. CodexBar deliberately never writes it back, so neither do we:
@@ -94,12 +86,7 @@ public enum CodexCredentialsStore {
         )
     }
 
-    private static func parseDate(_ raw: String) -> Date? {
-        let withFraction = ISO8601DateFormatter()
-        withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = withFraction.date(from: raw) { return date }
-        return ISO8601DateFormatter().date(from: raw)
-    }
+    private static func parseDate(_ raw: String) -> Date? { ISO8601.parse(raw) }
 
     private struct AuthFile: Decodable {
         let tokens: Tokens?

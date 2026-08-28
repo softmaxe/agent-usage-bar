@@ -41,15 +41,12 @@ enum AgentUsageBarApp {
             return Array(arguments[(index + 1)...(index + count)])
         }
 
-        func value(after flag: String) -> String? {
-            values(after: flag, count: 1)?[0]
-        }
-
 #if DEBUG
-        // The suite and the design studies are launch flags rather than separate executables. Each
-        // entry owns the process once its flag is present, so the first match wins and the order
-        // here is the order the flags are checked in.
-        let flagged: [(flag: String, run: @MainActor () -> Never)] = [
+        // The assertion suite and the README asset dumps are launch flags rather than separate
+        // executables, so none of this exists in a release build. Each entry owns the process
+        // once its flag is present: the first match wins, and the order here is the order the
+        // flags are checked in.
+        let verifiers: [(flag: String, run: @MainActor () -> Never)] = [
             ("--verify-cost-chart-highlighting", CostChartHighlightVerifier.run),
             ("--verify-usage-bar-fill", UsageBarFillVerifier.run),
             ("--verify-icon-rendering", IconRenderingVerifier.run),
@@ -62,86 +59,41 @@ enum AgentUsageBarApp {
             ("--verify-pricing-model-filter", PricingModelFilterVerifier.run),
             ("--verify-disclosure-motion", DisclosureMotionVerifier.run),
             ("--verify-tab-switch-motion", TabSwitchMotionVerifier.run),
-            ("--demo-celebration", CelebrationDemo.run),
-            ("--demo-collapse", CollapseShiftDemo.run),
-            ("--demo-number-animation", NumberAnimationDemo.run),
-            ("--demo-bar-hover", BarHoverDemo.run),
-            ("--demo-label-toggle", LabelToggleDemo.run),
-            ("--demo-disclosure", DisclosureAnimationDemo.run),
-            ("--demo-provider-group-press", ProviderGroupPressDemo.run),
-            ("--demo-tab-switch", TabSwitchDemo.run),
-            ("--demo-pricing-links", PricingLinksDemo.run),
-            ("--demo-rate-field-focus", RateFieldFocusDemo.run),
         ]
-        if let entry = flagged.first(where: { arguments.contains($0.flag) }) {
+        if let entry = verifiers.first(where: { arguments.contains($0.flag) }) {
             entry.run()
         }
 
-        if let pair = values(after: "--dump-collapse-shift", count: 2) {
-            CollapseShiftDemo.report(variant: pair[0], state: pair[1])
+        // `Scripts/readme_assets.sh` drives these. Each writes its frames and exits.
+        let dumps: [(flag: String, run: @MainActor (String) -> Void)] = [
+            ("--dump-icons", IconDump.run),
+            ("--dump-card", CardDump.run),
+            ("--dump-settings", CardDump.dumpSettings),
+            ("--dump-tab-switch", MotionFilmStrip.dumpTabSwitch),
+            ("--dump-disclosure", MotionFilmStrip.dumpDisclosure),
+            ("--dump-chart-motion", MotionFilmStrip.dumpChartMotion),
+            ("--dump-label-toggle", MotionFilmStrip.dumpLabelToggle),
+        ]
+        for dump in dumps {
+            if let directory = values(after: dump.flag, count: 1)?[0] {
+                dump.run(directory)
+                return
+            }
         }
-        if let directory = value(after: "--dump-pricing-links") {
-            PricingLinksDemo.dumpCards(directory: directory)
-            return
-        }
-        if let directory = value(after: "--dump-number-animation") {
-            NumberAnimationDemo.dumpFrames(directory: directory)
-            return
-        }
-        if let directory = value(after: "--dump-celebration") {
-            CelebrationDemo.dumpFrames(directory: directory)
-            return
-        }
-        if let directory = value(after: "--dump-tab-switch") {
-            MotionFilmStrip.dumpTabSwitch(directory: directory)
-            return
-        }
-        if let directory = value(after: "--dump-disclosure") {
-            MotionFilmStrip.dumpDisclosure(directory: directory)
-            return
-        }
-        if let directory = value(after: "--dump-chart-motion") {
-            MotionFilmStrip.dumpChartMotion(directory: directory)
-            return
-        }
-        if let directory = value(after: "--dump-label-toggle") {
-            MotionFilmStrip.dumpLabelToggle(directory: directory)
-            return
-        }
-        if let pair = values(after: "--dump-card-celebration", count: 2) {
-            CelebrationDemo.dumpCardFrames(
-                directory: pair[0],
-                provider: Provider(rawValue: pair[1]) ?? .claude
-            )
-            return
+
+        // The same, for the dumps that render one named provider's card.
+        let providerDumps: [(flag: String, run: @MainActor (String, Provider) -> Void)] = [
+            ("--dump-card-celebration", { CelebrationDump.dumpCardFrames(directory: $0, provider: $1) }),
+            ("--dump-chart-hover", { CardDump.dumpChartHover(directory: $0, provider: $1) }),
+            ("--dump-reset-toggle", { CardDump.dumpResetToggle(directory: $0, provider: $1) }),
+        ]
+        for dump in providerDumps {
+            if let pair = values(after: dump.flag, count: 2) {
+                dump.run(pair[0], Provider(rawValue: pair[1]) ?? .claude)
+                return
+            }
         }
 #endif
-        if let directory = value(after: "--dump-icons") {
-            IconDump.run(directory: directory)
-            return
-        }
-        if let directory = value(after: "--dump-card") {
-            CardDump.run(directory: directory)
-            return
-        }
-        if let directory = value(after: "--dump-settings") {
-            CardDump.dumpSettings(directory: directory)
-            return
-        }
-        if let pair = values(after: "--dump-chart-hover", count: 2) {
-            CardDump.dumpChartHover(
-                directory: pair[0],
-                provider: Provider(rawValue: pair[1]) ?? .claude
-            )
-            return
-        }
-        if let pair = values(after: "--dump-reset-toggle", count: 2) {
-            CardDump.dumpResetToggle(
-                directory: pair[0],
-                provider: Provider(rawValue: pair[1]) ?? .claude
-            )
-            return
-        }
 
         let app = NSApplication.shared
         // Menu bar only: no Dock icon, no main window.

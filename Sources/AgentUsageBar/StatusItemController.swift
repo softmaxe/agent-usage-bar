@@ -112,25 +112,6 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
 #if DEBUG
-    func debugStatusItemState() -> (
-        exists: Bool,
-        visible: Bool,
-        attached: Bool,
-        stableIdentity: Bool,
-        provider: Provider
-    ) {
-        guard let item = self.statusItem else {
-            return (false, false, false, false, self.settings.menuBarProvider)
-        }
-        return (
-            true,
-            item.isVisible,
-            item.button?.window != nil,
-            item.autosaveName == Self.autosaveName,
-            self.settings.menuBarProvider
-        )
-    }
-
     func debugRefreshOpenCard() {
         self.refreshOpenCard()
     }
@@ -223,22 +204,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         menu.autoenablesItems = false
 
         let cardItem = NSMenuItem()
-        let hosting = NSHostingView(rootView: MenuCardView(
+        let hosting = NSHostingView(rootView: self.makeCard(
             provider: self.settings.menuBarProvider,
             display: ProviderDisplay(),
-            isRefreshing: false,
-            now: self.now(),
-            costChartLabelMode: self.settings.costChartLabelMode,
-            onCostChartLabelModeChanged: { [weak self] mode in
-                self?.settings.costChartLabelMode = mode
-            },
-            quotaResetDisplayMode: self.settings.quotaResetDisplayMode,
-            onQuotaResetDisplayModeChanged: { [weak self] mode in
-                // Both windows read the label the same way, so the click has to redraw the whole
-                // card rather than only the row it landed on.
-                self?.settings.quotaResetDisplayMode = mode
-                self?.refreshOpenCard()
-            }
+            isRefreshing: false
         ))
         hosting.frame = NSRect(x: 0, y: 0, width: Self.cardWidth, height: 200)
         cardItem.view = hosting
@@ -315,16 +284,17 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         return item
     }
 
-    private func updateCard(provider: Provider, display: ProviderDisplay) {
-        guard let hosting = self.hostingView else { return }
-        // A window can come back while the menu is already open, so this is claimed on every
-        // update rather than only when the menu is opened.
-        self.claimCelebrations(for: provider)
-        let before = Self.openMenuGeometry(hosting)
-        hosting.rootView = MenuCardView(
+    /// The card both call sites build. `makeMenu` seeds it with an empty display that the first
+    /// `updateCard` overwrites, so the two only ever differ in the data handed in.
+    private func makeCard(
+        provider: Provider,
+        display: ProviderDisplay,
+        isRefreshing: Bool? = nil
+    ) -> MenuCardView {
+        MenuCardView(
             provider: provider,
             display: display,
-            isRefreshing: self.store.isRefreshing(provider),
+            isRefreshing: isRefreshing ?? self.store.isRefreshing(provider),
             recoveries: self.recoveries[provider] ?? [:],
             celebrationTokens: self.celebrationTokens[provider] ?? [:],
             now: self.now(),
@@ -340,6 +310,15 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                 self?.refreshOpenCard()
             }
         )
+    }
+
+    private func updateCard(provider: Provider, display: ProviderDisplay) {
+        guard let hosting = self.hostingView else { return }
+        // A window can come back while the menu is already open, so this is claimed on every
+        // update rather than only when the menu is opened.
+        self.claimCelebrations(for: provider)
+        let before = Self.openMenuGeometry(hosting)
+        hosting.rootView = self.makeCard(provider: provider, display: display)
         // The card's height depends on how many windows the provider reported, so resize to fit.
         let height = hosting.fittingSize.height
         hosting.frame = NSRect(x: 0, y: 0, width: Self.cardWidth, height: height)

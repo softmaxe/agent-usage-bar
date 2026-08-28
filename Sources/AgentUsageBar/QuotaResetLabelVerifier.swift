@@ -118,9 +118,7 @@ enum QuotaResetLabelVerifier {
     }
 
     private static func require(_ condition: @autoclosure () -> Bool, _ message: String) {
-        guard condition() else {
-            VerifierReport.fail(message, label: "quota-reset-label verification")
-        }
+        VerifierReport.require(condition(), message, label: "quota-reset-label verification")
     }
 }
 #endif

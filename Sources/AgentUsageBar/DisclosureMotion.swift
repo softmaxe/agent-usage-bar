@@ -23,30 +23,17 @@ enum DisclosureMotion {
     static let providerGroupPressScale: CGFloat = 0.985
     static let providerGroupPressDuration: TimeInterval = 0.10
 
-#if DEBUG
-    /// `--demo-disclosure` slows the whole thing down, so a 35 ms stagger can be judged by eye.
-    static var timeScale: Double = 1
-#endif
-
-    private static var scale: Double {
-#if DEBUG
-        max(0.01, Self.timeScale)
-#else
-        1
-#endif
-    }
-
     static var openCurve: Animation {
-        .timingCurve(0.16, 1, 0.3, 1, duration: Self.openDuration / Self.scale)
+        .timingCurve(0.16, 1, 0.3, 1, duration: Self.openDuration)
     }
 
     static var pressCurve: Animation {
-        .spring(response: Self.pressResponse / Self.scale, dampingFraction: Self.pressDamping)
+        .spring(response: Self.pressResponse, dampingFraction: Self.pressDamping)
     }
 
     /// The provider-group header settles with a short ease-out and no overshoot.
     static var providerGroupPressCurve: Animation {
-        .easeOut(duration: Self.providerGroupPressDuration / Self.scale)
+        .easeOut(duration: Self.providerGroupPressDuration)
     }
 
     /// Seconds a row waits before it arrives, counted from the top of its group.
@@ -56,7 +43,7 @@ enum DisclosureMotion {
 
     /// The curve a row arrives on: the group's own easing, one beat later per row.
     static func rowArrival(index: Int) -> Animation {
-        Self.openCurve.delay(Self.rowDelay(index: index) / Self.scale)
+        Self.openCurve.delay(Self.rowDelay(index: index))
     }
 
     /// Nil rather than a curve under Reduce Motion, which turns every change back into a cut.

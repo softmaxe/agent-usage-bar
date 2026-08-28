@@ -59,11 +59,14 @@ public enum HistoricalUsagePace {
         let gridCount = UsageWeekProfile.gridPointCount
         let denominator = Double(gridCount - 1)
         var expectedCurve = Array(repeating: 0.0, count: gridCount)
+        // The weights do not vary across grid points, so they are built once rather than once
+        // per point.
+        let medianWeights = weighted.map(\.weight)
         for index in 0..<gridCount {
             let u = Double(index) / denominator
             let median = Self.weightedMedian(
                 values: weighted.map { $0.week.curve[index] },
-                weights: weighted.map(\.weight)
+                weights: medianWeights
             )
             let linear = 100 * u
             // Past demand can exceed what the quota sustains. Blending toward it is fine, but

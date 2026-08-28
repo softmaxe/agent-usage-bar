@@ -13,27 +13,14 @@ enum TabSwitchMotion {
     /// reads as a plain slide, too large and it reads as tearing.
     static let trailDuration: TimeInterval = 0.38
 
-#if DEBUG
-    /// `--demo-tab-switch` slows the whole thing down, so a 140 ms gap can be judged by eye.
-    static var timeScale: Double = 1
-#endif
-
-    private static var scale: Double {
-#if DEBUG
-        max(0.01, Self.timeScale)
-#else
-        1
-#endif
-    }
-
     static var lead: Animation {
         .timingCurve(Self.control1.x, Self.control1.y, Self.control2.x, Self.control2.y,
-                     duration: Self.leadDuration / Self.scale)
+                     duration: Self.leadDuration)
     }
 
     static var trail: Animation {
         .timingCurve(Self.control1.x, Self.control1.y, Self.control2.x, Self.control2.y,
-                     duration: Self.trailDuration / Self.scale)
+                     duration: Self.trailDuration)
     }
 
     /// The pricing table's opening easing, as its two control points. Named rather than inlined

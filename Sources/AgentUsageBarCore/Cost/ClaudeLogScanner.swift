@@ -99,15 +99,15 @@ enum ClaudeLogScanner {
 
         // Anthropic reports input_tokens already net of both cache buckets, so unlike Codex
         // nothing has to be peeled out of it here.
-        let cacheWrite = Self.int(usage["cache_creation_input_tokens"])
+        let cacheWrite = JSONNumber.int(usage["cache_creation_input_tokens"])
         let cacheCreation = usage["cache_creation"] as? [String: Any]
         let totals = TokenTotals(
-            input: Self.int(usage["input_tokens"]),
-            output: Self.int(usage["output_tokens"]),
+            input: JSONNumber.int(usage["input_tokens"]),
+            output: JSONNumber.int(usage["output_tokens"]),
             cacheWrite: cacheWrite,
             // The two TTLs are billed differently, and the 1h bucket dominates on long sessions.
-            cacheWrite1h: min(Self.int(cacheCreation?["ephemeral_1h_input_tokens"]), cacheWrite),
-            cacheRead: Self.int(usage["cache_read_input_tokens"])
+            cacheWrite1h: min(JSONNumber.int(cacheCreation?["ephemeral_1h_input_tokens"]), cacheWrite),
+            cacheRead: JSONNumber.int(usage["cache_read_input_tokens"])
         )
         guard totals.total > 0 else { return }
 
@@ -151,16 +151,5 @@ enum ClaudeLogScanner {
         )
     }
 
-    private static func int(_ value: Any?) -> Int {
-        if let number = value as? NSNumber { return number.intValue }
-        if let string = value as? String { return Int(string) ?? 0 }
-        return 0
-    }
-
-    static func parseTimestamp(_ raw: String) -> Date? {
-        let withFraction = ISO8601DateFormatter()
-        withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = withFraction.date(from: raw) { return date }
-        return ISO8601DateFormatter().date(from: raw)
-    }
+    static func parseTimestamp(_ raw: String) -> Date? { ISO8601.parse(raw) }
 }

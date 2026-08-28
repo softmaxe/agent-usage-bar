@@ -47,13 +47,7 @@ public actor CostService {
             try cache.freezeLegacyPrices(provider: provider, overlay: overlay)
 
             let started = Date()
-            let touched: Int
-            switch provider {
-            case .codex:
-                touched = try CodexLogScanner.scan(cache: cache, overlay: overlay, env: self.env)
-            case .claude:
-                touched = try ClaudeLogScanner.scan(cache: cache, overlay: overlay, env: self.env)
-            }
+            let touched = try self.scan(provider, cache: cache, overlay: overlay)
             let elapsed = Date().timeIntervalSince(started)
             if touched > 0 {
                 Log.ui.info(
@@ -114,12 +108,7 @@ public actor CostService {
         for provider in Provider.allCases {
             try cache.freezeLegacyPrices(provider: provider, overlay: overlay)
             do {
-                switch provider {
-                case .codex:
-                    _ = try CodexLogScanner.scan(cache: cache, overlay: overlay, env: self.env)
-                case .claude:
-                    _ = try ClaudeLogScanner.scan(cache: cache, overlay: overlay, env: self.env)
-                }
+                _ = try self.scan(provider, cache: cache, overlay: overlay)
             } catch {
                 // A provider whose logs cannot be read has nothing to freeze; the other one
                 // still has to be sealed before the new rates land.
@@ -144,4 +133,13 @@ public actor CostService {
         self.overlay = overlay
         return overlay
     }
+
+    /// Which scanner reads a provider's logs. The only place that mapping is spelled out.
+    private func scan(_ provider: Provider, cache: CostCache, overlay: PricingOverlay) throws -> Int {
+        switch provider {
+        case .codex: try CodexLogScanner.scan(cache: cache, overlay: overlay, env: self.env)
+        case .claude: try ClaudeLogScanner.scan(cache: cache, overlay: overlay, env: self.env)
+        }
+    }
+
 }

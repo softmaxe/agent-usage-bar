@@ -63,9 +63,7 @@ enum DisclosureMotionVerifier {
     }
 
     private static func require(_ condition: @autoclosure () -> Bool, _ message: String) {
-        guard condition() else {
-            VerifierReport.fail(message, label: "disclosure-motion verification")
-        }
+        VerifierReport.require(condition(), message, label: "disclosure-motion verification")
     }
 }
 #endif

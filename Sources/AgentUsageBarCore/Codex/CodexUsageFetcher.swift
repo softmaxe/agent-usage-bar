@@ -209,14 +209,7 @@ public enum CodexUsageFetcher {
     }
 
     private static func configContents(env: [String: String]) -> String? {
-        let root: URL
-        if let codexHome = env["CODEX_HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !codexHome.isEmpty {
-            root = URL(fileURLWithPath: (codexHome as NSString).expandingTildeInPath)
-        } else {
-            root = FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent(".codex", isDirectory: true)
-        }
+        let root = CodexHome.url(env: env)
         return try? String(contentsOf: root.appendingPathComponent("config.toml"), encoding: .utf8)
     }
 }

@@ -1,3 +1,4 @@
+#if DEBUG
 import Foundation
 
 /// Command Line Tools ship no XCTest, so the suite is a set of launch flags and every `--verify-*`
@@ -23,9 +24,16 @@ enum VerifierReport {
         exit(1)
     }
 
+    /// Fails the run unless `condition` holds, for a verifier that checks one thing at a time.
+    static func require(_ condition: @autoclosure () -> Bool, _ message: String, label: String) {
+        guard condition() else { Self.fail(message, label: label) }
+    }
+
     /// Writes one failure line without ending the process, for a verifier with cleanup of its own
     /// to do first — `exit()` terminates without unwinding the stack, so `defer` never runs.
     static func report(_ message: String, label: String) {
         fputs("\(label) failed: \(message)\n", stderr)
     }
 }
+
+#endif
