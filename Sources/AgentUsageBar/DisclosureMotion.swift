@@ -19,6 +19,9 @@ enum DisclosureMotion {
     /// Past this many rows the stagger stops growing. A 14-model group would otherwise still be
     /// arriving half a second after the click, and the rows that late are below the fold anyway.
     static let maxStaggeredRows = 6
+    /// The provider-group header acknowledges a press without moving the table's contents.
+    static let providerGroupPressScale: CGFloat = 0.985
+    static let providerGroupPressDuration: TimeInterval = 0.10
 
 #if DEBUG
     /// `--demo-disclosure` slows the whole thing down, so a 35 ms stagger can be judged by eye.
@@ -39,6 +42,11 @@ enum DisclosureMotion {
 
     static var pressCurve: Animation {
         .spring(response: Self.pressResponse / Self.scale, dampingFraction: Self.pressDamping)
+    }
+
+    /// The provider-group header settles with a short ease-out and no overshoot.
+    static var providerGroupPressCurve: Animation {
+        .easeOut(duration: Self.providerGroupPressDuration / Self.scale)
     }
 
     /// Seconds a row waits before it arrives, counted from the top of its group.
@@ -84,6 +92,25 @@ struct DisclosurePressStyle: ButtonStyle {
             .scaleEffect(!self.reduceMotion && configuration.isPressed ? 0.86 : 1)
             .animation(
                 self.reduceMotion ? nil : DisclosureMotion.pressCurve,
+                value: configuration.isPressed
+            )
+    }
+}
+
+/// A restrained press for provider-group headers. Unlike the model-row disclosure, it does not
+/// use the spring that can overshoot.
+struct ProviderGroupHeaderPressStyle: ButtonStyle {
+    var reduceMotion = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(
+                !self.reduceMotion && configuration.isPressed
+                    ? DisclosureMotion.providerGroupPressScale
+                    : 1
+            )
+            .animation(
+                self.reduceMotion ? nil : DisclosureMotion.providerGroupPressCurve,
                 value: configuration.isPressed
             )
     }

@@ -68,6 +68,7 @@ enum AgentUsageBarApp {
             ("--demo-bar-hover", BarHoverDemo.run),
             ("--demo-label-toggle", LabelToggleDemo.run),
             ("--demo-disclosure", DisclosureAnimationDemo.run),
+            ("--demo-provider-group-press", ProviderGroupPressDemo.run),
             ("--demo-tab-switch", TabSwitchDemo.run),
             ("--demo-pricing-links", PricingLinksDemo.run),
         ]
