@@ -44,6 +44,24 @@ enum CostTests {
         )
         Harness.expectEqual(cacheCost, 6.75, "opus-5 cache cost for 1M write + 1M read")
 
+        let codexMini = CostPricing.pricing(for: "codex-mini-latest", provider: .codex)
+        Harness.expectClose(codexMini?.input, 1.5, "codex-mini-latest input rate")
+        Harness.expectClose(codexMini?.output, 6, "codex-mini-latest output rate")
+        Harness.expectClose(codexMini?.cacheRead, 0.375, "codex-mini-latest cached input rate")
+        Harness.expect(codexMini?.cacheWrite == nil, "codex-mini-latest has no separate cache-write rate")
+        Harness.expect(codexMini?.thresholdTokens == nil, "codex-mini-latest has no long-context tier")
+
+        let haiku = CostPricing.pricing(for: "claude-3-5-haiku-20241022", provider: .claude)
+        Harness.expectClose(haiku?.input, 0.8, "claude-3-5-haiku input rate")
+        Harness.expectClose(haiku?.output, 4, "claude-3-5-haiku output rate")
+        Harness.expectClose(haiku?.cacheWrite, 1, "claude-3-5-haiku five-minute cache-write rate")
+        Harness.expectClose(haiku?.cacheRead, 0.08, "claude-3-5-haiku cache-read rate")
+        Harness.expectClose(
+            haiku?.cacheWrite1hRate(longContext: false),
+            1.6,
+            "claude-3-5-haiku one-hour cache-write rate is derived"
+        )
+
         // An unknown model must return nil rather than silently costing zero.
         Harness.expect(
             CostPricing.cost(
@@ -68,6 +86,16 @@ enum CostTests {
             "bedrock prefix and version suffix stripped"
         )
         Harness.expectEqual(
+            CostPricing.normalizeClaudeModel("anthropic.claude-3-5-haiku-20241022-v1:0"),
+            "claude-3-5-haiku",
+            "Haiku 3.5 Bedrock id normalized"
+        )
+        Harness.expectEqual(
+            CostPricing.normalizeClaudeModel("claude-3-5-haiku@20241022"),
+            "claude-3-5-haiku",
+            "Haiku 3.5 Vertex id normalized"
+        )
+        Harness.expectEqual(
             CostPricing.normalizeCodexModel("openai/gpt-5.1-2026-01-01"),
             "gpt-5.1",
             "codex vendor prefix and dated suffix stripped"
@@ -76,7 +104,7 @@ enum CostTests {
     }
 
     private static func longContextTiering() {
-        // gpt-5.6-sol charges double above 270k tokens in one request.
+        // The gpt-5.6 family charges its long-context rates only above 272k tokens in one request.
         let below = TokenTotals(input: 100_000)
         let above = TokenTotals(input: 300_000)
         Harness.expect(
@@ -87,6 +115,24 @@ enum CostTests {
             CostPricing.isLongContext(totals: above, model: "gpt-5.6-sol", provider: .codex),
             "300k tokens crosses into the long-context tier"
         )
+        for model in ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"] {
+            Harness.expect(
+                !CostPricing.isLongContext(
+                    totals: TokenTotals(input: 272_000),
+                    model: model,
+                    provider: .codex
+                ),
+                "\(model) stays at the base tier at exactly 272k tokens"
+            )
+            Harness.expect(
+                CostPricing.isLongContext(
+                    totals: TokenTotals(input: 272_001),
+                    model: model,
+                    provider: .codex
+                ),
+                "\(model) crosses into the long-context tier above 272k tokens"
+            )
+        }
         let baseCost = CostPricing.cost(
             totals: TokenTotals(input: 1_000_000),
             model: "gpt-5.6-sol",
@@ -287,7 +333,7 @@ enum CostTests {
         )
 
         let codex = await service.refresh(.codex)
-        // 200k input tokens stays under sol's 270k long-context threshold, so the base rate
+        // 200k input tokens stays under sol's 272k long-context threshold, so the base rate
         // applies: 200k at $4/M for sol plus 200k at $0.20/M for luna.
         Harness.expectEqual(codex?.windowTokens, 400_000, "codex tokens scanned")
         Harness.expectClose(codex?.windowCostUSD, 0.84, "codex cost across two models")

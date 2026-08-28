@@ -80,14 +80,16 @@ enum PricingSortVerifier {
             Self.row("claude-opus-5", usageTokens: 900, input: "15", output: "75", cacheRead: "1.5"),
             Self.row("claude-sonnet-5", usageTokens: 20, input: "3", output: "15", cacheRead: "0.3"),
             Self.row("claude-haiku-4-5", usageTokens: 500, input: "1", output: "5", cacheRead: "0.1"),
+            Self.row("claude-3-5-haiku", usageTokens: 700, input: "0.8", output: "4", cacheRead: "0.08"),
             Self.row("gpt-5.6-sol", usageTokens: 10, input: "5", output: "25", cacheRead: "0.5", group: .codex),
             Self.row("gpt-5.6-terra", usageTokens: 900, input: "3", output: "15", cacheRead: "0.3", group: .codex),
             Self.row("gpt-5.6-luna", usageTokens: 20, input: "1", output: "5", cacheRead: "0.1", group: .codex),
+            Self.row("codex-mini-latest", usageTokens: 700, input: "1.5", output: "6", cacheRead: "0.375", group: .codex),
             Self.row("other-heavy", usageTokens: 900, input: "", output: "", cacheRead: "", group: .others),
             Self.row("other-light", usageTokens: 10, input: "", output: "", cacheRead: "", group: .others),
         ])
-        let expectedClaude = ["claude-fable-5", "claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"]
-        let expectedCodex = ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]
+        let expectedClaude = ["claude-fable-5", "claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5", "claude-3-5-haiku"]
+        let expectedCodex = ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "codex-mini-latest"]
         let expectedOthers = ["other-heavy", "other-light"]
         if whitelistModel.rows(in: .claude).map(\.model) != expectedClaude {
             failures.append("default Claude order changed with usage: \(whitelistModel.rows(in: .claude).map(\.model))")
