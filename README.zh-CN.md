@@ -74,13 +74,22 @@
 
 **成本图表**会把高亮那根柱子抬高 5pt，并展开它当天的按模型明细。在柱子之间移动是在追指针，
 走的是快速弹簧；回到今天不是用户瞄准的动作，所以更长、用临界阻尼，高亮是落到今天而不是弹到
-今天。点标签可以在 token 数和金额之间切换单位。
+今天。
 
 <img src="docs/images/chart-motion.gif" width="440" alt="图表高亮在柱子之间移动并落回今天">
 
 悬停某一根柱子会展开那天到底是由什么构成的：
 
 <img src="docs/images/chart-hover.gif" width="500" alt="每根柱子对应的按模型明细">
+
+点高亮的那根柱子，标签就在 token 数和金额之间换：
+
+<img src="docs/images/label-toggle.gif" width="440" alt="高亮柱子的标签从 37M 糊开、又在原地析出 $37">
+
+这一下点在指针本来就停着的柱子上，所以这次切换没有距离要走，也不移动：旧读数在 260ms 里糊开，
+新读数在原地从模糊中析出。这正是在说这两个读数是同一个量的两种数法。把一个数推开、让另一个滑
+进来，说的会是「标签被换掉了」。默认单位是 token，选择会被记住；点在两根柱子中间的缝里不会有
+任何反应。
 
 **指针**也会动。Codex 卡片比 Claude 卡片高，而菜单只能向下长，所以切换供应商时下面每一行都会
 从没动过的指针底下滑走。指针会跟着位移同样的距离，继续指着原来那一行。
@@ -94,8 +103,15 @@
 `9% in reserve` 表示你用得比时钟慢；红色的节奏标记表示你用得更快。等到有三个可比的窗口跑完之后，
 周额度那一行就不再跟时钟比，而是跟你自己记录下来的历史周比。
 
-点任意一个 **`Resets in …`** 标签，倒计时会换成实际的重置时刻：当天显示 `Resets 3:30 PM`，更远
-的显示 `Resets Sat 9:00 AM`。两个窗口的读法一致，选择会被记住。
+点任意一个 **`Resets in …`** 标签，倒计时会换成它正在倒数的那个时刻：当天显示 `Resets 3:30 PM`，
+更远的显示 `Resets Sat 9:00 AM`。
+
+<img src="docs/images/reset-toggle.gif" width="500" alt="点击 Session 行的重置标签，两个窗口一起在倒计时和时刻之间切换">
+
+指针移上去时标签会变亮。卡片上除了图表，没有别的东西会对指针有反应，所以这一点提亮就是「这行
+是个开关」的全部提示。一次点击会同时改掉两个窗口，因为这个选择属于卡片，不属于你点的那一行；
+重启之后也还在。哪一面更有用，一天之内是会变的：倒计时回答「还能撑多久」，时刻回答「赶在它重置
+之前做完来得及吗」。
 
 菜单里有 `Switch provider`、`Refresh`、`Settings`（⌘,）和 `Quit`（⌘Q）。Refresh 受一分钟冷却
 约束，冷却期间它会在行上把剩余秒数数出来，而不是默默吞掉你的点击。打开菜单会立刻请求刷新当前
@@ -214,14 +230,16 @@ make demo-collapse      # 有无预留滚动条槽位时，价格分组折叠的
 ```
 
 `make readme-assets` 背后的各个 dump 也是同一个二进制上的参数：`--dump-card`、`--dump-icons`、
-`--dump-settings`、`--dump-card-celebration`、`--dump-chart-hover`、`--dump-tab-switch`、
-`--dump-disclosure`、`--dump-chart-motion`，每个都接一个输出目录。
+`--dump-settings`、`--dump-card-celebration`、`--dump-chart-hover`、`--dump-reset-toggle`、
+`--dump-tab-switch`、`--dump-disclosure`、`--dump-chart-motion`、`--dump-label-toggle`，每个都
+接一个输出目录。
 
 上面所有图片都是生成的，不是截屏。静态图是拿固定假数据对线上视图做的离屏渲染，价格面板也是：
-它用的是编好的模型用量和内置费率表，不读运行它的这台机器。`quota-reset.gif` 和 `chart-hover.gif`
-是线上视图的逐帧导出。另外三张来自 `MotionFilmStrip`，它用的是替身布局，因为一个由两条 SwiftUI
-state 边驱动的胶囊没法从外面问它「140ms 时长什么样」；但这三张里的时长、曲线、弹簧和错拍参数，
-读的都是真实控件所用的同一组常量。
+它用的是编好的模型用量和内置费率表，不读运行它的这台机器。`quota-reset.gif`、`chart-hover.gif`
+和 `reset-toggle.gif` 是线上视图的逐帧导出；只有 `reset-toggle.gif` 的 dump 多加了一样东西：它把
+标签画成悬停状态，因为离屏渲染没有指针可以悬停。另外四张来自 `MotionFilmStrip`，它用的是替身布局，因为
+一个由两条 SwiftUI state 边驱动的胶囊没法从外面问它「140ms 时长什么样」；但这四张里的时长、曲线、
+弹簧和错拍参数，读的都是真实控件所用的同一组常量。
 
 `make probe` 会打印账号和用量元数据。贴到别处之前先看一眼。
 

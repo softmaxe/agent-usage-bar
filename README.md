@@ -87,13 +87,23 @@ overshoots its own height pushes every row below it, which reads as a bug rather
 **The cost chart** lifts the highlighted bar 5pt and opens its per-model breakdown. A move between
 bars is chasing the pointer, so it rides a fast spring; the trip home to today is not a move anyone
 aimed at anything, so it is longer and critically damped, and the highlight settles onto today
-instead of springing onto it. Click the label to swap its unit between tokens and cost.
+instead of springing onto it.
 
 <img src="docs/images/chart-motion.gif" width="440" alt="The chart highlight moving between bars and settling back onto today">
 
 Hovering a bar opens what that day was actually made of:
 
 <img src="docs/images/chart-hover.gif" width="500" alt="Each bar's per-model breakdown">
+
+Clicking the highlighted bar swaps its label between tokens and cost:
+
+<img src="docs/images/label-toggle.gif" width="440" alt="The highlighted bar's label blurring out of 37M and resolving into $37">
+
+The click lands on a bar the pointer is already on, so the swap has no distance to cover and does
+not move: the old reading blurs out over 260ms and the new one resolves out of the blur in its
+place. That is what says the two readings are one quantity counted twice. Sliding one number aside
+for the other would say the label had been replaced. Tokens is the starting unit, the choice is
+remembered, and a click that lands in the gap between two bars does nothing.
 
 **The pointer** moves too. The Codex card is taller than the Claude card, and a menu can only grow
 downwards, so a provider switch slides every row out from under a pointer that never moved. The
@@ -109,8 +119,16 @@ spending it evenly against the clock. "9% in reserve" means you are under; a red
 you are over. Once three comparable windows have completed, the weekly line stops measuring against
 the clock and measures against your own recorded weeks instead.
 
-Click any **`Resets in …`** label to swap the countdown for the wall-clock time: `Resets 3:30 PM`
-today, `Resets Sat 9:00 AM` further out. Both windows read the same way and the choice is remembered.
+Click any **`Resets in …`** label to swap the countdown for the wall-clock time it is counting down
+to: `Resets 3:30 PM` today, `Resets Sat 9:00 AM` further out.
+
+<img src="docs/images/reset-toggle.gif" width="500" alt="Clicking the session reset label swaps both windows between a countdown and a clock time">
+
+The label brightens under the pointer. Nothing else on the card outside the chart reacts to the
+pointer at all, so that lift is the whole of what says the line is a switch. One click changes both
+windows, because the face belongs to the card rather than to the row you happened to click, and the
+choice survives a relaunch. Which face is useful changes during the day: a countdown answers "how
+much longer", a clock time answers "can I finish this before it goes".
 
 The menu carries `Switch provider`, `Refresh`, `Settings` (⌘,) and `Quit` (⌘Q). Refresh is subject
 to a one-minute cooldown and counts it down on the row rather than dropping your click without a
@@ -241,16 +259,19 @@ make demo-collapse      # Folding the pricing groups with and without a scroller
 ```
 
 The dumps behind `make readme-assets` are flags on the same binary: `--dump-card`, `--dump-icons`,
-`--dump-settings`, `--dump-card-celebration`, `--dump-chart-hover`, `--dump-tab-switch`,
-`--dump-disclosure` and `--dump-chart-motion`, each taking an output directory.
+`--dump-settings`, `--dump-card-celebration`, `--dump-chart-hover`, `--dump-reset-toggle`,
+`--dump-tab-switch`, `--dump-disclosure`, `--dump-chart-motion` and `--dump-label-toggle`, each
+taking an output directory.
 
 Every image above is generated, not captured. The screenshots are offscreen renders of the shipped
 views against fixture data, including the pricing pane, which takes made-up model totals and the
-built-in rate table rather than reading the machine it runs on. `quota-reset.gif` and
-`chart-hover.gif` are frame dumps of the shipped views. The other three come from
-`MotionFilmStrip`, which poses stand-in layouts because a pill driven by two SwiftUI state edges
-cannot be asked what it looks like 140ms in; the durations, curves, springs and staggers in those
-three are read from the same constants the real controls animate on.
+built-in rate table rather than reading the machine it runs on. `quota-reset.gif`,
+`chart-hover.gif` and `reset-toggle.gif` are frame dumps of the shipped views. `reset-toggle.gif`
+is the only one where a dump adds anything: it draws the label hovered, because an offscreen render
+has no pointer to hover with. The other four come from `MotionFilmStrip`, which poses stand-in layouts
+because a pill driven by two SwiftUI state edges cannot be asked what it looks like 140ms in; the
+durations, curves, springs and staggers in those four are read from the same constants the real
+controls animate on.
 
 `make probe` prints account and usage metadata. Read it before pasting it anywhere.
 
