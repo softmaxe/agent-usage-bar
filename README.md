@@ -1,6 +1,10 @@
 # AgentUsageBar
 
 <p align="center">
+  <img src="Resources/AppIcon.png" width="128" alt="AgentUsageBar app logo">
+</p>
+
+<p align="center">
   <a href="README.md"><img src="https://img.shields.io/badge/README-English-1f6feb?style=for-the-badge" alt="English"></a>
   <a href="README.zh-CN.md"><img src="https://img.shields.io/badge/README-%E7%AE%80%E4%BD%93%E4%B8%AD%E6%96%87-30363d?style=for-the-badge" alt="简体中文"></a>
 </p>
