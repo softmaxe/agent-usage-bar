@@ -11,11 +11,15 @@ enum CardDump {
     static func dumpSettings(directory: String) {
         let root = OffscreenCapture.directory(directory)
 
-        // A throwaway defaults domain keeps the dump from touching real preferences.
+        // A throwaway defaults domain keeps the dump from touching real preferences, and the
+        // fixtures keep the machine's own logs and saved rates out of the render.
         let defaults = UserDefaults(suiteName: "AgentUsageBarSettingsDump") ?? .standard
         defaults.removePersistentDomain(forName: "AgentUsageBarSettingsDump")
         let settings = SettingsStore(defaults: defaults)
-        let pricing = PricingEditorModel(costService: CostService())
+        let pricing = PricingEditorModel(
+            costService: CostService(databaseURL: root.appendingPathComponent("unused.sqlite")),
+            fixtures: Self.pricingFixtures
+        )
 
         Self.captureSettings(
             AnyView(SettingsView(settings: settings, pricing: pricing)),
@@ -27,7 +31,11 @@ enum CardDump {
         // the pane appears, and the first capture never selects that tab, so load them here.
         let loading = Task {
             await pricing.load()
-            if let row = pricing.rows.first { pricing.expandedRowIDs = [row.id] }
+            // The first row the table draws is the first API model, not the busiest one, so pick
+            // the busiest explicitly: an unfolded row with real numbers above it reads better
+            // than one captioned "Not used locally".
+            let row = pricing.rows.max { $0.usageTokens < $1.usageTokens } ?? pricing.rows.first
+            if let row { pricing.expandedRowIDs = [row.id] }
         }
         RunLoop.current.run(until: Date().addingTimeInterval(3))
         _ = loading
@@ -63,45 +71,95 @@ enum CardDump {
         }
     }
 
+    /// Made-up token totals and the built-in rate table, so the pricing pane renders the same
+    /// on any machine and carries nobody's account in it.
+    private static let pricingFixtures = PricingEditorModel.PreviewFixtures(
+        usage: [
+            .claude: [
+                ModelUsageTotal(model: "claude-opus-5", tokens: 412_000_000),
+                ModelUsageTotal(model: "claude-sonnet-5", tokens: 168_000_000),
+                ModelUsageTotal(model: "claude-fable-5", tokens: 38_400_000),
+                ModelUsageTotal(model: "claude-haiku-4-5", tokens: 24_600_000),
+            ],
+            .codex: [
+                ModelUsageTotal(model: "gpt-5.6-sol", tokens: 236_000_000),
+                ModelUsageTotal(model: "gpt-5.6-terra", tokens: 91_000_000),
+                ModelUsageTotal(model: "gpt-5.6-luna", tokens: 12_400_000),
+            ],
+        ],
+        overlay: PricingOverlay()
+    )
+
+    /// `--dump-chart-hover <dir> <provider>` walks the highlight across every bar of the cost
+    /// chart, one PNG per day. The frames carry the breakdown each bar opens, not the spring that
+    /// carries the highlight between them — a still cannot hold a spring.
+    static func dumpChartHover(directory: String, provider: Provider) {
+        let root = OffscreenCapture.directory(directory)
+        let cost = Self.sampleCost(provider)
+        guard let today = cost.days.last else { return }
+
+        for (index, day) in cost.days.enumerated() {
+            let hosting = NSHostingView(rootView: CostSectionView(
+                provider: provider,
+                snapshot: cost,
+                previewHoveredDayKey: day.dayKey,
+                previewTodayDayKey: today.dayKey
+            ).padding(14).frame(width: 280))
+            hosting.frame = NSRect(origin: .zero, size: hosting.fittingSize)
+            _ = OffscreenCapture.writePNG(hosting, named: String(format: "frame-%04d", index), into: root)
+        }
+        print("wrote \(cost.days.count) chart hover frames to \(root.path)")
+    }
+
+    /// The synthetic day-by-day history every card dump draws from. A realistic day mixes models,
+    /// which is what the hover breakdown is for. The run ends on today, because the chart marks
+    /// today from the clock rather than from the snapshot — a fixture stuck in a fixed week draws
+    /// an extra empty bar next to it.
+    private static func sampleCost(_ provider: Provider) -> CostSnapshot {
+        let now = Date().addingTimeInterval(-5 * 60)
+        let (values, top) = provider == .codex
+            ? ([18.0, 22, 12, 20, 24, 176], "gpt-5.6-sol")
+            : ([62.0, 90, 48, 71, 9, 88, 41, 37], "claude-opus-5")
+        let mix = provider == .codex
+            ? [(top, 0.72), ("gpt-5.6-terra", 0.2), ("gpt-5.6-luna", 0.08)]
+            : [(top, 0.8), ("claude-sonnet-5", 0.15), ("claude-haiku-4-5", 0.05)]
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let days = values.enumerated().map { index, value in
+            let date = calendar.date(byAdding: .day, value: index - (values.count - 1), to: today) ?? today
+            return CostDay(
+                dayKey: Formatters.dayKey(for: date),
+                byModel: Dictionary(uniqueKeysWithValues: mix.map { model, share in
+                    (model, ModelDayUsage(
+                        tokens: TokenTotals(input: Int(value * share * 1_000_000)),
+                        costUSD: value * share
+                    ))
+                }),
+                costUSD: value,
+                unpricedTokens: 0
+            )
+        }
+        return CostSnapshot(
+            provider: provider,
+            days: days,
+            todayCostUSD: values.last ?? 0,
+            windowCostUSD: values.reduce(0, +),
+            latestTokens: 67_000_000,
+            windowTokens: 637_000_000,
+            topModel: top,
+            hasUnpricedTokens: false,
+            scannedAt: now
+        )
+    }
+
     static func run(directory: String) {
         let root = OffscreenCapture.directory(directory)
 
         let now = Date().addingTimeInterval(-5 * 60)
 
-        func sampleCost(_ provider: Provider, peak: Double, values: [Double], top: String) -> CostSnapshot {
-            // A realistic day mixes models, which is what the hover breakdown is for.
-            let mix = provider == .codex
-                ? [(top, 0.72), ("gpt-5.6-terra", 0.2), ("gpt-5.6-luna", 0.08)]
-                : [(top, 0.8), ("claude-sonnet-5", 0.15), ("claude-haiku-4-5", 0.05)]
-            let days = values.enumerated().map { index, value in
-                CostDay(
-                    dayKey: String(format: "2026-08-%02d", 17 + index),
-                    byModel: Dictionary(uniqueKeysWithValues: mix.map { model, share in
-                        (model, ModelDayUsage(
-                            tokens: TokenTotals(input: Int(value * share * 1_000_000)),
-                            costUSD: value * share
-                        ))
-                    }),
-                    costUSD: value,
-                    unpricedTokens: 0
-                )
-            }
-            return CostSnapshot(
-                provider: provider,
-                days: days,
-                todayCostUSD: 0,
-                windowCostUSD: values.reduce(0, +),
-                latestTokens: 67_000_000,
-                windowTokens: 637_000_000,
-                topModel: top,
-                hasUnpricedTokens: false,
-                scannedAt: now
-            )
-        }
-
         let costs: [Provider: CostSnapshot] = [
-            .claude: sampleCost(.claude, peak: 90, values: [62, 90, 48, 71, 9, 88, 41, 37], top: "claude-opus-5"),
-            .codex: sampleCost(.codex, peak: 176, values: [18, 22, 12, 20, 24, 176], top: "gpt-5.6-sol"),
+            .claude: Self.sampleCost(.claude),
+            .codex: Self.sampleCost(.codex),
         ]
 
         let cases: [(String, Provider, UsageSnapshot?)] = [

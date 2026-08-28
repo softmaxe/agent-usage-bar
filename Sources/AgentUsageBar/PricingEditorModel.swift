@@ -125,8 +125,19 @@ final class PricingEditorModel: ObservableObject {
     /// Called after a successful save so the cards can re-price without waiting for a poll.
     var onSaved: (() -> Void)?
 
-    init(costService: CostService) {
+    /// Stands in for the two things `load()` reads off the machine it is running on: the local
+    /// scan cache and the price layers on disk. Only `--dump-settings` passes one, so the pane
+    /// it renders shows made-up models at the built-in rates rather than whoever ran it.
+    struct PreviewFixtures {
+        let usage: [Provider: [ModelUsageTotal]]
+        let overlay: PricingOverlay
+    }
+
+    private let fixtures: PreviewFixtures?
+
+    init(costService: CostService, fixtures: PreviewFixtures? = nil) {
         self.costService = costService
+        self.fixtures = fixtures
     }
 
     /// Fills the table from disk and only then goes looking for a newer models.dev catalog.
@@ -138,6 +149,11 @@ final class PricingEditorModel: ObservableObject {
     func load() async {
         // Reopening the pane must not throw away rates the user is part-way through typing.
         guard !self.hasUnsavedChanges else { return }
+
+        if let fixtures = self.fixtures {
+            await self.rebuild(overlay: fixtures.overlay)
+            return
+        }
 
         await self.rebuild(overlay: PricingOverlayStore.loadFromDisk())
 
@@ -161,16 +177,21 @@ final class PricingEditorModel: ObservableObject {
         // Read on a connection of its own rather than through the service's actor, which a log
         // scan can hold for seconds at a time.
         let databaseURL = self.costService.databaseURL
-        let usageByProvider = await Task.detached {
-            var usage: [Provider: [ModelUsageTotal]] = [:]
-            for provider in Provider.allCases {
-                usage[provider] = CostUsageReader.knownModelUsage(
-                    provider: provider,
-                    databaseURL: databaseURL
-                )
-            }
-            return usage
-        }.value
+        let usageByProvider: [Provider: [ModelUsageTotal]]
+        if let fixtures = self.fixtures {
+            usageByProvider = fixtures.usage
+        } else {
+            usageByProvider = await Task.detached {
+                var usage: [Provider: [ModelUsageTotal]] = [:]
+                for provider in Provider.allCases {
+                    usage[provider] = CostUsageReader.knownModelUsage(
+                        provider: provider,
+                        databaseURL: databaseURL
+                    )
+                }
+                return usage
+            }.value
+        }
 
         var built: [PricingRow] = []
         var defaults: [String: ModelPricing] = [:]

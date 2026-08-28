@@ -22,7 +22,7 @@ VERIFIERS := \
 	disclosure-motion \
 	tab-switch-motion
 
-.PHONY: build run probe probe-cost logs kill test app demo demo-number demo-bar-hover demo-label-toggle demo-collapse demo-disclosure demo-pricing-links demo-tab-switch clean
+.PHONY: build run probe probe-cost logs kill test app readme-assets demo demo-number demo-bar-hover demo-label-toggle demo-collapse demo-disclosure demo-pricing-links demo-tab-switch clean
 
 build:
 	swift build -c $(CONFIG)
@@ -80,6 +80,10 @@ demo-pricing-links:
 ## Compare the candidate treatments for switching the settings window's tabs.
 demo-tab-switch:
 	$(DEMO) --demo-tab-switch
+
+## Re-render every image the README links to. Needs ffmpeg.
+readme-assets:
+	Scripts/readme_assets.sh
 
 ## Assemble a double-clickable AgentUsageBar.app under build/.
 app:
