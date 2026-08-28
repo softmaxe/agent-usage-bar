@@ -111,6 +111,84 @@ enum CardDump {
         print("wrote \(cost.days.count) chart hover frames to \(root.path)")
     }
 
+    /// `--dump-reset-toggle <dir> <provider>` plays the reset label as the switch it is: the
+    /// pointer arrives on the session line, one click trades the countdown for the clock time it
+    /// was counting down to, a second click trades it back. Both windows change together, because
+    /// the choice belongs to the card rather than to the row that was clicked.
+    ///
+    /// The swap is a cut in the app too, so the frames hold each face instead of crossing between
+    /// them. What the dump has to supply is the hover: off screen there is no pointer, and the
+    /// lift on the label is the only thing that says where the click goes.
+    static func dumpResetToggle(directory: String, provider: Provider) {
+        let root = OffscreenCapture.directory(directory)
+        let display = ProviderDisplay(
+            snapshot: Self.loadedSnapshot(provider),
+            cost: Self.sampleCost(provider)
+        )
+        // Nothing moves inside a beat, so the frames are held rather than sampled, and the beat
+        // is counted in frames rather than in seconds. The export plays them back at ten a
+        // second, which is a whole number of GIF delay units, so a count here is tenths.
+        let beats: [(mode: QuotaResetDisplayMode, hovered: Bool, frames: Int)] = [
+            (.countdown, false, 9),
+            (.countdown, true, 4),
+            (.clock, true, 15),
+            (.countdown, true, 11),
+            (.countdown, false, 5),
+        ]
+
+        var index = 0
+        for beat in beats {
+            let view = MenuCardView(
+                provider: provider,
+                display: display,
+                isRefreshing: false,
+                animatesFill: false,
+                quotaResetDisplayMode: beat.mode,
+                hoveredResetLabelWindow: beat.hovered ? .session : nil
+            )
+            let hosting = NSHostingView(rootView: view)
+            hosting.frame = NSRect(origin: .zero, size: hosting.fittingSize)
+            // The card is laid out once per beat and captured once per frame it is held for.
+            for _ in 0..<beat.frames {
+                _ = OffscreenCapture.writePNG(
+                    hosting,
+                    named: String(format: "frame-%04d", index),
+                    into: root
+                )
+                index += 1
+            }
+        }
+        print("wrote \(index) reset toggle frames to \(root.path)")
+    }
+
+    /// The loaded card each provider is drawn from, shared with the reset toggle dump so both
+    /// carry the same account.
+    private static func loadedSnapshot(_ provider: Provider) -> UsageSnapshot {
+        let now = Date().addingTimeInterval(-5 * 60)
+        switch provider {
+        case .codex:
+            return UsageSnapshot(
+                provider: .codex,
+                session: UsageWindow(usedPercent: 12, resetsAt: Date().addingTimeInterval(3 * 3600), windowSeconds: 18_000),
+                // Two days into the week with 14% gone is a reserve; the tip renders green.
+                weekly: UsageWindow(usedPercent: 14, resetsAt: Date().addingTimeInterval(5 * 86_400), windowSeconds: 604_800),
+                planLabel: "Plus",
+                credits: CreditsSnapshot(hasCredits: true, unlimited: false, balance: 640),
+                fetchedAt: now
+            )
+        case .claude:
+            return UsageSnapshot(
+                provider: .claude,
+                // Most of the session window spent with a third of it left: a deficit, tip in red.
+                session: UsageWindow(usedPercent: 71, resetsAt: Date().addingTimeInterval(1 * 3600), windowSeconds: nil),
+                weekly: UsageWindow(usedPercent: 55, resetsAt: Date().addingTimeInterval(2 * 86_400), windowSeconds: nil),
+                planLabel: "Pro",
+                credits: nil,
+                fetchedAt: now
+            )
+        }
+    }
+
     /// The synthetic day-by-day history every card dump draws from. A realistic day mixes models,
     /// which is what the hover breakdown is for. The run ends on today, because the chart marks
     /// today from the clock rather than from the snapshot — a fixture stuck in a fixed week draws
@@ -163,24 +241,8 @@ enum CardDump {
         ]
 
         let cases: [(String, Provider, UsageSnapshot?)] = [
-            ("codex-loaded", .codex, (UsageSnapshot(
-                provider: .codex,
-                session: UsageWindow(usedPercent: 12, resetsAt: Date().addingTimeInterval(3 * 3600), windowSeconds: 18_000),
-                // Two days into the week with 14% gone is a reserve; the tip renders green.
-                weekly: UsageWindow(usedPercent: 14, resetsAt: Date().addingTimeInterval(5 * 86_400), windowSeconds: 604_800),
-                planLabel: "Plus",
-                credits: CreditsSnapshot(hasCredits: true, unlimited: false, balance: 640),
-                fetchedAt: now
-            ))),
-            ("claude-loaded", .claude, (UsageSnapshot(
-                provider: .claude,
-                // Most of the session window spent with a third of it left: a deficit, tip in red.
-                session: UsageWindow(usedPercent: 71, resetsAt: Date().addingTimeInterval(1 * 3600), windowSeconds: nil),
-                weekly: UsageWindow(usedPercent: 55, resetsAt: Date().addingTimeInterval(2 * 86_400), windowSeconds: nil),
-                planLabel: "Pro",
-                credits: nil,
-                fetchedAt: now
-            ))),
+            ("codex-loaded", .codex, Self.loadedSnapshot(.codex)),
+            ("claude-loaded", .claude, Self.loadedSnapshot(.claude)),
             // A rate-limited refresh keeps the numbers on screen and appends the error.
             ("claude-rate-limited", .claude, (UsageSnapshot(
                 provider: .claude,

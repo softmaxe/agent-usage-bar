@@ -102,6 +102,10 @@ enum AgentUsageBarApp {
             MotionFilmStrip.dumpChartMotion(directory: directory)
             return
         }
+        if let directory = value(after: "--dump-label-toggle") {
+            MotionFilmStrip.dumpLabelToggle(directory: directory)
+            return
+        }
         if let pair = values(after: "--dump-card-celebration", count: 2) {
             CelebrationDemo.dumpCardFrames(
                 directory: pair[0],
@@ -124,6 +128,13 @@ enum AgentUsageBarApp {
         }
         if let pair = values(after: "--dump-chart-hover", count: 2) {
             CardDump.dumpChartHover(
+                directory: pair[0],
+                provider: Provider(rawValue: pair[1]) ?? .claude
+            )
+            return
+        }
+        if let pair = values(after: "--dump-reset-toggle", count: 2) {
+            CardDump.dumpResetToggle(
                 directory: pair[0],
                 provider: Provider(rawValue: pair[1]) ?? .claude
             )
