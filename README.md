@@ -82,6 +82,12 @@ apart so a group unrolls from under its header instead of appearing all at once.
 a quarter turn rather than being swapped for a second glyph. Only the control springs: a table that
 overshoots its own height pushes every row below it, which reads as a bug rather than as a beat.
 
+A press is answered at the size of what was pressed. A model row's chevron is a 9pt glyph, so it
+dips to 0.86 and comes back on the settle spring. A provider header is a full-width row, and the
+same dip on something that wide reads as the table flinching, so it dips to 0.985 over 100ms and
+comes back on an ease-out that cannot overshoot. `make demo-provider-group-press` puts that against
+a chevron-only dip, a tint, and no press at all.
+
 <img src="docs/images/disclosure.gif" width="500" alt="A pricing group unrolling four rows one beat apart">
 
 **The cost chart** lifts the highlighted bar 5pt and opens its per-model breakdown. A move between
@@ -95,15 +101,28 @@ Hovering a bar opens what that day was actually made of:
 
 <img src="docs/images/chart-hover.gif" width="500" alt="Each bar's per-model breakdown">
 
-Clicking the highlighted bar swaps its label between tokens and cost:
+Clicking the highlighted bar swaps its label between tokens and cost, and rescales the chart under
+it:
 
-<img src="docs/images/label-toggle.gif" width="440" alt="The highlighted bar's label blurring out of 37M and resolving into $37">
+<img src="docs/images/label-toggle.gif" width="440" alt="The label blurring out of 37M into $37 while every bar rescales from the token metric to the cost one">
 
-The click lands on a bar the pointer is already on, so the swap has no distance to cover and does
-not move: the old reading blurs out over 260ms and the new one resolves out of the blur in its
+The unit is the chart's height metric too. Each bar is measured in whatever the label reads, against
+the tallest day in that same unit, so a click changes both the bars and the scale they are drawn
+against. A week where a cheap model spent most of the tokens is a different shape in dollars, and
+that difference is the reason to ask. The heights run to their new proportions on the 260ms curve
+the reading resolves on, so the chart and the number arrive together.
+
+The reading itself does not move. The click lands on a bar the pointer is already on, so the swap
+has no distance to cover: the old reading blurs out and the new one resolves out of the blur in its
 place. That is what says the two readings are one quantity counted twice. Sliding one number aside
 for the other would say the label had been replaced. Tokens is the starting unit, the choice is
 remembered, and a click that lands in the gap between two bars does nothing.
+
+**A rate field** in the pricing table marks focus with a one-pixel border in the system accent
+color, faded in over 90ms. The field is the same size focused as unfocused and the border is drawn
+inside the frame it already had, because four of these sit on every row and a ring that took its
+own space would nudge the row it landed in. `make demo-rate-field-focus` holds it against an inner
+ring, a wash, an underline and the stock `.roundedBorder` field it replaced.
 
 **The pointer** moves too. The Codex card is taller than the Claude card, and a menu can only grow
 downwards, so a provider switch slides every row out from under a pointer that never moved. The
@@ -161,6 +180,9 @@ Anthropic publishes), and the long-context tier with its own per-request thresho
 in provider groups with the API models in their published order, and anything else your logs turned
 up below them, most-used first. Click a column to sort by it, click again to reverse, and use the
 control at the right end of the header to go back.
+
+A row folds the one-hour cache write and the long-context tier away behind a chevron. The model
+name opens the row as well, so the target is the whole left half of it rather than a 9pt glyph.
 
 Saved rates apply going forward only. Everything already scanned keeps the prices it was scanned
 with, so an edit never rewrites past days.
@@ -248,14 +270,16 @@ verifiers that sample the motion curves frame by frame. The design studies are l
 same debug binary:
 
 ```bash
-make demo               # The reset animation, with speed controls
-make demo-number        # Candidate treatments for the headline percentage
-make demo-bar-hover     # Candidate hover treatments for the chart bars
-make demo-label-toggle  # Candidate treatments for the chart label's unit swap
-make demo-disclosure    # Candidate collapse controls for the pricing table
-make demo-tab-switch    # Candidate treatments for the settings tab switch
-make demo-pricing-links # Candidate layouts for the pricing header's vendor links
-make demo-collapse      # Folding the pricing groups with and without a scroller gutter
+make demo                      # The reset animation, with speed controls
+make demo-number               # Candidate treatments for the headline percentage
+make demo-bar-hover            # Candidate hover treatments for the chart bars
+make demo-label-toggle         # Candidate treatments for the chart label's unit swap
+make demo-disclosure           # Candidate collapse controls for the pricing table
+make demo-provider-group-press # Candidate press feedback for a provider group header
+make demo-rate-field-focus     # Candidate focus treatments for a pricing rate field
+make demo-tab-switch           # Candidate treatments for the settings tab switch
+make demo-pricing-links        # Candidate layouts for the pricing header's vendor links
+make demo-collapse             # Folding the pricing groups with and without a scroller gutter
 ```
 
 The dumps behind `make readme-assets` are flags on the same binary: `--dump-card`, `--dump-icons`,
@@ -271,7 +295,8 @@ is the only one where a dump adds anything: it draws the label hovered, because 
 has no pointer to hover with. The other four come from `MotionFilmStrip`, which poses stand-in layouts
 because a pill driven by two SwiftUI state edges cannot be asked what it looks like 140ms in; the
 durations, curves, springs and staggers in those four are read from the same constants the real
-controls animate on.
+controls animate on. `label-toggle.gif` takes its bar heights from the shipped policy as well, so
+the rescale in it is the one the chart performs rather than a drawing of it.
 
 `make probe` prints account and usage metadata. Read it before pasting it anywhere.
 
