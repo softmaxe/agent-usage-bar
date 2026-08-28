@@ -179,7 +179,8 @@ write, cache read, the one-hour cache write (leave it empty to bill it at twice 
 Anthropic publishes), and the long-context tier with its own per-request threshold. The table opens
 in provider groups with the API models in their published order, and anything else your logs turned
 up below them, most-used first. Click a column to sort by it, click again to reverse, and use the
-control at the right end of the header to go back.
+control at the right end of the header to go back. It stays lit while that default order is the
+one in force, the way a sorted column's title does.
 
 A row folds the one-hour cache write and the long-context tier away behind a chevron. The model
 name opens the row as well, so the target is the whole left half of it rather than a 9pt glyph.
