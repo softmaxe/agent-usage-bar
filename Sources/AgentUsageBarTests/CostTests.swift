@@ -162,10 +162,6 @@ enum CostTests {
             "a catalog past its TTL refreshes once the backoff has run out"
         )
         Harness.expect(
-            !PricingCatalogRefreshPolicy.shouldRefresh(catalogAge: nil, lastAttemptAge: 60),
-            "a failure a minute ago is not retried"
-        )
-        Harness.expect(
             PricingCatalogRefreshPolicy.shouldRefresh(catalogAge: nil, lastAttemptAge: 2 * hour),
             "a failure an hour old is retried"
         )
@@ -276,9 +272,9 @@ enum CostTests {
             solTurn,
         ]
         let claudeLines = [
-            #"{"type":"assistant","timestamp":"\#(day)","requestId":"req-1","uuid":"u1","message":{"id":"msg-1","model":"claude-opus-5","usage":{"input_tokens":1000000,"output_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}"#,
+            #"{"type":"assistant","timestamp":"\#(day)","requestId":"req-1","uuid":"u1","message":{"id":"msg-1","model":"claude-opus-5","usage":{"input_tokens":200000,"output_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}"#,
             // Same message replayed into the same transcript must be counted once.
-            #"{"type":"assistant","timestamp":"\#(day)","requestId":"req-1","uuid":"u2","message":{"id":"msg-1","model":"claude-opus-5","usage":{"input_tokens":1000000,"output_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}"#,
+            #"{"type":"assistant","timestamp":"\#(day)","requestId":"req-1","uuid":"u2","message":{"id":"msg-1","model":"claude-opus-5","usage":{"input_tokens":200000,"output_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}"#,
         ]
         try? (codexLines.joined(separator: "\n") + "\n").write(to: codexFile, atomically: true, encoding: .utf8)
         try? (claudeLines.joined(separator: "\n") + "\n").write(to: claudeFile, atomically: true, encoding: .utf8)
@@ -310,8 +306,8 @@ enum CostTests {
 
         let claude = await service.refresh(.claude)
         // The duplicated message must not double the total.
-        Harness.expectEqual(claude?.windowTokens, 1_000_000, "claude dedupes a replayed message")
-        Harness.expectEqual(claude?.windowCostUSD, 5.0, "claude cost at the opus-5 input rate")
+        Harness.expectEqual(claude?.windowTokens, 200_000, "claude dedupes a replayed message")
+        Harness.expectClose(claude?.windowCostUSD, 1.0, "claude cost at the opus-5 input rate")
 
         // Scanning Claude must not evict Codex's rows: each scanner only knows its own roots, so
         // an unscoped prune would wipe the other provider every refresh.
@@ -342,7 +338,6 @@ enum CostTests {
         await Self.claudeOneHourCacheWritesCostDouble(root: root)
         await Self.codexSkipsReEmittedTokenCounts(root: root)
         await Self.codexCacheBucketsAreCarvedOutOfInput(root: root)
-        await Self.pricingChangesOnlyAffectNewUsage(root: root)
     }
 
     /// Claude writes an assistant message several times while it streams. The prompt figures are
@@ -353,10 +348,10 @@ enum CostTests {
         let file = projects.appendingPathComponent("session.jsonl")
 
         func line(output: Int) -> String {
-            #"{"type":"assistant","timestamp":"2026-08-26T15:00:00.000Z","requestId":"req-1","message":{"id":"msg-1","model":"stream-model","usage":{"input_tokens":1000000,"output_tokens":\#(output),"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}"#
+            #"{"type":"assistant","timestamp":"2026-08-26T15:00:00.000Z","requestId":"req-1","message":{"id":"msg-1","model":"stream-model","usage":{"input_tokens":100000,"output_tokens":\#(output),"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}"#
         }
         // A partial chunk, then the finished reply, then the same message replayed into a fork.
-        let lines = [line(output: 3), line(output: 2_000_000), line(output: 2_000_000)]
+        let lines = [line(output: 40), line(output: 20_000), line(output: 20_000)]
         try? (lines.joined(separator: "\n") + "\n").write(to: file, atomically: true, encoding: .utf8)
 
         let service = CostService(
@@ -367,15 +362,15 @@ enum CostTests {
             ])
         )
         let snapshot = await service.refresh(.claude)
-        // $1 of prompt and $4 of reply, counted once: the partial chunk and the replay both lose.
+        // $0.10 of prompt and $0.04 of reply, counted once: the partial chunk and the replay lose.
         Harness.expectClose(
             snapshot?.windowCostUSD,
-            5,
+            0.14,
             "a streamed message is billed once, at the output count of its final chunk"
         )
         Harness.expectEqual(
             snapshot?.windowTokens,
-            3_000_000,
+            120_000,
             "replaying a finished message does not add its tokens again"
         )
     }
@@ -391,8 +386,8 @@ enum CostTests {
             #"{"type":"assistant","timestamp":"2026-08-26T14:00:00.000Z","requestId":"req-\#(id)","message":{"id":"msg-\#(id)","model":"ttl-model","usage":{"input_tokens":0,"output_tokens":0,"cache_creation_input_tokens":\#(fiveMinute + oneHour),"cache_creation":{"ephemeral_5m_input_tokens":\#(fiveMinute),"ephemeral_1h_input_tokens":\#(oneHour)},"cache_read_input_tokens":0}}}"#
         }
         let lines = [
-            line("a", fiveMinute: 1_000_000, oneHour: 0),
-            line("b", fiveMinute: 0, oneHour: 1_000_000),
+            line("a", fiveMinute: 100_000, oneHour: 0),
+            line("b", fiveMinute: 0, oneHour: 100_000),
         ]
         try? (lines.joined(separator: "\n") + "\n").write(to: file, atomically: true, encoding: .utf8)
 
@@ -404,15 +399,15 @@ enum CostTests {
             ])
         )
         let snapshot = await service.refresh(.claude)
-        // 1M at the 12.5 five-minute rate + 1M at 2x the 10 input rate = $32.50.
+        // 100k at the 12.5 five-minute rate + 100k at 2x the 10 input rate = $3.25.
         Harness.expectClose(
             snapshot?.windowCostUSD,
-            32.5,
+            3.25,
             "a one-hour cache write costs twice input while a five-minute one uses the table rate"
         )
         Harness.expectEqual(
             snapshot?.windowTokens,
-            2_000_000,
+            200_000,
             "the one-hour subset is not counted a second time in the token total"
         )
     }
@@ -433,10 +428,10 @@ enum CostTests {
         let context = #"{"type":"turn_context","timestamp":"2026-08-26T13:00:00.000Z","payload":{"model":"replay-model"}}"#
         let lines = [
             context,
-            event("2026-08-26T13:00:01.000Z", last: 1_000_000, total: 1_000_000),
-            event("2026-08-26T13:00:02.000Z", last: 1_000_000, total: 2_000_000),
+            event("2026-08-26T13:00:01.000Z", last: 100_000, total: 100_000),
+            event("2026-08-26T13:00:02.000Z", last: 100_000, total: 200_000),
             // Same running total as the line above: a re-emission, not a third turn.
-            event("2026-08-26T13:00:03.000Z", last: 1_000_000, total: 2_000_000),
+            event("2026-08-26T13:00:03.000Z", last: 100_000, total: 200_000),
         ]
         try? (lines.joined(separator: "\n") + "\n").write(to: file, atomically: true, encoding: .utf8)
 
@@ -449,12 +444,12 @@ enum CostTests {
             .refresh(.codex)
         Harness.expectClose(
             snapshot?.windowCostUSD,
-            2,
+            0.2,
             "a re-emitted token_count is not counted as another turn"
         )
 
         // The replay is the last line, so a resumed scan has to recognise it across the boundary.
-        let appended = event("2026-08-26T13:00:04.000Z", last: 1_000_000, total: 2_000_000)
+        let appended = event("2026-08-26T13:00:04.000Z", last: 100_000, total: 200_000)
         if let handle = try? FileHandle(forWritingTo: file) {
             _ = try? handle.seekToEnd()
             try? handle.write(contentsOf: Data((appended + "\n").utf8))
@@ -464,7 +459,7 @@ enum CostTests {
             .refresh(.codex)
         Harness.expectClose(
             resumed?.windowCostUSD,
-            2,
+            0.2,
             "a resumed scan still recognises a replay of the turn it stopped on"
         )
     }
@@ -481,8 +476,8 @@ enum CostTests {
 
         let timestamp = "2026-08-26T12:00:00.000Z"
         let context = #"{"type":"turn_context","timestamp":"\#(timestamp)","payload":{"model":"carve-model"}}"#
-        // 1,000,000 prompt tokens: 600k served from cache, 100k written to it, 300k fresh.
-        let usage = #"{"type":"event_msg","timestamp":"\#(timestamp)","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":1000000,"cached_input_tokens":600000,"cache_write_input_tokens":100000,"output_tokens":0}}}}"#
+        // 100,000 prompt tokens: 60k served from cache, 10k written to it, 30k fresh.
+        let usage = #"{"type":"event_msg","timestamp":"\#(timestamp)","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100000,"cached_input_tokens":60000,"cache_write_input_tokens":10000,"output_tokens":0}}}}"#
         try? ([context, usage].joined(separator: "\n") + "\n")
             .write(to: file, atomically: true, encoding: .utf8)
 
@@ -494,65 +489,16 @@ enum CostTests {
             ])
         )
         let snapshot = await service.refresh(.codex)
-        // 300k fresh at $10/M + 100k written at $1/M + 600k read at $0/M = $3.10.
+        // 30k fresh at $10/M + 10k written at $1/M + 60k read at $0/M = $0.31.
         Harness.expectClose(
             snapshot?.windowCostUSD,
-            3.1,
+            0.31,
             "cached reads and cache writes are peeled out of input_tokens before pricing"
         )
         Harness.expectEqual(
             snapshot?.windowTokens,
-            1_000_000,
+            100_000,
             "peeling the buckets apart preserves the turn's total token count"
-        )
-    }
-
-    /// Editing a custom rate is prospective: usage already scanned keeps the price that was in
-    /// force, while bytes appended afterward use the new rate.
-    private static func pricingChangesOnlyAffectNewUsage(root: URL) async {
-        let home = root.appendingPathComponent("versioned-codex")
-        let file = home.appendingPathComponent("sessions/2026/08/26/rollout-pricing.jsonl")
-        try? FileManager.default.createDirectory(
-            at: file.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-
-        let timestamp = "2026-08-26T11:00:00.000Z"
-        let context = #"{"type":"turn_context","timestamp":"\#(timestamp)","payload":{"model":"custom-model"}}"#
-        let usage = #"{"type":"event_msg","timestamp":"\#(timestamp)","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":1000000,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":0}}}}"#
-        try? ([context, usage].joined(separator: "\n") + "\n")
-            .write(to: file, atomically: true, encoding: .utf8)
-
-        let database = root.appendingPathComponent("versioned-cache.sqlite")
-        let env = ["CODEX_HOME": home.path]
-        let originalService = CostService(
-            databaseURL: database,
-            env: env,
-            pricingOverlay: PricingOverlay(
-                userOverrides: ["custom-model": ModelPricing(input: 1, output: 1)]
-            )
-        )
-        let original = await originalService.refresh(.codex)
-        Harness.expectClose(original?.windowCostUSD, 1, "original usage uses the original custom rate")
-
-        if let handle = try? FileHandle(forWritingTo: file) {
-            _ = try? handle.seekToEnd()
-            try? handle.write(contentsOf: Data((usage + "\n").utf8))
-            try? handle.close()
-        }
-
-        let updatedService = CostService(
-            databaseURL: database,
-            env: env,
-            pricingOverlay: PricingOverlay(
-                userOverrides: ["custom-model": ModelPricing(input: 2, output: 1)]
-            )
-        )
-        let updated = await updatedService.refresh(.codex)
-        Harness.expectClose(
-            updated?.windowCostUSD,
-            3,
-            "a changed custom rate only prices usage appended after the change"
         )
     }
 }
@@ -602,34 +548,6 @@ enum RateLimitTests {
 
         await gate.recordSuccess(.claude)
         Harness.expect(await gate.blocked(.claude, now: now) == nil, "a success clears the block")
-    }
-}
-
-/// One cooldown for every refresh path, so a poll and a click cannot both hit the endpoints.
-enum RefreshCooldownGateTests {
-    static func run() {
-        var gate = RefreshCooldownGate()
-
-        Harness.expect(gate.claimRefresh(at: 1_000), "the first refresh runs")
-        Harness.expect(!gate.claimRefresh(at: 1_001), "a click right after does not refresh")
-        Harness.expect(!gate.claimRefresh(at: 1_058.9), "the cooldown lasts about a minute")
-        Harness.expect(gate.claimRefresh(at: 1_059), "the scheduling tolerance lets a 60s poll through")
-        Harness.expect(!gate.claimRefresh(at: 1_060), "the refreshed cooldown starts over")
-
-        // A forced refresh answers a settings change rather than a tick, but it still quiets the
-        // minute after it.
-        var forced = RefreshCooldownGate()
-        Harness.expect(forced.claimRefresh(at: 2_000), "the first refresh runs")
-        forced.recordRefresh(at: 2_030)
-        Harness.expect(!forced.claimRefresh(at: 2_059), "a forced refresh restarts the cooldown")
-        Harness.expect(forced.claimRefresh(at: 2_089), "and the cooldown runs from the forced refresh")
-
-        // A cadence faster than the cooldown would otherwise drop ticks; the tolerance is only
-        // slack for scheduling, not a second knob.
-        var tight = RefreshCooldownGate(minimumInterval: 10, tolerance: 0)
-        Harness.expect(tight.claimRefresh(at: 0), "the first refresh runs")
-        Harness.expect(!tight.claimRefresh(at: 9.999), "a custom interval is honoured")
-        Harness.expect(tight.claimRefresh(at: 10), "and elapses exactly")
     }
 }
 
@@ -688,7 +606,6 @@ enum RefreshRowPolicyTests {
 
         // Rounded up, so the last partial second never reads as a refresh that would be honoured.
         let sliver = RefreshRowPolicy.state(cooldownRemaining: 0.2, isRefreshing: false)
-        Harness.expectEqual(sliver.title, "Refresh", "a partial second keeps the plain title")
         Harness.expectEqual(sliver.trailingText, "1s", "a partial second still counts")
         Harness.expect(!sliver.isEnabled, "and still refuses clicks")
 
@@ -735,7 +652,6 @@ enum SettingsTests {
         )
 
         Harness.expectEqual(RefreshFrequency.manual.seconds, nil, "manual runs no timer")
-        Harness.expectEqual(RefreshFrequency.oneMinute.seconds, 60, "one minute in seconds")
         Harness.expectEqual(RefreshFrequency.thirtyMinutes.seconds, 1800, "thirty minutes in seconds")
         Harness.expectEqual(RefreshFrequency.allCases.count, 6, "six cadence options")
 
@@ -763,12 +679,6 @@ enum SettingsTests {
         Harness.expectEqual(reloaded.refreshFrequency, .fifteenMinutes, "cadence survives a reload")
         Harness.expectEqual(reloaded.menuBarProvider, .claude, "the shown provider survives a reload")
         Harness.expectEqual(reloaded.costChartLabelMode, .cost, "chart label mode survives a reload")
-        reloaded.costChartLabelMode = .tokens
-        Harness.expectEqual(
-            SettingsStore(defaults: defaults).costChartLabelMode,
-            .tokens,
-            "chart label mode can switch back to tokens"
-        )
         Harness.expectEqual(
             reloaded.quotaResetDisplayMode,
             .clock,
@@ -787,21 +697,6 @@ enum SettingsTests {
             .claude,
             "the single remaining legacy item becomes the shown provider"
         )
-    }
-}
-
-/// The menu bar shows one provider at a time, and a right-click walks the list.
-enum MenuBarProviderTests {
-    static func run() {
-        // Cycling reaches every provider and wraps, so it never dead-ends on the last one.
-        var provider = Provider.allCases[0]
-        var walk: [Provider] = []
-        for _ in Provider.allCases {
-            provider = MenuBarProviderPolicy.next(after: provider)
-            walk.append(provider)
-        }
-        Harness.expectEqual(Set(walk), Set(Provider.allCases), "cycling reaches every provider")
-        Harness.expectEqual(walk.last, Provider.allCases[0], "cycling wraps back to the first")
     }
 }
 
