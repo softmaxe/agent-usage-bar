@@ -379,10 +379,12 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         self.updateRefreshRow()
     }
 
-    /// The row is already disabled for the whole cooldown, so this only ever reaches a store that
-    /// will honour it; asking anyway keeps the store the single authority on the cooldown.
+    /// Ordinary clicks respect the API cooldown. A recovery-required row is the user's explicit
+    /// authorization for Claude Code to repair its own credentials, so that one click is forced.
     private func refreshClicked() {
-        self.store.refresh()
+        let provider = self.settings.menuBarProvider
+        let isCredentialRecovery = self.store.displays[provider]?.canAttemptCredentialRecovery == true
+        self.store.refresh(force: isCredentialRecovery, interaction: .userInitiated)
         self.updateRefreshRow()
     }
 
@@ -390,7 +392,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         guard let row = self.refreshRow else { return }
         let state = RefreshRowPolicy.state(
             cooldownRemaining: self.store.refreshCooldownRemaining(),
-            isRefreshing: self.store.isRefreshing(self.settings.menuBarProvider)
+            isRefreshing: self.store.isRefreshing(self.settings.menuBarProvider),
+            allowsCredentialRecovery: self.store.displays[self.settings.menuBarProvider]?
+                .canAttemptCredentialRecovery == true
         )
         row.title = state.title
         row.trailingText = state.trailingText

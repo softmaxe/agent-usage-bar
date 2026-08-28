@@ -52,6 +52,31 @@ enum RefreshRowVerifier {
         Self.drainMainRunLoop()
         Self.requireRow(controller, "Refresh", trailing: "29s", enabled: false, step: "after a refused click")
 
+        // An automatic Claude 401 is different from an ordinary API cooldown: the existing row
+        // is the only place where the user can explicitly authorize delegated recovery.
+        var recovery = ProviderDisplay()
+        recovery.error = "Claude credentials need recovery."
+        recovery.canAttemptCredentialRecovery = true
+        store.debugSetDisplay(recovery, for: settings.menuBarProvider)
+        Self.drainMainRunLoop()
+        Self.requireRow(
+            controller,
+            "Refresh",
+            trailing: nil,
+            enabled: true,
+            step: "while credential recovery is available"
+        )
+
+        store.debugSetDisplay(ProviderDisplay(), for: settings.menuBarProvider)
+        Self.drainMainRunLoop()
+        Self.requireRow(
+            controller,
+            "Refresh",
+            trailing: "29s",
+            enabled: false,
+            step: "after credential recovery is cleared"
+        )
+
         // And the row comes back by itself, without the menu being reopened.
         now = 1_059
         Self.drainMainRunLoop()

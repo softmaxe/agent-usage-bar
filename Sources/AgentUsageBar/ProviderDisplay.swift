@@ -11,6 +11,8 @@ struct ProviderDisplay: Equatable {
     var history: UsageHistoryDataset?
     /// No credentials on this machine: the enabled status item explains how to sign in.
     var isSignedOut = false
+    /// Lets the existing Refresh row bypass the API cooldown for one explicit delegated repair.
+    var canAttemptCredentialRecovery = false
 
     /// Dim the menu bar icon when the newest attempt failed.
     var isStale: Bool { self.error != nil }

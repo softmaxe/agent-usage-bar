@@ -90,8 +90,15 @@ final class UsageStore: ObservableObject {
     /// Refreshes the provider on screen. `force` is for refreshes that answer a change the user
     /// just made rather than the passage of time, where serving the pre-change numbers would look
     /// broken. It skips the cooldown but still starts it.
-    func refresh(force: Bool = false) {
-        self.refresh(provider: self.settings.menuBarProvider, force: force)
+    func refresh(
+        force: Bool = false,
+        interaction: ClaudeRefreshInteraction = .automatic
+    ) {
+        self.refresh(
+            provider: self.settings.menuBarProvider,
+            force: force,
+            interaction: interaction
+        )
     }
 
     /// Whether this provider currently has a fetch in flight.
@@ -99,7 +106,11 @@ final class UsageStore: ObservableObject {
         self.refreshingProviders.contains(provider)
     }
 
-    private func refresh(provider: Provider, force: Bool = false) {
+    private func refresh(
+        provider: Provider,
+        force: Bool = false,
+        interaction: ClaudeRefreshInteraction = .automatic
+    ) {
         // Coalesce: clicking the status item during a poll should not start a second round of
         // requests. Manual refreshes do not reschedule the independent polling timer.
         guard self.refreshTasks[provider] == nil else { return }
@@ -108,7 +119,7 @@ final class UsageStore: ObservableObject {
         self.refreshingProviders.insert(provider)
 
         self.refreshTasks[provider] = Task { [weak self, historyStore] in
-            let state = await Self.fetch(provider)
+            let state = await Self.fetch(provider, interaction: interaction)
 
             // Sampling the weekly window builds the history the pace model regresses over.
             // CodexBar records only Codex here; the model is provider-agnostic, so both are.
@@ -132,10 +143,13 @@ final class UsageStore: ObservableObject {
         self.refreshCosts(for: provider)
     }
 
-    private static func fetch(_ provider: Provider) async -> ProviderState {
+    private static func fetch(
+        _ provider: Provider,
+        interaction: ClaudeRefreshInteraction
+    ) async -> ProviderState {
         switch provider {
         case .codex: await CodexProvider.fetch()
-        case .claude: await ClaudeProvider.fetch()
+        case .claude: await ClaudeProvider.fetch(interaction: interaction)
         }
     }
 
@@ -203,13 +217,20 @@ final class UsageStore: ObservableObject {
             display.snapshot = nil
             display.error = nil
             display.isSignedOut = true
+            display.canAttemptCredentialRecovery = false
         case let .failed(reason):
             display.error = reason
             display.isSignedOut = false
+            display.canAttemptCredentialRecovery = false
+        case let .recoveryRequired(reason):
+            display.error = reason
+            display.isSignedOut = false
+            display.canAttemptCredentialRecovery = true
         case let .loaded(snapshot):
             display.snapshot = snapshot
             display.error = nil
             display.isSignedOut = false
+            display.canAttemptCredentialRecovery = false
             // Every reading of this provider, not just the ones the card is looking at: a window
             // that runs dry has to be noticed even when the menu has not been opened in hours.
             self.recovery.observe(provider: provider, snapshot: snapshot)
@@ -223,6 +244,8 @@ final class UsageStore: ObservableObject {
             Log.ui.info("\(provider.rawValue, privacy: .public) signed out: \(reason, privacy: .public)")
         case let .failed(reason):
             Log.ui.error("\(provider.rawValue, privacy: .public) refresh failed: \(reason, privacy: .public)")
+        case let .recoveryRequired(reason):
+            Log.ui.warning("\(provider.rawValue, privacy: .public) recovery required: \(reason, privacy: .public)")
         case let .loaded(snapshot):
             let session = snapshot.session?.remainingPercent ?? -1
             let weekly = snapshot.weekly?.remainingPercent ?? -1

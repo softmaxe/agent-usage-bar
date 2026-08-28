@@ -138,6 +138,7 @@ do {
 
 await CostTests.run()
 await RateLimitTests.run()
+await ClaudeRefreshTests.run()
 ProviderRefreshCooldownTests.run()
 RefreshRowPolicyTests.run()
 await MainActor.run { SettingsTests.run() }

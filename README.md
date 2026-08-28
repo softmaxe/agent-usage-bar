@@ -233,13 +233,19 @@ claude        # complete the CLI's own flow; the token lands in the Keychain
 ```
 
 Reading the Claude entry goes through Apple's `/usr/bin/security`, which may raise a macOS access
-prompt the first time.
+prompt the first time. If a user-initiated `Refresh` receives a 401, AgentUsageBar may start a
+hidden, five-second Claude Code status command so Claude Code can refresh its own credentials. The
+app then rereads the Keychain and retries once only when the access token changed. It never writes
+the CLI credential item. AgentUsageBar itself does not call `auth login` or open Terminal or a
+browser. Claude Code may still require interactive sign-in; when that happens, recovery stops and
+you must open Claude Code yourself. Automatic refreshes fail closed and never start Claude Code.
 
 ## Privacy
 
-The app reads local credentials and logs and never writes to them. `auth.json` is read-only to it,
-and a refreshed Codex token stays in memory for that run. What it does write lives under its own
-directories:
+The app reads local credentials and logs and never writes to the CLI-owned credential stores.
+`auth.json` is read-only to it, and a refreshed Codex token stays in memory for that run. A Claude
+Code process may update its own credentials only after the user clicks `Refresh`. What AgentUsageBar
+does write lives under its own directories:
 
 ```text
 ~/Library/Application Support/AgentUsageBar/usage-history.json      quota samples, kept 56 days
@@ -307,8 +313,10 @@ Models with no known price appear without one until the catalog or an override s
 
 - The packaging script produces a host-architecture, ad-hoc-signed local build. Universal binaries
   and notarization are not automated.
-- Claude credentials are never refreshed or written back. Re-authenticate with Claude Code when the
-  token expires.
+- Claude credential recovery is delegated to Claude Code only after a user-initiated `Refresh` and
+  is bounded to one hidden status attempt. Automatic refreshes fail closed, and AgentUsageBar never
+  writes CLI credentials. Claude Code may still require interactive sign-in; if it does, recovery
+  stops and you must open Claude Code yourself.
 - Cost figures are reconstructed from local logs. They are not billing statements.
 
 ## Acknowledgements
