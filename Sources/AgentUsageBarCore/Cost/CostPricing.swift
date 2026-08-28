@@ -108,17 +108,17 @@ public enum CostPricing {
         // standard rates it replaces are $5 / $30 with a $6.25 cache write and $0.50 read.
         "gpt-5.6-sol": ModelPricing(
             input: 4, output: 20, cacheWrite: 5, cacheRead: 0.4,
-            thresholdTokens: 270_000,
+            thresholdTokens: 272_000,
             inputAbove: 8, outputAbove: 30, cacheWriteAbove: 10, cacheReadAbove: 0.8
         ),
         "gpt-5.6-terra": ModelPricing(
             input: 2, output: 12, cacheWrite: 2.5, cacheRead: 0.2,
-            thresholdTokens: 270_000,
+            thresholdTokens: 272_000,
             inputAbove: 4, outputAbove: 18, cacheWriteAbove: 5, cacheReadAbove: 0.4
         ),
         "gpt-5.6-luna": ModelPricing(
             input: 0.2, output: 1.2, cacheWrite: 0.25, cacheRead: 0.02,
-            thresholdTokens: 270_000,
+            thresholdTokens: 272_000,
             inputAbove: 0.4, outputAbove: 1.8, cacheWriteAbove: 0.5, cacheReadAbove: 0.04
         ),
         // Daybreak security model, aliased daybreak-red-latest. No long-context tier.
@@ -126,6 +126,7 @@ public enum CostPricing {
         // The page also lists a costlier Fast mode for this model; the transcripts carry no
         // mode, so the standard row is the one that can be applied.
         "gpt-5.3-codex": ModelPricing(input: 1.75, output: 14, cacheRead: 0.175),
+        "codex-mini-latest": ModelPricing(input: 1.5, output: 6, cacheRead: 0.375),
 
         // -- Retired or no longer published; last known rates -------------------------------
         "gpt-5": ModelPricing(input: 1.25, output: 10, cacheRead: 0.125),
@@ -185,6 +186,7 @@ public enum CostPricing {
         "claude-sonnet-4-5": ModelPricing(input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.3),
         "claude-sonnet-4": ModelPricing(input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.3),
         "claude-haiku-4-5": ModelPricing(input: 1, output: 5, cacheWrite: 1.25, cacheRead: 0.1),
+        "claude-3-5-haiku": ModelPricing(input: 0.8, output: 4, cacheWrite: 1, cacheRead: 0.08),
     ]
 
     // MARK: - Normalization
