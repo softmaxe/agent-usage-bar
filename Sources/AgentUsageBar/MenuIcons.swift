@@ -41,18 +41,9 @@ enum MenuIcons {
         let sampleScale = 2
         let width = Int(glyph.size.width.rounded()) * sampleScale
         let height = Int(glyph.size.height.rounded()) * sampleScale
-        guard width > 0, height > 0, let rep = NSBitmapImageRep(
-            bitmapDataPlanes: nil,
-            pixelsWide: width,
-            pixelsHigh: height,
-            bitsPerSample: 8,
-            samplesPerPixel: 4,
-            hasAlpha: true,
-            isPlanar: false,
-            colorSpaceName: .deviceRGB,
-            bytesPerRow: 0,
-            bitsPerPixel: 0
-        ) else { return nil }
+        guard width > 0, height > 0,
+              let rep = NSBitmapImageRep.rgba(pixelsWide: width, pixelsHigh: height)
+        else { return nil }
         rep.size = glyph.size
 
         NSGraphicsContext.saveGraphicsState()

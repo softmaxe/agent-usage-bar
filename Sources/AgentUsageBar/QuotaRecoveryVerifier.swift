@@ -13,7 +13,11 @@ enum QuotaRecoveryVerifier {
         failures += Self.trackerFailures()
         failures += Self.choreographyFailures()
         failures += Self.relayFailures()
-        return Self.finish(failures)
+        return VerifierReport.finish(
+            failures,
+            label: "quota recovery verification",
+            passed: "quota reset detection, five-hour/weekly hand-off, persistence, and shared animation passed"
+        )
     }
 
     // MARK: - Tracker
@@ -506,17 +510,6 @@ enum QuotaRecoveryVerifier {
             failures.append("the headline was left mid-animation after the bar went away")
         }
         return failures
-    }
-
-    private static func finish(_ failures: [String]) -> Never {
-        guard failures.isEmpty else {
-            for failure in failures {
-                fputs("quota recovery verification failed: \(failure)\n", stderr)
-            }
-            exit(1)
-        }
-        print("quota reset detection, five-hour/weekly hand-off, persistence, and shared animation passed")
-        exit(0)
     }
 }
 #endif

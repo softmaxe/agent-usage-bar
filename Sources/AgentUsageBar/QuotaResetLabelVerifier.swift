@@ -88,8 +88,7 @@ enum QuotaResetLabelVerifier {
             minute: minute
         )
         guard let date = Self.calendar.date(from: components) else {
-            fputs("quota-reset-label verification failed: could not build a fixture date\n", stderr)
-            exit(1)
+            VerifierReport.fail("could not build a fixture date", label: "quota-reset-label verification")
         }
         return date
     }
@@ -120,8 +119,7 @@ enum QuotaResetLabelVerifier {
 
     private static func require(_ condition: @autoclosure () -> Bool, _ message: String) {
         guard condition() else {
-            fputs("quota-reset-label verification failed: \(message)\n", stderr)
-            exit(1)
+            VerifierReport.fail(message, label: "quota-reset-label verification")
         }
     }
 }

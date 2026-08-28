@@ -7,42 +7,19 @@ import SwiftUI
 /// judging different pre-reset positions and playback speeds.
 @MainActor
 enum CelebrationDemo {
-    private final class Delegate: NSObject, NSApplicationDelegate {
-        func applicationShouldTerminateAfterLastWindowClosed(_: NSApplication) -> Bool { true }
-    }
-
-    private static var window: NSWindow?
-    private static var delegate: Delegate?
-
     static func run() -> Never {
-        let app = NSApplication.shared
-        app.setActivationPolicy(.regular)
-        let delegate = Delegate()
-        app.delegate = delegate
-        Self.delegate = delegate
-
-        let hosting = NSHostingView(rootView: CelebrationDemoView())
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 680, height: 470),
-            styleMask: [.titled, .closable, .miniaturizable],
-            backing: .buffered,
-            defer: false
+        DemoWindow.run(
+            title: "Quota reset animation prototype",
+            width: 680,
+            height: 470,
+            resizable: false,
+            content: CelebrationDemoView()
         )
-        window.title = "Quota reset animation prototype"
-        window.contentView = hosting
-        window.center()
-        window.makeKeyAndOrderFront(nil)
-        Self.window = window
-
-        app.activate(ignoringOtherApps: true)
-        app.run()
-        exit(0)
     }
 
     /// `--dump-celebration <dir>` writes the shared choreography frame by frame.
     static func dumpFrames(directory: String) {
-        let root = URL(fileURLWithPath: (directory as NSString).expandingTildeInPath)
-        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let root = OffscreenCapture.directory(directory)
 
         let tint = Theme.accent(for: .claude)
         let startPercent = 18.0
@@ -55,15 +32,11 @@ enum CelebrationDemo {
             )
             .frame(width: 560, height: 210)
 
-            let renderer = ImageRenderer(content: frame)
-            renderer.scale = 2
-            if let image = renderer.nsImage,
-               let tiff = image.tiffRepresentation,
-               let bitmap = NSBitmapImageRep(data: tiff),
-               let data = bitmap.representation(using: .png, properties: [:]) {
-                let url = root.appendingPathComponent(String(format: "frame-%04d.png", Int(time * 1000)))
-                try? data.write(to: url)
-            }
+            OffscreenCapture.renderPNG(
+                frame,
+                named: String(format: "frame-%04d", Int(time * 1000)),
+                into: root
+            )
             time += 0.05
         }
         print("wrote celebration frames to \(root.path)")

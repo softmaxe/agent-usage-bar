@@ -25,14 +25,11 @@ enum IconRenderingVerifier {
             failures: &failures
         )
 
-        guard failures.isEmpty else {
-            for failure in failures {
-                fputs("icon rendering verification failed: \(failure)\n", stderr)
-            }
-            exit(1)
-        }
-        print("status-item icon rendering checks passed")
-        exit(0)
+        VerifierReport.finish(
+            failures,
+            label: "icon rendering verification",
+            passed: "status-item icon rendering checks passed"
+        )
     }
 
     private static func expectCodexFace(

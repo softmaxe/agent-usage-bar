@@ -131,7 +131,7 @@ enum RefreshRowVerifier {
     }
 
     private static func fail(_ message: String) -> Never {
-        fputs("refresh-row verification failed: \(message)\n", stderr)
+        VerifierReport.report(message, label: "refresh-row verification")
         Self.finish(1)
     }
 }

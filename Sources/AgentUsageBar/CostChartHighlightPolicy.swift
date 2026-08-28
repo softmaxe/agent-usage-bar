@@ -42,12 +42,30 @@ enum CostChartHighlightPolicy {
         dayKey ?? currentDayKey
     }
 
+    /// The one quiet tone every unselected day shares.
+    static let restingOpacity = 0.55
+
     static func opacity(dayKey: String, selectedDayKey: String?, valueRatio _: Double) -> Double {
-        dayKey == selectedDayKey ? 1.0 : 0.55
+        dayKey == selectedDayKey ? 1.0 : Self.restingOpacity
     }
 
-    /// Only the selected bar has a label. Token count is the default; cost mode still renders
-    /// missing cost data as zero so a selected zero-height day never loses its label.
+    /// What one day's label reads. Token count is the default; cost mode still renders missing
+    /// cost data as zero so a zero-height day never loses its label.
+    static func labelText(
+        selectedMode: CostChartLabelMode,
+        tokens: Int,
+        costUSD: Double?
+    ) -> String {
+        switch selectedMode {
+        case .tokens:
+            return Formatters.tokens(tokens)
+        case .cost:
+            return Formatters.compactCost(costUSD ?? 0)
+        }
+    }
+
+    /// Only the selected bar has a label, for a caller that has not already established which bar
+    /// it is holding.
     static func labelText(
         dayKey: String,
         selectedDayKey: String?,
@@ -56,12 +74,7 @@ enum CostChartHighlightPolicy {
         costUSD: Double?
     ) -> String? {
         guard dayKey == selectedDayKey else { return nil }
-        switch selectedMode {
-        case .tokens:
-            return Formatters.tokens(tokens)
-        case .cost:
-            return Formatters.compactCost(costUSD ?? 0)
-        }
+        return Self.labelText(selectedMode: selectedMode, tokens: tokens, costUSD: costUSD)
     }
 
     static func labelMode(

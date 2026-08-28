@@ -123,8 +123,7 @@ enum TabSwitchMotionVerifier {
 
     private static func require(_ condition: @autoclosure () -> Bool, _ message: String) {
         guard condition() else {
-            fputs("tab-switch-motion verification failed: \(message)\n", stderr)
-            exit(1)
+            VerifierReport.fail(message, label: "tab-switch-motion verification")
         }
     }
 }

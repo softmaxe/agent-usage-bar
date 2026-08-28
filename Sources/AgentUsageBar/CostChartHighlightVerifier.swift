@@ -253,18 +253,12 @@ enum CostChartHighlightVerifier {
             failures.append("Reduce Motion expected no animation on the unit swap")
         }
 
-        guard failures.isEmpty else {
-            for failure in failures {
-                fputs("cost chart highlight verification failed: \(failure)\n", stderr)
-            }
-            exit(1)
-        }
-
-        print(
-            "cost chart selection, click label toggle, hit testing, opacity, hover motion, and "
+        VerifierReport.finish(
+            failures,
+            label: "cost chart highlight verification",
+            passed: "cost chart selection, click label toggle, hit testing, opacity, hover motion, and "
                 + "unit swap motion checks passed"
         )
-        exit(0)
     }
 }
 #endif

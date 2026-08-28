@@ -12,40 +12,18 @@ import SwiftUI
 /// sideways by the width of the scroller while the leading edge stays put.
 @MainActor
 enum CollapseShiftDemo {
-    private final class Delegate: NSObject, NSApplicationDelegate {
-        func applicationShouldTerminateAfterLastWindowClosed(_: NSApplication) -> Bool { true }
-    }
-
     /// Short enough that an open group has to scroll and a folded one does not — the demo has
     /// nothing to show on either side of that line.
     static let paneHeight: CGFloat = 280
 
-    private static var window: NSWindow?
-    private static var delegate: Delegate?
-
     static func run() -> Never {
-        let app = NSApplication.shared
-        app.setActivationPolicy(.regular)
-        let delegate = Delegate()
-        app.delegate = delegate
-        Self.delegate = delegate
-
-        let hosting = NSHostingView(rootView: CollapseShiftDemoView())
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 1320, height: 620),
-            styleMask: [.titled, .closable, .miniaturizable],
-            backing: .buffered,
-            defer: false
+        DemoWindow.run(
+            title: "Collapse shift — current vs reserved gutter",
+            width: 1320,
+            height: 620,
+            resizable: false,
+            content: CollapseShiftDemoView()
         )
-        window.title = "Collapse shift — current vs reserved gutter"
-        window.contentView = hosting
-        window.center()
-        window.makeKeyAndOrderFront(nil)
-        Self.window = window
-
-        app.activate(ignoringOtherApps: true)
-        app.run()
-        exit(0)
     }
 
     /// `--dump-collapse-shift <current|fixed> <expanded|collapsed>` prints the measured column

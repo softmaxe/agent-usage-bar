@@ -28,6 +28,14 @@ struct CostSectionView: View {
     private let todayDayKey: String
     private let onLabelModeChanged: (CostChartLabelMode) -> Void
 
+    /// Activity days plus an empty today bar, so today's cost remains visible before the first
+    /// completed turn. Older activity falls off the left once the chart reaches its cap. The
+    /// snapshot and today's key are both fixed for the life of the view, so the chart's shape is
+    /// settled here rather than rebuilt on every read — hover moves at pointer rate.
+    private let bars: [CostDay]
+    private let barDayKeys: Set<String>
+    private let maxValue: Double
+
     /// Seeds the hover state so `--dump-card` can capture what hovering looks like.
     init(
         provider: Provider,
@@ -41,8 +49,18 @@ struct CostSectionView: View {
         self.snapshot = snapshot
         self._hoveredDayKey = State(initialValue: previewHoveredDayKey)
         self._selectedLabelMode = State(initialValue: labelMode)
-        self.todayDayKey = previewTodayDayKey ?? Self.dayKey(for: Date())
+        let todayDayKey = previewTodayDayKey ?? Formatters.dayKey(for: Date())
+        self.todayDayKey = todayDayKey
         self.onLabelModeChanged = onLabelModeChanged
+
+        let bars = CostChartHighlightPolicy.visibleDays(
+            from: snapshot.days,
+            todayDayKey: todayDayKey,
+            maxBars: Self.maxBars
+        )
+        self.bars = bars
+        self.barDayKeys = Set(bars.map(\.dayKey))
+        self.maxValue = bars.map { $0.costUSD ?? 0 }.max() ?? 0
     }
 
     var body: some View {
@@ -100,20 +118,6 @@ struct CostSectionView: View {
 
     // MARK: - Chart
 
-    /// Activity days plus an empty today bar, so today's cost remains visible before the first
-    /// completed turn. Older activity falls off the left once the chart reaches its cap.
-    private var bars: [CostDay] {
-        CostChartHighlightPolicy.visibleDays(
-            from: self.snapshot.days,
-            todayDayKey: self.todayDayKey,
-            maxBars: Self.maxBars
-        )
-    }
-
-    private var maxValue: Double {
-        self.bars.map { $0.costUSD ?? 0 }.max() ?? 0
-    }
-
     private var chart: some View {
         HStack(alignment: .bottom, spacing: Self.barSpacing) {
             ForEach(self.bars, id: \.dayKey) { day in
@@ -122,29 +126,14 @@ struct CostSectionView: View {
         }
         .frame(height: Self.chartHeight)
         .padding(.top, Self.chartTopPadding)
-        .overlay {
-            GeometryReader { geometry in
-                MouseLocationReader(
-                    onMoved: { location in
-                        self.updateHover(at: location, width: geometry.size.width)
-                    },
-                    onClicked: { location in
-                        self.toggleLabel(at: location, width: geometry.size.width)
-                    }
-                )
-            }
-        }
+        .mouseLocation(onMoved: self.updateHover, onClicked: self.toggleLabel)
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
 
     private func bar(for day: CostDay) -> some View {
         let value = day.costUSD ?? 0
         let ratio = self.maxValue > 0 ? value / self.maxValue : 0
-        let selectedDayKey = CostChartHighlightPolicy.selectedDayKey(
-            hoveredDayKey: self.hoveredDayKey,
-            todayDayKey: self.todayDayKey,
-            availableDayKeys: Set(self.bars.map(\.dayKey))
-        )
+        let selectedDayKey = self.selectedDayKey
         // Exactly one selected bar is fully opaque; every other day shares one quiet tone.
         let opacity = CostChartHighlightPolicy.opacity(
             dayKey: day.dayKey,
@@ -163,7 +152,7 @@ struct CostSectionView: View {
             .frame(maxWidth: .infinity)
             .overlay(alignment: .top) {
                 if isSelected {
-                    self.label(for: day, selectedDayKey: selectedDayKey)
+                    self.label(for: day)
                         .offset(y: -14)
                         .transition(CostChartHoverMotion.labelTransition)
                 }
@@ -173,22 +162,18 @@ struct CostSectionView: View {
     /// The outer `if` above owns the label's arrival on a bar; this one owns the unit swap on a
     /// bar that already has a label. Keeping the two changes on separate views is what stops a
     /// click from replaying the arrival, or a move between bars from replaying the swap.
-    private func label(for day: CostDay, selectedDayKey: String?) -> some View {
+    private func label(for day: CostDay) -> some View {
         ZStack {
             ForEach([self.selectedLabelMode], id: \.self) { mode in
-                if let text = CostChartHighlightPolicy.labelText(
-                    dayKey: day.dayKey,
-                    selectedDayKey: selectedDayKey,
+                Text(CostChartHighlightPolicy.labelText(
                     selectedMode: mode,
                     tokens: day.tokens.total,
                     costUSD: day.costUSD
-                ) {
-                    Text(text)
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.primary)
-                        .fixedSize()
-                        .transition(CostChartHoverMotion.swapTransition)
-                }
+                ))
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.primary)
+                .fixedSize()
+                .transition(CostChartHoverMotion.swapTransition)
             }
         }
     }
@@ -196,11 +181,7 @@ struct CostSectionView: View {
     // MARK: - Hover
 
     private var hoveredDay: CostDay? {
-        guard let key = CostChartHighlightPolicy.selectedDayKey(
-            hoveredDayKey: self.hoveredDayKey,
-            todayDayKey: self.todayDayKey,
-            availableDayKeys: Set(self.bars.map(\.dayKey))
-        ) else { return nil }
+        guard let key = self.selectedDayKey else { return nil }
         return self.bars.first { $0.dayKey == key }
     }
 
@@ -273,7 +254,7 @@ struct CostSectionView: View {
         guard let day = self.hoveredDay else {
             return "\(self.bars.count) days with activity · hover a bar for a day"
         }
-        var parts = [Self.dayLabel(day.dayKey), Formatters.cost(day.costUSD ?? 0)]
+        var parts = [Formatters.dayLabel(day.dayKey), Formatters.cost(day.costUSD ?? 0)]
         let tokens = day.tokens.total
         if tokens > 0 { parts.append("\(Formatters.tokens(tokens)) tokens") }
         return parts.joined(separator: " · ")
@@ -314,7 +295,7 @@ struct CostSectionView: View {
         CostChartHighlightPolicy.selectedDayKey(
             hoveredDayKey: self.hoveredDayKey,
             todayDayKey: self.todayDayKey,
-            availableDayKeys: Set(self.bars.map(\.dayKey))
+            availableDayKeys: self.barDayKeys
         )
     }
 
@@ -340,24 +321,6 @@ struct CostSectionView: View {
         withAnimation(animation) { self.selectedLabelMode = nextMode }
         self.onLabelModeChanged(nextMode)
     }
-
-    private static func dayKey(for date: Date, calendar: Calendar = .current) -> String {
-        let components = calendar.dateComponents([.year, .month, .day], from: date)
-        guard let year = components.year, let month = components.month, let day = components.day else {
-            return ""
-        }
-        return String(format: "%04d-%02d-%02d", year, month, day)
-    }
-
-    /// "2026-08-24" -> "Aug 24".
-    private static func dayLabel(_ dayKey: String) -> String {
-        let parts = dayKey.split(separator: "-")
-        guard parts.count == 3, let month = Int(parts[1]), let day = Int(parts[2]),
-              (1...12).contains(month) else { return dayKey }
-        let names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-        return "\(names[month - 1]) \(day)"
-    }
-
 
 
     // MARK: - Disclaimer

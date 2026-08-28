@@ -74,6 +74,24 @@ enum Formatters {
         return String(format: "$%.2f", value)
     }
 
+    /// "2026-08-24" — the key a `CostDay` is filed under.
+    static func dayKey(for date: Date, calendar: Calendar = .current) -> String {
+        let components = calendar.dateComponents([.year, .month, .day], from: date)
+        guard let year = components.year, let month = components.month, let day = components.day else {
+            return ""
+        }
+        return String(format: "%04d-%02d-%02d", year, month, day)
+    }
+
+    /// "2026-08-24" -> "Aug 24".
+    static func dayLabel(_ dayKey: String) -> String {
+        let parts = dayKey.split(separator: "-")
+        guard parts.count == 3, let month = Int(parts[1]), let day = Int(parts[2]),
+              (1...12).contains(month) else { return dayKey }
+        let names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+        return "\(names[month - 1]) \(day)"
+    }
+
     /// "67M", "637M", "1.2B" — token counts are large enough that digits stop being readable.
     static func tokens(_ count: Int) -> String {
         let value = Double(count)

@@ -9,8 +9,7 @@ enum CardDump {
     /// Renders the settings window's content off screen too, so its layout can be checked
     /// without opening a real window.
     static func dumpSettings(directory: String) {
-        let root = URL(fileURLWithPath: (directory as NSString).expandingTildeInPath)
-        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let root = OffscreenCapture.directory(directory)
 
         // A throwaway defaults domain keeps the dump from touching real preferences.
         let defaults = UserDefaults(suiteName: "AgentUsageBarSettingsDump") ?? .standard
@@ -46,40 +45,26 @@ enum CardDump {
         // on its own, so the height comes from the view rather than from a constant here.
         hosting.frame = NSRect(origin: .zero, size: hosting.fittingSize)
 
-        let window = NSWindow(
-            contentRect: hosting.frame,
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        window.appearance = NSAppearance(named: .darkAqua)
-        // cacheDisplay paints no window background, so give it an opaque ground or the dark-mode
-        // text renders white on white.
-        let ground = NSView(frame: hosting.frame)
-        ground.wantsLayer = true
-        ground.layer?.backgroundColor = NSColor(white: 0.13, alpha: 1).cgColor
-        ground.addSubview(hosting)
-        window.contentView = ground
-        window.orderFront(nil)
-
         // The pane loads its rows asynchronously, so let the run loop turn before capturing.
-        RunLoop.current.run(until: Date().addingTimeInterval(3))
-        ground.layoutSubtreeIfNeeded()
+        Self.report(
+            OffscreenCapture.writePNG(hosting, named: name, into: root, titled: true, settle: 3),
+            size: hosting.frame
+        )
+    }
 
-        guard let rep = ground.bitmapImageRepForCachingDisplay(in: ground.bounds) else { return }
-        ground.cacheDisplay(in: ground.bounds, to: rep)
-        guard let data = rep.representation(using: NSBitmapImageRep.FileType.png, properties: [:]) else {
-            return
+    /// Both card dumps name the size they wrote, since a layout regression usually shows up there
+    /// first.
+    private static func report(_ outcome: OffscreenCapture.Outcome, size: CGRect) {
+        switch outcome {
+        case let .written(url):
+            print("wrote \(url.path) (\(Int(size.width))x\(Int(size.height)))")
+        case let .failed(reason):
+            print(reason)
         }
-        let url = root.appendingPathComponent("\(name).png")
-        try? data.write(to: url)
-        print("wrote \(url.path) (\(Int(hosting.frame.width))x\(Int(hosting.frame.height)))")
-        window.orderOut(nil)
     }
 
     static func run(directory: String) {
-        let root = URL(fileURLWithPath: (directory as NSString).expandingTildeInPath)
-        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let root = OffscreenCapture.directory(directory)
 
         let now = Date().addingTimeInterval(-5 * 60)
 
@@ -162,26 +147,13 @@ enum CardDump {
                     previewTodayDayKey: today.dayKey
                 ).padding(14).frame(width: 280))
                 hosting.frame = NSRect(origin: .zero, size: hosting.fittingSize)
-                let window = NSWindow(
-                    contentRect: hosting.frame,
-                    styleMask: [.borderless],
-                    backing: .buffered,
-                    defer: false
+                let outcome = OffscreenCapture.writePNG(
+                    hosting,
+                    named: "\(provider.rawValue)-\(name)",
+                    into: root
                 )
-                window.appearance = NSAppearance(named: .darkAqua)
-                let ground = NSView(frame: hosting.frame)
-                ground.wantsLayer = true
-                ground.layer?.backgroundColor = NSColor(white: 0.13, alpha: 1).cgColor
-                ground.addSubview(hosting)
-                window.contentView = ground
-                ground.layoutSubtreeIfNeeded()
-                if let rep = ground.bitmapImageRepForCachingDisplay(in: ground.bounds) {
-                    ground.cacheDisplay(in: ground.bounds, to: rep)
-                    if let data = rep.representation(using: NSBitmapImageRep.FileType.png, properties: [:]) {
-                        let url = root.appendingPathComponent("\(provider.rawValue)-\(name).png")
-                        try? data.write(to: url)
-                        print("wrote \(url.path)")
-                    }
+                if case let .written(url) = outcome {
+                    print("wrote \(url.path)")
                 }
             }
         }
@@ -205,36 +177,10 @@ enum CardDump {
                 )
                 let hosting = NSHostingView(rootView: view)
                 hosting.frame = NSRect(origin: .zero, size: hosting.fittingSize)
-                // A layer-backed offscreen host still needs a window to lay out correctly.
-                let window = NSWindow(
-                    contentRect: hosting.frame,
-                    styleMask: [.borderless],
-                    backing: .buffered,
-                    defer: false
+                Self.report(
+                    OffscreenCapture.writePNG(hosting, named: name, into: root),
+                    size: hosting.frame
                 )
-                // The real card sits on the menu's vibrant material. Force dark appearance and paint
-                // an opaque ground so the dumped PNG shows the same contrast the menu does.
-                window.appearance = NSAppearance(named: .darkAqua)
-                let ground = NSView(frame: hosting.frame)
-                ground.wantsLayer = true
-                ground.layer?.backgroundColor = NSColor(white: 0.13, alpha: 1).cgColor
-                ground.addSubview(hosting)
-                window.contentView = ground
-                ground.layoutSubtreeIfNeeded()
-                hosting.layoutSubtreeIfNeeded()
-
-                guard let rep = ground.bitmapImageRepForCachingDisplay(in: ground.bounds) else {
-                    print("failed to allocate bitmap for \(name)")
-                    continue
-                }
-                ground.cacheDisplay(in: ground.bounds, to: rep)
-                guard let data = rep.representation(using: NSBitmapImageRep.FileType.png, properties: [:]) else {
-                    print("failed to encode \(name)")
-                    continue
-                }
-                let url = root.appendingPathComponent("\(name).png")
-                try? data.write(to: url)
-                print("wrote \(url.path) (\(Int(hosting.frame.width))x\(Int(hosting.frame.height)))")
             }
         }
     }

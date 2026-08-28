@@ -45,14 +45,14 @@ enum CostChartHoverMotion {
 
     static func hoverAnimation(timeScale: Double = 1) -> Animation {
         .spring(
-            response: Self.scaled(Self.hoverResponse, timeScale),
+            response: Self.scaled(Self.hoverResponse, timeScale: timeScale),
             dampingFraction: Self.hoverDamping
         )
     }
 
     static func returnAnimation(timeScale: Double = 1) -> Animation {
         .spring(
-            response: Self.scaled(Self.returnResponse, timeScale),
+            response: Self.scaled(Self.returnResponse, timeScale: timeScale),
             dampingFraction: Self.returnDamping
         )
     }
@@ -73,14 +73,18 @@ enum CostChartHoverMotion {
     /// out and the new one resolves out of the blur. Nothing moves, which is what says the two
     /// readings are the same quantity counted differently — a positional swap would say the
     /// label had been replaced by a different label.
-    static let swapBlur: CGFloat = QuotaNumberMotion.blurRadius
+    ///
+    /// Read off `QuotaNumberMotion.blurRadius`, but held here rather than taken from it: the
+    /// headline applies that radius through a decaying multiplier on 14 pt text, and this is the
+    /// full radius on a 10 pt one. Two amplitudes that happen to agree, not one shared amplitude.
+    static let swapBlur: CGFloat = 2.6
     /// How small the number is while it is still blurred. Enough to feel unresolved, not enough
     /// to read as a separate zoom.
     static let swapScale: Double = 0.86
 
     static func swapAnimation(reduceMotion: Bool, timeScale: Double = 1) -> Animation? {
         guard !reduceMotion else { return nil }
-        return .easeOut(duration: Self.scaled(Self.swapDuration, timeScale))
+        return .easeOut(duration: Self.scaled(Self.swapDuration, timeScale: timeScale))
     }
 
     static let swapTransition: AnyTransition = .modifier(
@@ -88,8 +92,9 @@ enum CostChartHoverMotion {
         identity: LabelResolve(progress: 0)
     )
 
-    /// The demo window slows the spring down so a quarter-second response can be judged by eye.
-    private static func scaled(_ duration: TimeInterval, _ timeScale: Double) -> TimeInterval {
+    /// The demo windows slow these curves down so a quarter-second response can be judged by
+    /// eye. A playback rate, so a slower rate is a longer animation.
+    static func scaled(_ duration: TimeInterval, timeScale: Double) -> TimeInterval {
         duration / max(0.01, timeScale)
     }
 }

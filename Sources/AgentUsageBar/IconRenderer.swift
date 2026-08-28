@@ -303,17 +303,9 @@ enum IconRenderer {
     private static func renderImage(_ draw: () -> Void) -> NSImage {
         let image = NSImage(size: Self.outputSize)
 
-        if let rep = NSBitmapImageRep(
-            bitmapDataPlanes: nil,
+        if let rep = NSBitmapImageRep.rgba(
             pixelsWide: Int(Self.outputSize.width * Self.outputScale),
-            pixelsHigh: Int(Self.outputSize.height * Self.outputScale),
-            bitsPerSample: 8,
-            samplesPerPixel: 4,
-            hasAlpha: true,
-            isPlanar: false,
-            colorSpaceName: .deviceRGB,
-            bytesPerRow: 0,
-            bitsPerPixel: 0
+            pixelsHigh: Int(Self.outputSize.height * Self.outputScale)
         ) {
             rep.size = Self.outputSize
             image.addRepresentation(rep)

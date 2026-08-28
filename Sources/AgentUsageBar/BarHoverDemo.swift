@@ -9,36 +9,13 @@ import SwiftUI
 /// highlight travels between bars and how it finds its way home when the pointer leaves.
 @MainActor
 enum BarHoverDemo {
-    private final class Delegate: NSObject, NSApplicationDelegate {
-        func applicationShouldTerminateAfterLastWindowClosed(_: NSApplication) -> Bool { true }
-    }
-
-    private static var window: NSWindow?
-    private static var delegate: Delegate?
-
     static func run() -> Never {
-        let app = NSApplication.shared
-        app.setActivationPolicy(.regular)
-        let delegate = Delegate()
-        app.delegate = delegate
-        Self.delegate = delegate
-
-        let hosting = NSHostingView(rootView: BarHoverDemoView())
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 1000, height: 820),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
-            backing: .buffered,
-            defer: false
+        DemoWindow.run(
+            title: "Cost chart hover prototypes",
+            width: 1000,
+            height: 820,
+            content: BarHoverDemoView()
         )
-        window.title = "Cost chart hover prototypes"
-        window.contentView = hosting
-        window.center()
-        window.makeKeyAndOrderFront(nil)
-        Self.window = window
-
-        app.activate(ignoringOtherApps: true)
-        app.run()
-        exit(0)
     }
 }
 
@@ -51,11 +28,6 @@ enum BarHoverDemo {
 private enum HoverMotion {
     static let hover: TimeInterval = 0.14
     static let returning: TimeInterval = 0.34
-
-    /// The demo's speed picker is a playback rate, so a slower rate is a longer animation.
-    static func scaled(_ duration: TimeInterval, speed: Double) -> TimeInterval {
-        duration / max(0.01, speed)
-    }
 }
 
 // MARK: - Variants
@@ -106,7 +78,7 @@ private enum HoverStyle: String, CaseIterable, Identifiable {
     }
 
     func hoverAnimation(speed: Double) -> Animation {
-        let duration = HoverMotion.scaled(HoverMotion.hover, speed: speed)
+        let duration = CostChartHoverMotion.scaled(HoverMotion.hover, timeScale: speed)
         switch self {
         case .crossfade: return .easeOut(duration: duration)
         // B shipped, so it is driven by the production curve rather than a copy of its numbers.
@@ -119,7 +91,7 @@ private enum HoverStyle: String, CaseIterable, Identifiable {
     }
 
     func returnAnimation(speed: Double) -> Animation {
-        let duration = HoverMotion.scaled(HoverMotion.returning, speed: speed)
+        let duration = CostChartHoverMotion.scaled(HoverMotion.returning, timeScale: speed)
         switch self {
         case .crossfade: return .easeInOut(duration: duration)
         case .lift: return CostChartHoverMotion.returnAnimation(timeScale: speed)
@@ -156,8 +128,8 @@ private struct BarHoverDemoView: View {
         GridItem(.flexible(), spacing: 18),
     ]
 
-    private let days = BarHoverDemoData.days()
-    private let todayDayKey = BarHoverDemoData.todayDayKey()
+    private let days = CostChartDemoData.days()
+    private let todayDayKey = CostChartDemoData.todayDayKey()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -240,11 +212,7 @@ private struct HoverVariantCard: View {
     let speed: Double
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(self.style.title)
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                .foregroundStyle(.secondary)
-
+        DemoVariantCard(title: self.style.title, blurb: self.style.blurb) {
             HoverChart(
                 style: self.style,
                 provider: self.provider,
@@ -253,24 +221,6 @@ private struct HoverVariantCard: View {
                 labelMode: self.labelMode,
                 speed: self.speed
             )
-
-            Text(self.style.blurb)
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color(nsColor: .windowBackgroundColor))
-                .shadow(color: .black.opacity(0.1), radius: 12, y: 5)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color(nsColor: .separatorColor).opacity(0.8))
         }
     }
 }
@@ -296,7 +246,6 @@ private struct HoverChart: View {
     private static let chartHeight: CGFloat = 56
     private static let barSpacing: CGFloat = 4
     private static let lift: CGFloat = CostChartHoverMotion.lift
-    private static let restingOpacity: Double = 0.55
 
     private var tint: Color { Theme.accent(for: self.provider) }
 
@@ -321,16 +270,7 @@ private struct HoverChart: View {
             }
             .frame(height: Self.chartHeight)
             .padding(.top, 18)
-            .overlay {
-                GeometryReader { geometry in
-                    MouseLocationReader(
-                        onMoved: { location in
-                            self.updateHover(at: location, width: geometry.size.width)
-                        },
-                        onClicked: { _ in }
-                    )
-                }
-            }
+            .mouseLocation(onMoved: self.updateHover)
 
             Text(self.summaryLine)
                 .font(.system(size: 11))
@@ -348,7 +288,7 @@ private struct HoverChart: View {
         return RoundedRectangle(cornerRadius: 2)
             .fill(self.tint)
             // Opacity as a modifier rather than inside the fill, so it is a plain animatable value.
-            .opacity(selected && self.style != .travel ? 1 : Self.restingOpacity)
+            .opacity(selected && self.style != .travel ? 1 : CostChartHighlightPolicy.restingOpacity)
             .frame(height: height)
             .frame(maxWidth: .infinity)
             .background(alignment: .bottom) {
@@ -423,7 +363,7 @@ private struct HoverChart: View {
         guard let key = self.selectedDayKey, let day = self.days.first(where: { $0.dayKey == key })
         else { return "hover a bar for a day" }
         let suffix = key == self.todayDayKey && self.hoveredDayKey == nil ? " · today" : ""
-        return "\(BarHoverDemoData.dayLabel(key)) · \(Formatters.cost(day.costUSD ?? 0))\(suffix)"
+        return "\(Formatters.dayLabel(key)) · \(Formatters.cost(day.costUSD ?? 0))\(suffix)"
     }
 
     // MARK: - Hover
@@ -464,7 +404,7 @@ private struct HoverChart: View {
         // The decay has to be a separate update, or SwiftUI coalesces both writes and the flash
         // never reaches the screen.
         DispatchQueue.main.async {
-            let duration = HoverMotion.scaled(returning ? 0.5 : 0.34, speed: self.speed)
+            let duration = CostChartHoverMotion.scaled(returning ? 0.5 : 0.34, timeScale: self.speed)
             withAnimation(.easeOut(duration: duration)) { self.arrivalFlash = 0 }
         }
     }
@@ -503,66 +443,4 @@ private struct BarBloom: View {
     }
 }
 
-// MARK: - Demo data
-
-/// Ten days shaped like a real month: one spike, a quiet stretch, and a modest today, so the trip
-/// home is a long one and the return animation is actually visible.
-private enum BarHoverDemoData {
-    private static let costs: [Double] = [8, 12, 26, 41, 9, 30, 34, 196, 15, 22]
-
-    static func days(today: Date = Date()) -> [CostDay] {
-        let calendar = Calendar.current
-        return Self.costs.enumerated().compactMap { index, cost in
-            guard let date = calendar.date(
-                byAdding: .day,
-                value: index - (Self.costs.count - 1),
-                to: today
-            ) else { return nil }
-            return CostDay(
-                dayKey: Self.dayKey(for: date),
-                byModel: [
-                    "opus-5": ModelDayUsage(
-                        tokens: TokenTotals(
-                            input: Int(cost * 1_400),
-                            output: Int(cost * 320),
-                            cacheWrite: Int(cost * 2_100),
-                            cacheRead: Int(cost * 9_600)
-                        ),
-                        costUSD: cost * 0.72
-                    ),
-                    "haiku-4.5": ModelDayUsage(
-                        tokens: TokenTotals(
-                            input: Int(cost * 900),
-                            output: Int(cost * 180),
-                            cacheRead: Int(cost * 3_100)
-                        ),
-                        costUSD: cost * 0.28
-                    ),
-                ],
-                costUSD: cost,
-                unpricedTokens: 0
-            )
-        }
-    }
-
-    static func todayDayKey(today: Date = Date()) -> String {
-        Self.dayKey(for: today)
-    }
-
-    static func dayKey(for date: Date, calendar: Calendar = .current) -> String {
-        let components = calendar.dateComponents([.year, .month, .day], from: date)
-        guard let year = components.year, let month = components.month, let day = components.day
-        else { return "" }
-        return String(format: "%04d-%02d-%02d", year, month, day)
-    }
-
-    /// "2026-08-24" -> "Aug 24".
-    static func dayLabel(_ dayKey: String) -> String {
-        let parts = dayKey.split(separator: "-")
-        guard parts.count == 3, let month = Int(parts[1]), let day = Int(parts[2]),
-              (1...12).contains(month) else { return dayKey }
-        let names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-        return "\(names[month - 1]) \(day)"
-    }
-}
 #endif
