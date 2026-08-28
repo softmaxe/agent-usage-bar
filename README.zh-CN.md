@@ -272,6 +272,16 @@ make clean
 - Claude 的凭据不会被刷新或写回。token 过期时用 Claude Code 重新登录。
 - 成本数字是从本地日志还原出来的，不是账单。
 
+## 许可证
+
+AGPL-3.0，全文见 [LICENSE](LICENSE)。
+
+这是 copyleft 里最严的一档，选它就是为了这一点。你分发改过的版本，就得连源码一起给，而且用同一个
+许可证。第 13 条补上了普通 GPL 漏掉的那种情况：把改过的版本挂成联网服务跑，任何通过网络用到它的人
+都可以向你要源码。自己改了自己用、不对外，仍然没问题。
+
+从 CodexBar 拿来的那部分按它自己的条款仍是 MIT。整个项目是 AGPL-3.0。
+
 ## 致谢
 
 基于 CodexBar 的思路和实现细节，Copyright © 2026 Peter Steinberger，MIT License。

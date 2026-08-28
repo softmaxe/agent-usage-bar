@@ -319,6 +319,17 @@ Models with no known price appear without one until the catalog or an override s
   stops and you must open Claude Code yourself.
 - Cost figures are reconstructed from local logs. They are not billing statements.
 
+## License
+
+AGPL-3.0. The full text is in [LICENSE](LICENSE).
+
+That is the strict end of the copyleft range, and it is the point. Ship a modified build and the
+source has to go with it, under the same license. Section 13 covers the case a plain GPL leaves
+open: run a modified version as a network service and everyone who talks to that service over the
+network can ask you for its source. Keeping a private fork to yourself is still fine.
+
+The parts adapted from CodexBar stay MIT under their own terms. The project as a whole is AGPL-3.0.
+
 ## Acknowledgements
 
 Built on ideas and implementation details from CodexBar, Copyright © 2026 Peter Steinberger, under
