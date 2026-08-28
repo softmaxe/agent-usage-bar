@@ -23,6 +23,8 @@ func report(_ provider: Provider, _ state: ProviderState) {
         print("  signed out: \(reason)")
     case let .failed(reason):
         print("  FAILED: \(reason)")
+    case let .recoveryRequired(reason):
+        print("  RECOVERY REQUIRED: \(reason)")
     case let .loaded(snapshot):
         print("  plan: \(snapshot.planLabel ?? "(none)")")
         print(describe(snapshot.session, label: "session"))

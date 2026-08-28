@@ -89,5 +89,7 @@ public enum ProviderState: Sendable {
     /// No credentials on this machine — the status item stays hidden.
     case signedOut(String)
     case failed(String)
+    /// The provider stayed read-only, but an explicit Refresh may ask its credential owner to act.
+    case recoveryRequired(String)
     case loaded(UsageSnapshot)
 }

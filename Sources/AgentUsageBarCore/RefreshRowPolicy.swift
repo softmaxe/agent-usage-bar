@@ -19,11 +19,22 @@ public enum RefreshRowPolicy {
 
     public static let idleTitle = "Refresh"
 
-    public static func state(cooldownRemaining: TimeInterval, isRefreshing: Bool) -> State {
+    public static func state(
+        cooldownRemaining: TimeInterval,
+        isRefreshing: Bool,
+        allowsCredentialRecovery: Bool = false
+    ) -> State {
         // An in-flight refresh also holds the cooldown, so it is reported as what it is rather
         // than as a countdown the user cannot act on yet.
         if isRefreshing {
             return State(title: "Refreshing…", trailingText: nil, isEnabled: false)
+        }
+
+        // A read-only automatic attempt may discover an expired Claude credential. The existing
+        // row is then the user's explicit authorization for one delegated repair, so the API
+        // cooldown must not make that action unavailable.
+        if allowsCredentialRecovery {
+            return State(title: Self.idleTitle, trailingText: nil, isEnabled: true)
         }
 
         guard cooldownRemaining > 0 else {

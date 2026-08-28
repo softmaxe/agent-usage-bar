@@ -650,6 +650,15 @@ enum RefreshRowPolicyTests {
         Harness.expectEqual(waiting.trailingText, "42s", "the cooldown is spelled out in the shortcut column")
         Harness.expect(!waiting.isEnabled, "and the row refuses clicks it would drop")
 
+        let recovery = RefreshRowPolicy.state(
+            cooldownRemaining: 42,
+            isRefreshing: false,
+            allowsCredentialRecovery: true
+        )
+        Harness.expectEqual(recovery.title, "Refresh", "credential recovery keeps the existing row title")
+        Harness.expectEqual(recovery.trailingText, nil, "credential recovery hides the API cooldown")
+        Harness.expect(recovery.isEnabled, "credential recovery accepts an explicit user click")
+
         // Rounded up, so the last partial second never reads as a refresh that would be honoured.
         let sliver = RefreshRowPolicy.state(cooldownRemaining: 0.2, isRefreshing: false)
         Harness.expectEqual(sliver.trailingText, "1s", "a partial second still counts")
