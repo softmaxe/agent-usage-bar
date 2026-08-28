@@ -203,11 +203,17 @@ claude        # 走 CLI 自己的登录流程；token 落在钥匙串里
 ```
 
 读取 Claude 那条钥匙串记录走的是 Apple 的 `/usr/bin/security`，第一次可能会弹出 macOS 授权提示。
+如果你手动点的 `Refresh` 收到 401，AgentUsageBar 会起一个隐藏的、五秒超时的 Claude Code 状态命令，
+让 Claude Code 自己去刷新凭据。之后它重读钥匙串，只有在 access token 确实变了的时候才重试一次。
+它从不写 CLI 的凭据记录，也不会去调 `auth login`、开 Terminal 或者开浏览器。Claude Code 仍然可能
+要求你交互式登录；真到那一步，恢复流程就停下，得你自己打开 Claude Code。自动刷新一律 fail closed，
+不会启动 Claude Code。
 
 ## 隐私与网络
 
-应用只读本地凭据和日志，从不写回。`auth.json` 对它是只读的，刷新出来的 Codex token 只在本次运行
-的内存里。它写入的东西都在自己的目录下：
+应用只读本地凭据和日志，从不写 CLI 自己的凭据存储。`auth.json` 对它是只读的，刷新出来的 Codex
+token 只在本次运行的内存里。只有你点了 `Refresh` 之后，才可能由一个 Claude Code 进程去更新它自己的
+凭据。AgentUsageBar 真正写入的东西都在自己的目录下：
 
 ```text
 ~/Library/Application Support/AgentUsageBar/usage-history.json      额度采样，保留 56 天
@@ -269,7 +275,9 @@ make clean
 ## 已知限制
 
 - 打包脚本产出的是当前架构、ad-hoc 签名的本地构建。通用二进制和公证没有做自动化。
-- Claude 的凭据不会被刷新或写回。token 过期时用 Claude Code 重新登录。
+- Claude 的凭据恢复只在你手动点 `Refresh` 之后交给 Claude Code，且最多一次隐藏的状态命令。自动刷新
+  fail closed，AgentUsageBar 从不写 CLI 凭据。Claude Code 仍可能要求交互式登录；那样恢复就停下，
+  得你自己打开 Claude Code。
 - 成本数字是从本地日志还原出来的，不是账单。
 
 ## 许可证
