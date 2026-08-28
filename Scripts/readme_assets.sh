@@ -27,6 +27,8 @@ echo "==> rendering frames"
 "$BIN" --dump-tab-switch "$WORK/tab" >/dev/null
 "$BIN" --dump-disclosure "$WORK/disclosure" >/dev/null
 "$BIN" --dump-chart-motion "$WORK/chart-motion" >/dev/null
+"$BIN" --dump-label-toggle "$WORK/label-toggle" >/dev/null
+"$BIN" --dump-reset-toggle "$WORK/reset-toggle" claude >/dev/null
 
 echo "==> hero"
 # The two cards are different heights — Codex carries a credits block Claude has no equivalent
@@ -46,8 +48,16 @@ ffmpeg -v error -y -framerate 2.2 -i "$WORK/hover/frame-%04d.png" \
   -filter_complex "fps=2.2,scale=560:-1:flags=lanczos,split [a][b];[a] palettegen=max_colors=96 [p];[b][p] paletteuse=dither=bayer:bayer_scale=4" \
   "$OUT/chart-hover.gif"
 
+echo "==> reset toggle gif"
+# Ten frames a second, because nothing on this one moves: the label's two faces are a cut in the
+# app too. The crop keeps the two quota rows and drops the header and the chart under them, so
+# the only thing that changes in frame is the label being clicked.
+ffmpeg -v error -y -framerate 10 -i "$WORK/reset-toggle/frame-%04d.png" \
+  -filter_complex "fps=10,crop=560:268:0:112,split [a][b];[a] palettegen=max_colors=96:stats_mode=diff [p];[b][p] paletteuse=dither=sierra2_4a:diff_mode=rectangle" \
+  "$OUT/reset-toggle.gif"
+
 echo "==> motion strips"
-# All three are dumped at 25fps, which is a whole number of GIF delay units, so they play back at
+# All four are dumped at 25fps, which is a whole number of GIF delay units, so they play back at
 # the speed the app animates at.
 strip() {
   ffmpeg -v error -y -framerate 25 -i "$WORK/$1/frame-%04d.png" \
@@ -57,6 +67,7 @@ strip() {
 strip tab 480 tab-switch.gif
 strip disclosure 560 disclosure.gif
 strip chart-motion 500 chart-motion.gif
+strip label-toggle 500 label-toggle.gif
 
 echo "==> menu bar icons"
 ffmpeg -v error -y \

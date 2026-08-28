@@ -19,6 +19,10 @@ struct MenuCardView: View {
     var onCostChartLabelModeChanged: (CostChartLabelMode) -> Void = { _ in }
     var quotaResetDisplayMode = QuotaResetDisplayMode.countdown
     var onQuotaResetDisplayModeChanged: (QuotaResetDisplayMode) -> Void = { _ in }
+    /// Draws one window's reset label as though the pointer were on it. Only the frame dump sets
+    /// it: off screen there is no pointer, and the lift on hover is the whole of what tells a
+    /// reader the label is a switch.
+    var hoveredResetLabelWindow: QuotaWindowKind?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -148,6 +152,7 @@ struct MenuCardView: View {
             celebrationStartPercent: self.recoveries[kind]?.fromRemainingPercent,
             now: self.now,
             resetDisplayMode: self.quotaResetDisplayMode,
+            isResetLabelHovered: kind == self.hoveredResetLabelWindow,
             onResetDisplayModeToggled: {
                 self.onQuotaResetDisplayModeChanged(self.quotaResetDisplayMode.toggled)
             }
@@ -171,6 +176,7 @@ private struct QuotaWindowRow: View {
     /// and in the verifiers as it does against the wall clock.
     let now: Date
     let resetDisplayMode: QuotaResetDisplayMode
+    let isResetLabelHovered: Bool
     let onResetDisplayModeToggled: () -> Void
 
     @StateObject private var celebration = QuotaCelebrationRelay()
@@ -192,6 +198,7 @@ private struct QuotaWindowRow: View {
                             mode: self.resetDisplayMode,
                             now: self.now
                         ),
+                        previewHovered: self.isResetLabelHovered,
                         onToggle: self.onResetDisplayModeToggled
                     )
                 }
@@ -225,18 +232,22 @@ private struct QuotaWindowRow: View {
 /// through the same always-active tracking view the cost chart uses.
 private struct ResetLabel: View {
     let text: String
+    /// Held on by the frame dump, which has no pointer of its own.
+    var previewHovered = false
     let onToggle: () -> Void
 
     @State private var isHovered = false
+
+    private var showsHover: Bool { self.isHovered || self.previewHovered }
 
     var body: some View {
         Text(self.text)
             .font(.system(size: 11))
             // Nothing else on the card responds to the pointer this way, so the lift on hover is
             // what tells the reader the label is worth clicking at all.
-            .foregroundStyle(self.isHovered ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+            .foregroundStyle(self.showsHover ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
             .lineLimit(1)
-            .animation(.easeOut(duration: 0.12), value: self.isHovered)
+            .animation(.easeOut(duration: 0.12), value: self.showsHover)
             .overlay {
                 MouseLocationReader(
                     onMoved: { location in

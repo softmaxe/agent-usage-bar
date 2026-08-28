@@ -28,6 +28,23 @@ enum MotionFilmStrip {
         TabSwitchMotion.progress(at: time, duration: duration)
     }
 
+    /// `.easeOut`, the unit cubic Bézier through (0, 0) and (0.58, 1), which is what the label's
+    /// unit swap runs on. `TabSwitchMotion` solves its own control points and only its own, so
+    /// this one solves these.
+    static func easeOut(_ time: TimeInterval, duration: TimeInterval) -> Double {
+        guard duration > 0 else { return 1 }
+        let x = min(max(time / duration, 0), 1)
+        var low = 0.0
+        var high = 1.0
+        var t = x
+        for _ in 0..<20 {
+            let current = 3 * (1 - t) * t * t * 0.58 + t * t * t
+            if current < x { low = t } else { high = t }
+            t = (low + high) / 2
+        }
+        return 3 * (1 - t) * t * t * 1.0 + t * t * t
+    }
+
     /// SwiftUI's `.spring(response:dampingFraction:)` is a damped harmonic oscillator with
     /// ω₀ = 2π / response and ζ = dampingFraction, released from rest. This is that solution.
     static func spring(_ time: TimeInterval, response: TimeInterval, damping: Double) -> Double {
@@ -150,6 +167,34 @@ enum MotionFilmStrip {
             }
         }
         print("wrote \(index) chart motion frames to \(root.path)")
+    }
+
+    // MARK: - Cost chart label
+
+    /// `--dump-label-toggle <dir>`: a click on the highlighted bar swapping its label between
+    /// tokens and cost, twice, on the shipped blur-and-resolve. The reading is what changes, so
+    /// the bar under it holds still.
+    static func dumpLabelToggle(directory: String) {
+        let root = OffscreenCapture.directory(directory)
+        let hold: TimeInterval = 0.9
+
+        var index = 0
+        for mode in [CostChartLabelMode.cost, .tokens] {
+            var time: TimeInterval = 0
+            while time < CostChartHoverMotion.swapDuration + hold {
+                Self.write(
+                    ChartLabelSwapFrame(
+                        mode: mode,
+                        progress: Self.easeOut(time, duration: CostChartHoverMotion.swapDuration)
+                    ),
+                    frame: index,
+                    into: root
+                )
+                time += Self.step
+                index += 1
+            }
+        }
+        print("wrote \(index) label toggle frames to \(root.path)")
     }
 }
 
@@ -355,6 +400,71 @@ private struct ChartHighlightFrame: View {
         }
         .padding(18)
         .frame(width: 340, height: 160, alignment: .bottomLeading)
+        .background(Color(white: 0.13))
+    }
+}
+
+/// The highlighted bar's label changing unit. The bars are the stand-in; the label is not — the
+/// text comes from `CostChartHighlightPolicy`, and the two readings are drawn through the same
+/// `LabelResolve` the shipped transition ends on, one arriving as the other leaves.
+private struct ChartLabelSwapFrame: View {
+    /// The unit arriving. The one leaving is the other one; there are only two.
+    let mode: CostChartLabelMode
+    let progress: Double
+
+    private static let values: [Double] = [62, 90, 48, 71, 9, 88, 41, 37]
+    private static let chartHeight: CGFloat = 56
+    private static let spacing: CGFloat = 4
+    private static let chartWidth: CGFloat = 252
+
+    /// A day of the fixture bills a dollar a million tokens, which is what makes the two readings
+    /// the same length and the swap worth watching rather than a change of width.
+    private func text(for mode: CostChartLabelMode) -> some View {
+        let value = Self.values[Self.values.count - 1]
+        return Text(CostChartHighlightPolicy.labelText(
+            selectedMode: mode,
+            tokens: Int(value * 1_000_000),
+            costUSD: value
+        ))
+        .font(.system(size: 10, weight: .medium))
+        .foregroundStyle(.primary)
+        .fixedSize()
+    }
+
+    private var label: some View {
+        ZStack {
+            self.text(for: self.mode == .tokens ? .cost : .tokens)
+                .modifier(LabelResolve(progress: self.progress))
+            self.text(for: self.mode)
+                .modifier(LabelResolve(progress: 1 - self.progress))
+        }
+    }
+
+    var body: some View {
+        let tint = Theme.accent(for: .claude)
+        let maxValue = Self.values.max() ?? 1
+        return HStack(alignment: .bottom, spacing: Self.spacing) {
+            ForEach(Array(Self.values.enumerated()), id: \.offset) { index, value in
+                let isSelected = index == Self.values.count - 1
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(tint)
+                    .opacity(isSelected ? 1 : CostChartHighlightPolicy.restingOpacity)
+                    .frame(
+                        height: max(4, Self.chartHeight * value / maxValue)
+                            + (isSelected ? CostChartHoverMotion.lift : 0)
+                    )
+                    .frame(maxWidth: .infinity)
+                    .overlay(alignment: .top) {
+                        if isSelected { self.label.offset(y: -14) }
+                    }
+            }
+        }
+        .frame(width: Self.chartWidth, height: Self.chartHeight)
+        // Room for the lift and the label above it, the way the card reserves it.
+        .padding(.top, 14 + CostChartHoverMotion.lift)
+        .padding(.horizontal, 14)
+        .padding(.bottom, 12)
+        .frame(width: 280, alignment: .bottom)
         .background(Color(white: 0.13))
     }
 }
