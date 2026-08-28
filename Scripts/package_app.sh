@@ -9,7 +9,7 @@ set -euo pipefail
 
 APP_NAME="AgentUsageBar"
 BUNDLE_ID="com.agentusagebar.app"
-VERSION="${VERSION:-0.1.0}"
+VERSION="${VERSION:-1.0.0}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="$ROOT/build"
 APP="$BUILD_DIR/$APP_NAME.app"
