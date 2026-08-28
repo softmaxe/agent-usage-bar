@@ -34,7 +34,6 @@ struct CostSectionView: View {
     /// settled here rather than rebuilt on every read — hover moves at pointer rate.
     private let bars: [CostDay]
     private let barDayKeys: Set<String>
-    private let maxValue: Double
 
     /// Seeds the hover state so `--dump-card` can capture what hovering looks like.
     init(
@@ -60,7 +59,6 @@ struct CostSectionView: View {
         )
         self.bars = bars
         self.barDayKeys = Set(bars.map(\.dayKey))
-        self.maxValue = bars.map { $0.costUSD ?? 0 }.max() ?? 0
     }
 
     var body: some View {
@@ -131,7 +129,7 @@ struct CostSectionView: View {
     }
 
     private func bar(for day: CostDay) -> some View {
-        let value = day.costUSD ?? 0
+        let value = CostChartHighlightPolicy.value(for: day, mode: self.selectedLabelMode)
         let ratio = self.maxValue > 0 ? value / self.maxValue : 0
         let selectedDayKey = self.selectedDayKey
         // Exactly one selected bar is fully opaque; every other day shares one quiet tone.
@@ -157,6 +155,10 @@ struct CostSectionView: View {
                         .transition(CostChartHoverMotion.labelTransition)
                 }
             }
+    }
+
+    private var maxValue: Double {
+        CostChartHighlightPolicy.maxValue(for: self.bars, mode: self.selectedLabelMode)
     }
 
     /// The outer `if` above owns the label's arrival on a bar; this one owns the unit swap on a

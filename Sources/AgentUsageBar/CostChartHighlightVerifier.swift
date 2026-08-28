@@ -57,6 +57,55 @@ enum CostChartHighlightVerifier {
             failures.append("an existing today bar was duplicated or replaced")
         }
 
+        let tokenHeavyDay = CostDay(
+            dayKey: yesterday,
+            byModel: [
+                "token-heavy": ModelDayUsage(
+                    tokens: TokenTotals(input: 120, output: 80),
+                    costUSD: 10
+                ),
+            ],
+            costUSD: 10,
+            unpricedTokens: 0
+        )
+        let costHeavyDay = CostDay(
+            dayKey: today,
+            byModel: [
+                "cost-heavy": ModelDayUsage(
+                    tokens: TokenTotals(input: 40, output: 60),
+                    costUSD: 20
+                ),
+            ],
+            costUSD: 20,
+            unpricedTokens: 0
+        )
+        let unpricedDay = CostDay(
+            dayKey: "2026-08-27",
+            byModel: [
+                "unpriced": ModelDayUsage(
+                    tokens: TokenTotals(input: 7),
+                    costUSD: nil
+                ),
+            ],
+            costUSD: nil,
+            unpricedTokens: 7
+        )
+        if CostChartHighlightPolicy.value(for: tokenHeavyDay, mode: .tokens) != 200
+            || CostChartHighlightPolicy.value(for: tokenHeavyDay, mode: .cost) != 10 {
+            failures.append("chart value expected token and cost metrics from the selected mode")
+        }
+        if CostChartHighlightPolicy.value(for: unpricedDay, mode: .cost) != 0 {
+            failures.append("a missing day cost expected a zero chart value")
+        }
+        let inverseMetricDays = [tokenHeavyDay, costHeavyDay]
+        let tokenMax = CostChartHighlightPolicy.maxValue(for: inverseMetricDays, mode: .tokens)
+        let costMax = CostChartHighlightPolicy.maxValue(for: inverseMetricDays, mode: .cost)
+        if tokenMax != 200 || costMax != 20 {
+            failures.append(
+                "chart scale expected token max 200 and cost max 20, got \(tokenMax) and \(costMax)"
+            )
+        }
+
         let capped = CostChartHighlightPolicy.visibleDays(
             from: (1...10).map { day in
                 CostDay(

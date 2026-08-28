@@ -1,6 +1,21 @@
 import AgentUsageBarCore
 
 enum CostChartHighlightPolicy {
+    /// The chart's height metric follows the label unit selected by the reader.
+    static func value(for day: CostDay, mode: CostChartLabelMode) -> Double {
+        switch mode {
+        case .tokens:
+            return Double(day.tokens.total)
+        case .cost:
+            return day.costUSD ?? 0
+        }
+    }
+
+    /// The scale uses the same metric as each bar, so switching units rescales the whole chart.
+    static func maxValue(for days: [CostDay], mode: CostChartLabelMode) -> Double {
+        days.map { Self.value(for: $0, mode: mode) }.max() ?? 0
+    }
+
     static func visibleDays(
         from days: [CostDay],
         todayDayKey: String,
