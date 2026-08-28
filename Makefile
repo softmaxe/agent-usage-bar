@@ -22,7 +22,7 @@ VERIFIERS := \
 	disclosure-motion \
 	tab-switch-motion
 
-.PHONY: build run probe probe-cost logs kill test app readme-assets demo demo-number demo-bar-hover demo-label-toggle demo-collapse demo-disclosure demo-pricing-links demo-tab-switch clean
+.PHONY: build run probe probe-cost logs kill test app readme-assets demo demo-number demo-bar-hover demo-label-toggle demo-collapse demo-disclosure demo-provider-group-press demo-pricing-links demo-tab-switch clean
 
 build:
 	swift build -c $(CONFIG)
@@ -72,6 +72,10 @@ demo-label-toggle:
 ## Compare the candidate collapse-button treatments for the pricing table.
 demo-disclosure:
 	$(DEMO) --demo-disclosure
+
+## Compare press feedback for the pricing table's provider group header.
+demo-provider-group-press:
+	$(DEMO) --demo-provider-group-press
 
 ## Compare the candidate layouts for the pricing header's three vendor links.
 demo-pricing-links:

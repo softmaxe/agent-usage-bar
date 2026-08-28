@@ -172,7 +172,7 @@ struct PricingSettingsView: View {
             .frame(maxWidth: .infinity, minHeight: Self.disclosureHitSize.height, alignment: .leading)
             .contentShape(Rectangle())
         }
-        .buttonStyle(DisclosurePressStyle(reduceMotion: self.reduceMotion))
+        .buttonStyle(ProviderGroupHeaderPressStyle(reduceMotion: self.reduceMotion))
     }
 
     /// Rows arrive on the group's easing, each one a beat after the row above it. They leave all

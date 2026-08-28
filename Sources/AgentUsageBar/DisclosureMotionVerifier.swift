@@ -11,6 +11,15 @@ enum DisclosureMotionVerifier {
     private static let budget: TimeInterval = 0.5
 
     static func run() -> Never {
+        Self.require(
+            abs(DisclosureMotion.providerGroupPressScale - 0.985) < 1e-9,
+            "provider group press scale remains 0.985"
+        )
+        Self.require(
+            abs(DisclosureMotion.providerGroupPressDuration - 0.10) < 1e-9,
+            "provider group press duration remains 0.10s"
+        )
+
         Self.require(DisclosureMotion.rowDelay(index: 0) == 0, "the first row waits for nothing")
         Self.require(
             DisclosureMotion.rowDelay(index: -3) == 0,
