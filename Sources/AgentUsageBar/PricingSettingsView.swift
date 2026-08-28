@@ -300,29 +300,39 @@ struct PricingSettingsView: View {
             .frame(width: Self.disclosureHitSize.width)
             .help("One-hour cache write and long-context rates")
 
-            VStack(alignment: .leading, spacing: 1) {
-                Text(row.model)
-                    .font(.system(size: 12))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                HStack(spacing: 6) {
-                    if row.usageTokens > 0 {
-                        Text("\(Formatters.tokens(row.usageTokens)) tokens")
-                    } else {
-                        Text("Not used locally")
-                    }
-                    // The rows that actually change a number on screen.
-                    if row.seenInLogs, !row.isPriced {
-                        Text("· unpriced").foregroundStyle(.orange)
-                    }
-                    if row.hasLongContextTier {
-                        Text("· 2 tiers").foregroundStyle(.secondary)
-                    }
+            Button {
+                withAnimation(DisclosureMotion.open(reduceMotion: self.reduceMotion)) {
+                    self.model.toggleExpanded(row.id)
                 }
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary)
+            } label: {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(row.model)
+                        .font(.system(size: 12))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    HStack(spacing: 6) {
+                        if row.usageTokens > 0 {
+                            Text("\(Formatters.tokens(row.usageTokens)) tokens")
+                        } else {
+                            Text("Not used locally")
+                        }
+                        // The rows that actually change a number on screen.
+                        if row.seenInLogs, !row.isPriced {
+                            Text("· unpriced").foregroundStyle(.orange)
+                        }
+                        if row.hasLongContextTier {
+                            Text("· 2 tiers").foregroundStyle(.secondary)
+                        }
+                    }
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .help("One-hour cache write and long-context rates")
 
             self.rateField(row.id, \.input)
             self.rateField(row.id, \.output)
