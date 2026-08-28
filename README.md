@@ -1,31 +1,164 @@
 # AgentUsageBar
 
-AgentUsageBar is a lightweight macOS menu bar app for tracking Codex and Claude usage. It shows a single status item for one provider at a time — right-click to switch — with quota windows, reset times, usage pace, local token and cost estimates, and recent model activity.
+<p align="center">
+  <a href="README.md"><img src="https://img.shields.io/badge/README-English-1f6feb?style=for-the-badge" alt="English"></a>
+  <a href="README.zh-CN.md"><img src="https://img.shields.io/badge/README-%E7%AE%80%E4%BD%93%E4%B8%AD%E6%96%87-30363d?style=for-the-badge" alt="简体中文"></a>
+</p>
 
-The project is a focused reimplementation of selected [CodexBar](https://github.com/steipete/CodexBar) behavior for Codex and Claude.
+A macOS menu bar app that tells you how much Codex and Claude quota you have left, what you spent
+locally, and when the window resets.
 
-## Features
+It is a trimmed rebuild of [CodexBar](https://github.com/steipete/CodexBar). CodexBar tracks a long
+list of agent CLIs; this one tracks two, Codex and Claude, and spends the room it saved on the parts
+you actually look at. One status item instead of a row of them. One card that fits on screen. Motion
+that comes from one curve rather than five.
 
-- One menu bar item, right-click to switch between Codex and Claude
-- Session and weekly quota remaining, reset times, and pace indicators measured against the clock at first, then against your own recorded windows once three comparable ones have completed
-- Today's and rolling 30-day token and estimated cost totals
-- Recent daily usage chart, per-model breakdown, and top-model summary
-- Codex credits when the usage endpoint reports them
-- Configurable manual or 1, 2, 5, 15, and 30-minute refresh intervals
-- Editable per-model pricing overrides, including cache and long-context rates
-- Last-known data retained and dimmed when a refresh fails
+<img src="docs/images/hero.png" width="620" alt="The Claude and Codex cards side by side">
+
+## What "trimmed" means
+
+Every file adapted from CodexBar says in its header what it kept and what it dropped. The short
+version:
+
+| Kept | Dropped |
+| --- | --- |
+| Codex `wham/usage`, Claude `/api/oauth/usage` | Gemini, Antigravity, Factory, Warp |
+| Session and weekly windows, credits | Spend controls, per-model rate limits, workspace resolution |
+| Linear and historical pace models | Workday-weighted progress, run-out risk percentage |
+| Local cost scan for both CLIs | Profile lookup, extra-usage billing, the web fallback |
+| The capsule icon and its two decorations | Blink, wiggle, tilt, status overlays, the morph cache |
+
+What replaced them is motion. CodexBar's bar jumps to its new value; this one charges into it, and
+the number above it charges with it.
+
+## The menu bar item
+
+<img src="docs/images/menu-bar-icons.png" width="440" alt="Menu bar icon states">
+
+Claude on the top row, Codex on the bottom. Left to right: full, half spent, nearly out, session
+window only, and stale after a failed refresh. The icon draws on an 18pt pixel grid at 2x, so the
+edges land on pixel boundaries instead of blurring.
+
+There is one item, never two. Right-click it to move it to the other provider; the choice survives
+a relaunch. Only the provider on screen refreshes, and each one holds a cooldown of its own, so
+switching back and forth does not fetch either twice inside a minute.
+
+## The reset animation
+
+When a five-hour or weekly window rolls over, the card plays this the next time you open it.
+
+<img src="docs/images/quota-reset.gif" width="560" alt="A quota window resetting: the bar charges to full, pops, flashes, and blooms">
+
+The bar resumes from the last reading it saw before the reset and slows continuously into the new
+one. Nothing trails the head on the way. Reaching 100% is the whole event, so the pop, the flash and
+the glow under the bar all land on that one beat, and the landing has no edges anywhere: what says
+the quota is full is the whole bar going warm, not a shape drawn where the head stopped.
+
+The percentage arrives with the fill rather than being already correct while the bar is still
+charging. It counts on the fill's own easing, blurs while the digits are turning fastest so it
+resolves into the reading instead of stopping on it, and takes the same landing beat. The bar owns
+the only clock and publishes the frames it draws; the number renders those. They cannot drift apart.
+
+Five-hour and weekly resets are tracked separately. Ordinary spending never triggers it. Both the
+last reading and a pending reset survive a restart. Five clicks on a bar replays it if you want to
+see it again, and `make demo` opens it in a plain window with speed controls.
+
+## Everything else that moves
+
+Same vocabulary throughout. One exponential decay for "this is charging", one damped sine for
+"this landed", shortened from a celebration to the length of a click.
+
+**The settings tabs** are drawn rather than handed to AppKit, because the system tab bar has
+nowhere to put a curve. The selection is one pill whose two edges run the same easing over
+different durations: the edge facing the destination leaves first, the one behind it catches up, so
+the pill briefly spans both segments and then contracts onto the new one. It is never in two places
+and never between them covering neither. The assertion suite walks the curve and checks the shape
+at every frame.
+
+<img src="docs/images/tab-switch.gif" width="420" alt="The settings tab pill stretching across both segments and contracting onto the destination">
+
+**The pricing table** opens its groups and its per-model rows on the fill's easing, staggered 35ms
+apart so a group unrolls from under its header instead of appearing all at once. The chevron turns
+a quarter turn rather than being swapped for a second glyph. Only the control springs: a table that
+overshoots its own height pushes every row below it, which reads as a bug rather than as a beat.
+
+<img src="docs/images/disclosure.gif" width="500" alt="A pricing group unrolling four rows one beat apart">
+
+**The cost chart** lifts the highlighted bar 5pt and opens its per-model breakdown. A move between
+bars is chasing the pointer, so it rides a fast spring; the trip home to today is not a move anyone
+aimed at anything, so it is longer and critically damped, and the highlight settles onto today
+instead of springing onto it. Click the label to swap its unit between tokens and cost.
+
+<img src="docs/images/chart-motion.gif" width="440" alt="The chart highlight moving between bars and settling back onto today">
+
+Hovering a bar opens what that day was actually made of:
+
+<img src="docs/images/chart-hover.gif" width="500" alt="Each bar's per-model breakdown">
+
+**The pointer** moves too. The Codex card is taller than the Claude card, and a menu can only grow
+downwards, so a provider switch slides every row out from under a pointer that never moved. The
+pointer moves by the same amount and keeps pointing at the row it was on.
+
+Turn on **System Settings → Accessibility → Display → Reduce motion** and all of it becomes a cut.
+Not a slower animation, a cut.
+
+## The card
+
+Left-click the icon. Each quota window shows what is left, when it resets, and how that compares to
+spending it evenly against the clock. "9% in reserve" means you are under; a red pace marker means
+you are over. Once three comparable windows have completed, the weekly line stops measuring against
+the clock and measures against your own recorded weeks instead.
+
+Click any **`Resets in …`** label to swap the countdown for the wall-clock time: `Resets 3:30 PM`
+today, `Resets Sat 9:00 AM` further out. Both windows read the same way and the choice is remembered.
+
+The menu carries `Switch provider`, `Refresh`, `Settings` (⌘,) and `Quit` (⌘Q). Refresh is subject
+to a one-minute cooldown and counts it down on the row rather than dropping your click without a
+word. Opening the menu requests one refresh of the provider on screen without resetting the
+scheduled timer.
+
+<img src="docs/images/settings-general.png" width="620" alt="The General settings pane">
+
+Background refresh runs manually or every 1, 2, 5, 15 or 30 minutes. Five is the default, because
+the quota endpoints are shared with the CLIs and will rate-limit you.
+
+## Cost and pricing
+
+<img src="docs/images/settings-pricing.png" width="620" alt="The pricing pane with a model row unfolded">
+
+Token and cost totals come from the CLIs' own session logs, never from a billing API:
+
+- Codex: `~/.codex/sessions` and `~/.codex/archived_sessions`
+- Claude: `$CLAUDE_CONFIG_DIR/projects`, or `~/.claude/projects` and `~/.config/claude/projects`
+
+The first scan of a large history takes a while. Later ones are incremental against a SQLite cache.
+
+Built-in rates are topped up from the public [models.dev](https://models.dev) catalog, cached for 24
+hours. A failed refresh is not retried for an hour, and the pane never waits on one: it draws from
+the cache and folds a newer catalog in behind it.
+
+**Settings → Pricing** exposes every figure the cost math reads. Input, output, five-minute cache
+write, cache read, the one-hour cache write (leave it empty to bill it at twice input, the ratio
+Anthropic publishes), and the long-context tier with its own per-request threshold. The table opens
+in provider groups with the API models in their published order, and anything else your logs turned
+up below them, most-used first. Click a column to sort by it, click again to reverse, and use the
+control at the right end of the header to go back.
+
+Saved rates apply going forward only. Everything already scanned keeps the prices it was scanned
+with, so an edit never rewrites past days.
+
+All of it is an estimate. Cache accounting, provider billing rules and price changes will make it
+differ from an invoice.
 
 ## Requirements
 
 - macOS 14 or later
-- Swift 6 toolchain (Xcode Command Line Tools or Xcode)
+- Swift 6 toolchain (Xcode or the Command Line Tools)
 - Codex CLI and/or Claude Code signed in locally
 
-AgentUsageBar can show either provider by itself. You do not need to use both.
+One provider is enough. You do not need both.
 
-## Build the app
-
-Clone the repository and package a release build:
+## Build
 
 ```bash
 git clone git@github.com:softmaxe/agent-usage-bar.git
@@ -34,84 +167,34 @@ make app
 open build/AgentUsageBar.app
 ```
 
-`make app` builds the current Mac architecture, assembles `build/AgentUsageBar.app`, and applies an ad-hoc code signature. To install the local build:
+`make app` builds for the current architecture, assembles `build/AgentUsageBar.app` and ad-hoc signs
+it. To install it:
 
 ```bash
 ditto build/AgentUsageBar.app /Applications/AgentUsageBar.app
-open /Applications/AgentUsageBar.app
 ```
 
-The current packaging script is intended for local builds. Public distribution still requires a Developer ID Application signature, hardened runtime, Apple notarization, and a distributable archive such as a signed ZIP or DMG.
+This is a local build script. Shipping it to anyone else still needs a Developer ID signature, the
+hardened runtime, notarization and a signed archive.
 
 ## Sign in
 
-AgentUsageBar reuses credentials created by the official CLIs. It does not provide its own login flow.
-
-For Codex:
-
-```bash
-codex login
-```
-
-Codex credentials are read from `$CODEX_HOME/auth.json`, or `~/.codex/auth.json` when `CODEX_HOME` is unset.
-
-For Claude Code, run the CLI and complete its login flow:
+AgentUsageBar reuses the credentials the official CLIs already created. It has no login flow of its
+own.
 
 ```bash
-claude
+codex login   # writes $CODEX_HOME/auth.json, or ~/.codex/auth.json
+claude        # complete the CLI's own flow; the token lands in the Keychain
 ```
 
-Claude credentials are read from the macOS Keychain entry used by Claude Code.
+Reading the Claude entry goes through Apple's `/usr/bin/security`, which may raise a macOS access
+prompt the first time.
 
-## Use the menu bar app
+## Privacy
 
-Left-click the icon to view the current quota and local cost summary for the provider it shows. The menu provides:
-
-- `Switch provider` to move the item to the other provider
-- `Refresh` (`⌘R`) to request fresh provider data
-- `Settings…` (`⌘,`) to change refresh frequency and pricing
-- `Quit` (`⌘Q`) to stop the app
-
-The menu bar carries one item. **Right-clicking** (or control-clicking) it switches between Codex and Claude, and the choice is remembered across launches; **Settings → General → Menu bar** shows which provider is current. The item stays visible while its provider is signed out or waiting for its first refresh, so the menu can report the current state instead of silently disappearing. Only the provider on screen refreshes: the background cadence, opening the menu, and `Refresh` all apply to it alone, and the other provider is fetched at the moment you switch to it. Each provider carries a one-minute cooldown of its own, so switching back and forth fetches neither of them twice inside that minute.
-
-Whenever the five-hour or weekly window resets, the card plays a one-off animation the next time it is opened. Each window resumes from its last observed pre-reset position and continuously slows into the new full reading, with nothing trailing the head on the way; reaching 100% is the whole event, and the pop, the flash, and a soft glow rising under the bar all land on that beat. The landing has no edges anywhere — what says the quota is full is the whole bar going warm, not a shape drawn where the head stopped. The percentage above the bar arrives with it rather than being already correct while the bar is still charging: it counts on the fill's own easing, blurs while the digits are turning fastest so it resolves into the new reading instead of stopping on it, and takes the same landing beat. The bar owns the only clock — the number renders the frames it publishes, so the two cannot drift apart. Five-hour and weekly resets are tracked independently, ordinary spending never triggers it, and both the last reading and a pending reset survive an app restart. Turning on **System Settings → Accessibility → Display → Reduce motion** replaces it with the ordinary fill. `make demo` replays the shared production animation on demand.
-
-Each quota window's **`Resets in …`** label is a switch: clicking it swaps the countdown for the wall-clock time the window resets at — `Resets 3:30 PM` today, `Resets Sat 9:00 AM` further out — and clicking again swaps back. Both windows read the same way, and the choice is remembered across launches.
-
-Opening the menu requests one immediate manual refresh of the provider on screen without resetting the scheduled timer. Without clicks, the app keeps the configured background cadence; its default interval is five minutes to reduce quota-endpoint rate limiting.
-
-## Cost estimates and pricing
-
-Cost and token totals are estimated from local CLI session logs:
-
-- Codex: `~/.codex/sessions` and `~/.codex/archived_sessions`
-- Claude: `$CLAUDE_CONFIG_DIR/projects`, or `~/.claude/projects` and `~/.config/claude/projects` when `CLAUDE_CONFIG_DIR` is unset
-
-The first scan can take longer on a large history. Later scans are incremental and use a cache at:
-
-```text
-~/Library/Caches/AgentUsageBar/cost-usage/cost-usage.sqlite
-```
-
-Built-in rates are supplemented by the public [models.dev](https://models.dev) catalog, cached for 24 hours; a failed refresh is not retried for an hour, and the pane never waits on one — it draws from the cache and folds a newer catalog in behind it. Rates can be reviewed or overridden under **Settings → Pricing**, which exposes every figure the cost math reads: input, output, five-minute cache write, cache read, the one-hour cache write (empty means twice input, the ratio Anthropic publishes), and the long-context tier — its per-request token threshold plus the rates that apply above it. The table opens with the models the local logs use most at the top; clicking **Model**, **Input**, **Output**, **Cache w**, or **Cache r** sorts by that column and clicking it again reverses it, and the control at the right end of the header row goes back to the default most-used-first order.
-
-The two provider groups and the per-model disclosure behind each row open on the same easing the quota bar charges on, and the rows inside a group arrive one beat apart so the list unrolls from under its header rather than appearing all at once; the chevron turns a quarter turn instead of being swapped for a second glyph, and the control dips while it is held. Only the control springs — the table's own height never overshoots, because that would push every row below it. **Reduce motion** turns all of it back into a cut. `make demo-disclosure` puts the candidate treatments side by side.
-
-The window's own **General** / **Pricing** tabs are drawn rather than handed to AppKit, because the system tab bar has nowhere to put a curve. The selection is one pill whose two edges run the same easing over different durations: the edge facing the destination leaves first and the one behind it catches up, so the pill briefly spans both segments and then contracts onto the new one. It is never in two places and never between them covering neither — the assertion suite walks the curve and checks the shape at every frame. The panes cross-fade under it, the segment dips while it is held, and ⌘ 1 / ⌘ 2 still select a pane. **Reduce motion** turns the travel back into a cut. `make demo-tab-switch` puts the candidate treatments side by side.
-
-User overrides are stored at:
-
-```text
-~/Library/Application Support/AgentUsageBar/pricing-overrides.json
-```
-
-Saved rates apply going forward. Everything already recorded is priced and frozen at the rates in force when it was scanned, so an edit changes future usage only and never rewrites past days.
-
-All displayed costs are estimates. Cache-token accounting, provider billing rules, and changing model prices can make them differ from an invoice.
-
-## Privacy and network access
-
-AgentUsageBar reads local CLI credentials and usage logs. It never writes to them: `auth.json` is read-only to this app, and a refreshed Codex token is held in memory for that run only. Everything it does write lives under its own directories:
+The app reads local credentials and logs and never writes to them. `auth.json` is read-only to it,
+and a refreshed Codex token stays in memory for that run. What it does write lives under its own
+directories:
 
 ```text
 ~/Library/Application Support/AgentUsageBar/usage-history.json      quota samples, kept 56 days
@@ -120,68 +203,77 @@ AgentUsageBar reads local CLI credentials and usage logs. It never writes to the
 ~/Library/Caches/AgentUsageBar/model-pricing/                       models.dev catalog, 24h TTL
 ```
 
-Settings live in the standard preferences domain for the bundle, `com.agentusagebar.app`. The cost cache stores transcript paths, dates, model names, token counts, and costs — never prompt or response text.
+The cost cache stores transcript paths, dates, model names, token counts and costs. It never stores
+prompt or response text. Settings live in `com.agentusagebar.app`.
 
-The app makes requests to:
-
-- OpenAI's Codex usage endpoint for Codex quota data
-- Anthropic's OAuth usage endpoint for Claude quota data
-- `models.dev` for the optional pricing catalog
-
-Claude Keychain access is performed through Apple's `/usr/bin/security` tool and may trigger a macOS access prompt.
+Three hosts get requests: OpenAI's Codex usage endpoint, Anthropic's OAuth usage endpoint, and
+`models.dev` for the optional catalog.
 
 ## Development
 
-The project uses Swift Package Manager and does not require an Xcode project.
+Swift Package Manager, no Xcode project.
 
 ```bash
-make build              # Build a debug binary
-make run                # Stop an existing instance, build, and run in the foreground
-make test               # Run the assertion-based test suite
+make build              # Debug binary
+make run                # Stop any running instance, build, run in the foreground
+make test               # 185 assertions plus 12 verifiers that walk the animation curves
 make probe              # Check both provider integrations from the terminal
-make probe-cost         # Rescan the local logs and print cost totals, without credentials or network
-make demo               # Replay the quota-recovery animation in a plain window
-make demo-number        # Compare candidate treatments for the headline percentage
-make demo-label-toggle  # Compare candidate treatments for the chart label's tokens-to-cost switch
-make demo-disclosure    # Compare candidate treatments for the pricing table's collapse control
-make demo-pricing-links # Compare candidate layouts for the pricing header's vendor links
-make demo-tab-switch    # Compare candidate treatments for the settings window's tab switch
-make logs               # Stream app logs
-make app                # Build the release .app bundle
-make clean              # Remove SwiftPM and app build output
+make probe-cost         # Rescan local logs and print cost totals. No credentials, no network
+make logs               # Stream os.Logger output for com.agentusagebar.app
+make app                # Release .app bundle
+make readme-assets      # Re-render every image in this file. Needs ffmpeg
+make clean
 ```
 
-`make probe` can expose account and usage metadata in the terminal. Review its output before sharing logs.
+There is no XCTest without Xcode, so the suite is a plain executable of assertions plus twelve
+verifiers that sample the motion curves frame by frame. The design studies are launch flags on the
+same debug binary:
+
+```bash
+make demo               # The reset animation, with speed controls
+make demo-number        # Candidate treatments for the headline percentage
+make demo-bar-hover     # Candidate hover treatments for the chart bars
+make demo-label-toggle  # Candidate treatments for the chart label's unit swap
+make demo-disclosure    # Candidate collapse controls for the pricing table
+make demo-tab-switch    # Candidate treatments for the settings tab switch
+make demo-pricing-links # Candidate layouts for the pricing header's vendor links
+make demo-collapse      # Folding the pricing groups with and without a scroller gutter
+```
+
+The dumps behind `make readme-assets` are flags on the same binary: `--dump-card`, `--dump-icons`,
+`--dump-settings`, `--dump-card-celebration`, `--dump-chart-hover`, `--dump-tab-switch`,
+`--dump-disclosure` and `--dump-chart-motion`, each taking an output directory.
+
+Every image above is generated, not captured. The screenshots are offscreen renders of the shipped
+views against fixture data, including the pricing pane, which takes made-up model totals and the
+built-in rate table rather than reading the machine it runs on. `quota-reset.gif` and
+`chart-hover.gif` are frame dumps of the shipped views. The other three come from
+`MotionFilmStrip`, which poses stand-in layouts because a pill driven by two SwiftUI state edges
+cannot be asked what it looks like 140ms in; the durations, curves, springs and staggers in those
+three are read from the same constants the real controls animate on.
+
+`make probe` prints account and usage metadata. Read it before pasting it anywhere.
 
 ## Troubleshooting
 
-### A provider reports that it is not signed in
+**A provider says it is not signed in.** Run that CLI's login flow, then choose `Refresh`. `make
+probe` shows the credential or endpoint error directly.
 
-Run the corresponding CLI login flow, then choose `Refresh`. Use `make probe` from the repository to see the credential or endpoint error directly.
+**Data is stale, or refreshes return HTTP 429.** The app keeps the last good reading and dims the
+icon. Wait out the provider's window, pick a longer interval, and stop forcing refreshes.
 
-### Data is stale or refreshes return HTTP 429
+**Cost totals are missing.** Confirm the CLI is writing JSONL session logs to the paths above.
+Models with no known price appear without one until the catalog or an override supplies it.
 
-AgentUsageBar keeps the last good data and dims the menu bar icon. Wait for the provider's rate-limit window, use a longer refresh interval, and avoid repeatedly forcing refreshes.
+## Limitations
 
-### Cost totals are missing or incomplete
-
-Confirm that the CLI has local JSONL session logs and that the app can read the paths listed above. Unknown models appear without a price until the catalog or a manual pricing override supplies one.
-
-### Inspect app logs
-
-```bash
-make logs
-```
-
-The logging subsystem is `com.agentusagebar.app`.
-
-## Current limitations
-
-- The package script produces a host-architecture, ad-hoc-signed local build; universal release packaging and notarization are not automated.
-- Claude credentials are not refreshed or written back by AgentUsageBar. Re-authenticate with Claude Code when needed.
-- Provider-specific spend controls, additional per-model limits, workspace resolution, and web fallbacks are outside the current scope.
-- Cost figures are reconstructed from local logs and are not billing statements.
+- The packaging script produces a host-architecture, ad-hoc-signed local build. Universal binaries
+  and notarization are not automated.
+- Claude credentials are never refreshed or written back. Re-authenticate with Claude Code when the
+  token expires.
+- Cost figures are reconstructed from local logs. They are not billing statements.
 
 ## Acknowledgements
 
-AgentUsageBar adapts selected ideas and implementation details from CodexBar, Copyright © 2026 Peter Steinberger, under the MIT License. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for attribution and license text.
+Built on ideas and implementation details from CodexBar, Copyright © 2026 Peter Steinberger, under
+the MIT License. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
