@@ -14,3 +14,7 @@ build/
 *.xcuserdatad
 xcuserdata/
 DerivedData/
+
+# Secrets
+.env
+.env.*
