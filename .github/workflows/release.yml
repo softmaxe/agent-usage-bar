@@ -257,3 +257,81 @@ jobs:
           set -euo pipefail
           tag="$GITHUB_REF_NAME"
           gh release edit "$tag" --draft=false
+
+  bump-tap:
+    name: Update Homebrew tap
+    if: ${{ github.event_name == 'push' && github.ref_type == 'tag' }}
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Update tap cask
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${TAP_GITHUB_TOKEN:-}" ]]; then
+            echo "TAP_GITHUB_TOKEN is not set, skip tap update." >&2
+            echo "Create a PAT with repo scope and add it as TAP_GITHUB_TOKEN in softmaxe/agent-usage-bar settings." >&2
+            exit 0
+          fi
+
+          version="${TAG#v}"
+          echo "Bump tap to $version ($TAG)"
+
+          tmp_tap="$(mktemp -d)"
+          tmp_dist="$(mktemp -d)"
+          trap 'rm -rf "$tmp_tap" "$tmp_dist"' EXIT
+
+          git clone "https://x-access-token:${TAP_GITHUB_TOKEN}@github.com/softmaxe/homebrew-tap.git" "$tmp_tap"
+
+          gh release download "$TAG" --repo softmaxe/agent-usage-bar --pattern "*.zip.sha256" --dir "$tmp_dist"
+          cat "$tmp_dist"/*.sha256
+
+          get_sha() {
+            local name="$1"
+            awk -v n="$name" '$2 == n { print $1 }' "$tmp_dist"/*.sha256
+          }
+
+          sha_arm="$(get_sha "AgentUsageBar-${version}-macos-arm64.zip")"
+          sha_intel="$(get_sha "AgentUsageBar-${version}-macos-x86_64.zip")"
+
+          for v in sha_arm sha_intel; do
+            if [[ -z "${!v:-}" ]]; then
+              echo "Missing SHA for $v" >&2
+              exit 1
+            fi
+          done
+
+          cask="$tmp_tap/Casks/agent-usage-bar.rb"
+
+          python3 - "$cask" "$version" "$sha_arm" "$sha_intel" <<'PY'
+          import pathlib, sys, re
+          path = pathlib.Path(sys.argv[1])
+          version, sha_arm, sha_intel = sys.argv[2:5]
+          text = path.read_text()
+          text = re.sub(r'version "[^"]+"', f'version "{version}"', text)
+          text = re.sub(
+              r'sha256 arm:\s*"[^"]+",\s*\n\s*intel:\s*"[^"]+"',
+              f'sha256 arm:   "{sha_arm}",\n         intel: "{sha_intel}"',
+              text
+          )
+          path.write_text(text)
+          print(path.read_text())
+          PY
+
+          echo "--- updated cask ---"
+          cat "$cask"
+
+          git -C "$tmp_tap" config user.name "github-actions[bot]"
+          git -C "$tmp_tap" config user.email "github-actions[bot]@users.noreply.github.com"
+          git -C "$tmp_tap" add Casks/agent-usage-bar.rb
+          if git -C "$tmp_tap" diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git -C "$tmp_tap" commit -m "chore: bump agent-usage-bar to ${version}"
+          git -C "$tmp_tap" push origin main

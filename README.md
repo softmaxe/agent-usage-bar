@@ -203,7 +203,42 @@ differ from an invoice.
 
 One provider is enough. You do not need both.
 
-## Install a release
+## Install
+
+### Homebrew
+
+If you already use Homebrew, this is the cleanest way to keep the app current.
+
+```bash
+brew tap softmaxe/tap
+brew install --cask agent-usage-bar
+```
+
+That fetches the ZIP that matches your Mac, checks the SHA, and places `AgentUsageBar.app` in `/Applications`. You do not need Xcode or `make`.
+
+Update later with:
+
+```bash
+brew update
+brew upgrade --cask agent-usage-bar
+```
+
+You can also skip the tap step:
+
+```bash
+brew install --cask softmaxe/tap/agent-usage-bar
+```
+
+The cask version tracks the GitHub tag, so `brew upgrade` follows new releases. The release workflow bumps the cask automatically from the `.sha256` files, so the SHA usually stays in sync without a manual edit.
+
+To remove it:
+
+```bash
+brew uninstall --cask agent-usage-bar
+brew uninstall --zap --cask agent-usage-bar  # also clears ~/Library/Application Support/AgentUsageBar and caches
+```
+
+### Manual download
 
 Download the ZIP for your Mac from [GitHub Releases](https://github.com/softmaxe/agent-usage-bar/releases),
 then unzip it and move `AgentUsageBar.app` to `/Applications`.
@@ -221,7 +256,7 @@ and verify the archive before unzipping it. For example:
 shasum -a 256 -c AgentUsageBar-1.2.3-macos-arm64.zip.sha256
 ```
 
-Release ZIPs require macOS 14 or later and are ad-hoc signed for this project. They do not have an
+Both the Homebrew cask and the manual ZIP require macOS 14 or later and are ad-hoc signed for this project. They do not have an
 Apple Developer ID signature and are not notarized, so macOS may warn the first time you open the app.
 After moving the app to `/Applications`, try opening it once, then use
 [Apple's approval flow](https://support.apple.com/en-us/102445):

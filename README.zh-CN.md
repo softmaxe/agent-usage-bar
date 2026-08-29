@@ -175,7 +175,42 @@ token 和成本统计全部来自两家 CLI 自己的会话日志，不走任何
 
 只用一家也可以，不需要两家都装。
 
-## 安装发布版
+## 安装
+
+### Homebrew
+
+如果你本机已经有 Homebrew，用它装最省事，也最容易保持更新。
+
+```bash
+brew tap softmaxe/tap
+brew install --cask agent-usage-bar
+```
+
+这条命令会按你的 Mac 架构拉取对应的 ZIP，校验 SHA，然后把 `AgentUsageBar.app` 放到 `/Applications`。不需要 Xcode，也不用 `make`。
+
+之后更新：
+
+```bash
+brew update
+brew upgrade --cask agent-usage-bar
+```
+
+不想先 tap 也可以直接装：
+
+```bash
+brew install --cask softmaxe/tap/agent-usage-bar
+```
+
+cask 的版本号跟 GitHub tag 一致，`brew upgrade` 会跟着新版本走。发布流程会在每次打 tag 后自动用 `.sha256` 文件去更新 cask，一般不需要手动改 SHA。
+
+卸载：
+
+```bash
+brew uninstall --cask agent-usage-bar
+brew uninstall --zap --cask agent-usage-bar  # 同时清理 ~/Library/Application Support/AgentUsageBar 和缓存
+```
+
+### 手动下载
 
 从 [GitHub Releases](https://github.com/softmaxe/agent-usage-bar/releases) 下载适合你的 Mac 的 ZIP，
 然后解压并将 `AgentUsageBar.app` 移到 `/Applications`。
@@ -193,7 +228,7 @@ token 和成本统计全部来自两家 CLI 自己的会话日志，不走任何
 shasum -a 256 -c AgentUsageBar-1.2.3-macos-arm64.zip.sha256
 ```
 
-Release ZIP 要求 macOS 14 或更高版本，并使用 ad-hoc 签名。它们没有 Apple Developer ID 签名，
+无论是 Homebrew 还是手动下载的 ZIP，都要求 macOS 14 或更高版本，都是 ad-hoc 签名。它们没有 Apple Developer ID 签名，
 也未经过 notarization，因此 macOS 可能会在你第一次打开 app 时发出警告。将 app 移到 `/Applications` 后，
 先尝试打开一次，再按照 [Apple 的批准流程](https://support.apple.com/zh-cn/102445) 操作：
 
