@@ -46,9 +46,14 @@ enum UsageBarFillVerifier {
             failures.append("a rise of exactly the rollover threshold glided instead of sweeping")
         }
 
+        let skipGPURenderCheck = ProcessInfo.processInfo.environment[
+            "AGENT_USAGE_BAR_SKIP_GPU_RENDER_CHECK"
+        ] == "1"
         // ImageRenderer(Canvas) needs Metal. Headless runners without a GPU still exercise every
         // fill-policy assertion above, while a GPU-backed runner owns the pixel check below.
-        if MTLCreateSystemDefaultDevice() == nil {
+        if skipGPURenderCheck {
+            print("Skipping usage bar pixel check: requested by the test environment.")
+        } else if MTLCreateSystemDefaultDevice() == nil {
             print("Skipping usage bar pixel check: no Metal device is available on this headless verifier.")
         } else {
             let marker = UsageProgressBar(

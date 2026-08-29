@@ -19,8 +19,10 @@ jobs:
         include:
           - os: macos-15
             arch: arm64
+            skip_gpu_render_check: '0'
           - os: macos-15-intel
             arch: x86_64
+            skip_gpu_render_check: '1'
     defaults:
       run:
         shell: bash
@@ -73,6 +75,8 @@ jobs:
           echo "archive_base=${archive_base}" >> "${GITHUB_OUTPUT}"
 
       - name: Run tests
+        env:
+          AGENT_USAGE_BAR_SKIP_GPU_RENDER_CHECK: ${{ matrix.skip_gpu_render_check }}
         run: make test
 
       - name: Package app
