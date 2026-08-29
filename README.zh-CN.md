@@ -175,6 +175,41 @@ token 和成本统计全部来自两家 CLI 自己的会话日志，不走任何
 
 只用一家也可以，不需要两家都装。
 
+## 安装发布版
+
+从 [GitHub Releases](https://github.com/softmaxe/agent-usage-bar/releases) 下载适合你的 Mac 的 ZIP，
+然后解压并将 `AgentUsageBar.app` 移到 `/Applications`。
+
+- Apple Silicon（M1 或更新型号）：下载 `arm64` ZIP。
+- Intel：下载 `x86_64` ZIP。
+
+要查看 Mac 类型，打开 **Apple 菜单 → 关于本机**。如果概览中显示的是 **芯片**，例如 Apple M1 或 M2，
+选择 `arm64`；如果显示的是 Intel **处理器**，选择 `x86_64`。
+
+每个 ZIP 都有一个匹配的 `.sha256` 文件。下载这两个文件，在下载文件夹中打开 Terminal，在解压前校验归档。
+例如：
+
+```bash
+shasum -a 256 -c AgentUsageBar-1.2.3-macos-arm64.zip.sha256
+```
+
+Release ZIP 要求 macOS 14 或更高版本，并使用 ad-hoc 签名。它们没有 Apple Developer ID 签名，
+也未经过 notarization，因此 macOS 可能会在你第一次打开 app 时发出警告。将 app 移到 `/Applications` 后，
+先尝试打开一次，再按照 [Apple 的批准流程](https://support.apple.com/zh-cn/102445) 操作：
+
+1. 打开 **System Settings → Privacy & Security**。
+2. 在 AgentUsageBar 警告旁点击 **Open Anyway**。
+3. 点击 **Open** 确认。
+
+如果仍然打不开，可以改用 Terminal。先确认 app 已放进 `/Applications`，再运行：
+
+```bash
+xattr -dr com.apple.quarantine /Applications/AgentUsageBar.app
+```
+
+这只会移除该 app bundle 的 quarantine attribute，绕过这一个 bundle 的 quarantine check，
+不会补上 Apple 签名或 notarization。
+
 ## 构建
 
 ```bash
@@ -190,8 +225,24 @@ open build/AgentUsageBar.app
 ditto build/AgentUsageBar.app /Applications/AgentUsageBar.app
 ```
 
-这只是本地构建脚本。要分发给别人，还需要 Developer ID 签名、hardened runtime、公证，以及一个
-签好名的压缩包或 DMG。
+这个本地构建和 Release ZIP 使用相同的 ad-hoc 签名。它们可以在没有 Apple Developer ID 签名或 notarization
+的情况下分发，但 macOS 可能会显示上面所说的首次启动警告。
+
+## 发布版本
+
+要生成测试包，打开仓库的 **Actions** tab，选择 **Build and Release**，再点击 **Run workflow**。
+这个 `workflow_dispatch` workflow 会测试并打包两种架构，但不会创建 GitHub Release。开发构建的 app version
+是 `0.0.0`，文件名包含 commit SHA，产物保留 14 天。
+
+要发布一个版本，创建并推送一个三段式版本 tag：
+
+```bash
+git tag v1.2.3
+git push origin v1.2.3
+```
+
+两个架构 job 都会运行 `make test`，构建 ad-hoc 签名的 app 并验证归档。只有两个 job 都成功后，GitHub 才会
+发布 Release。相同 tag 已有的 Release 不会被覆盖；请改用新的版本 tag 发布。
 
 ## 登录
 
@@ -274,7 +325,8 @@ make clean
 
 ## 已知限制
 
-- 打包脚本产出的是当前架构、ad-hoc 签名的本地构建。通用二进制和公证没有做自动化。
+- `make app` 产出当前主机架构的 ad-hoc 签名本地构建；release workflow 产出分别面向 `arm64` 和 `x86_64` 的
+  ad-hoc 签名 ZIP，而不是 Universal binary。Developer ID 签名和 notarization 不属于当前的 release strategy。
 - Claude 的凭据恢复只在你手动点 `Refresh` 之后交给 Claude Code，且最多一次隐藏的状态命令。自动刷新
   fail closed，AgentUsageBar 从不写 CLI 凭据。Claude Code 仍可能要求交互式登录；那样恢复就停下，
   得你自己打开 Claude Code。
