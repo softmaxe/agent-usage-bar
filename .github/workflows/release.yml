@@ -334,4 +334,17 @@ jobs:
             exit 0
           fi
           git -C "$tmp_tap" commit -m "chore: bump agent-usage-bar to ${version}"
-          git -C "$tmp_tap" push origin main
+          # Handle concurrent pushes to the tap (e.g., other formula bumps) by rebasing and retrying.
+          for attempt in 1 2 3; do
+            if git -C "$tmp_tap" push origin main; then
+              break
+            fi
+            if [[ "$attempt" -eq 3 ]]; then
+              echo "::error::Failed to push tap after 3 attempts."
+              exit 1
+            fi
+            echo "Push rejected, rebasing tap and retrying (attempt $attempt)..."
+            sleep $((attempt * 2))
+            git -C "$tmp_tap" fetch origin main
+            git -C "$tmp_tap" rebase origin/main
+          done
