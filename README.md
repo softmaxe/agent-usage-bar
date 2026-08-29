@@ -1,12 +1,12 @@
-# AgentUsageBar
-
 <p align="center">
-  <img src="Resources/AppIcon.png" width="128" alt="AgentUsageBar app logo">
+  <img src="Resources/AppIcon.png" alt="AgentUsageBar app logo" width="180">
 </p>
 
+<h1 align="center">AgentUsageBar</h1>
+
 <p align="center">
-  <a href="README.md"><img src="https://img.shields.io/badge/README-English-1f6feb?style=for-the-badge" alt="English"></a>
-  <a href="README.zh-CN.md"><img src="https://img.shields.io/badge/README-%E7%AE%80%E4%BD%93%E4%B8%AD%E6%96%87-30363d?style=for-the-badge" alt="简体中文"></a>
+  <a href="README.md"><kbd>English</kbd></a>
+  <a href="README.zh-CN.md"><kbd>简体中文</kbd></a>
 </p>
 
 A macOS menu bar app that tells you how much Codex and Claude quota you have left, what you spent
