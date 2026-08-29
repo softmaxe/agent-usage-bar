@@ -203,6 +203,42 @@ differ from an invoice.
 
 One provider is enough. You do not need both.
 
+## Install a release
+
+Download the ZIP for your Mac from [GitHub Releases](https://github.com/softmaxe/agent-usage-bar/releases),
+then unzip it and move `AgentUsageBar.app` to `/Applications`.
+
+- Apple Silicon (M1 or later): download the `arm64` ZIP.
+- Intel: download the `x86_64` ZIP.
+
+To check which Mac you have, open **Apple menu → About This Mac**. If the overview shows a **Chip**
+such as Apple M1 or M2, choose `arm64`. If it shows an Intel **Processor**, choose `x86_64`.
+
+Each ZIP has a matching `.sha256` file. Download both files, open Terminal in the download folder,
+and verify the archive before unzipping it. For example:
+
+```bash
+shasum -a 256 -c AgentUsageBar-1.2.3-macos-arm64.zip.sha256
+```
+
+Release ZIPs require macOS 14 or later and are ad-hoc signed for this project. They do not have an
+Apple Developer ID signature and are not notarized, so macOS may warn the first time you open the app.
+After moving the app to `/Applications`, try opening it once, then use
+[Apple's approval flow](https://support.apple.com/en-us/102445):
+
+1. Open **System Settings → Privacy & Security**.
+2. Click **Open Anyway** next to the AgentUsageBar warning.
+3. Click **Open** to confirm.
+
+If you need a Terminal fallback, run this command only after placing the app in `/Applications`:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/AgentUsageBar.app
+```
+
+This removes the quarantine attribute from this app bundle only and bypasses this bundle's quarantine
+check. It does not add an Apple signature or notarization.
+
 ## Build
 
 ```bash
@@ -219,8 +255,27 @@ it. To install it:
 ditto build/AgentUsageBar.app /Applications/AgentUsageBar.app
 ```
 
-This is a local build script. Shipping it to anyone else still needs a Developer ID signature, the
-hardened runtime, notarization and a signed archive.
+This local build and the release ZIPs use the same ad-hoc signing approach. They can be distributed
+without an Apple Developer ID signature or notarization, but macOS may show the first-launch warning
+described above.
+
+## Publish a release
+
+For a test package, open the repository's **Actions** tab, select **Build and Release**, then choose
+**Run workflow**. The workflow tests and packages both architectures without creating a GitHub
+Release. These development artifacts use app version `0.0.0`, include the commit SHA in their file
+names and remain available for 14 days.
+
+To publish a version, create and push a three-part version tag:
+
+```bash
+git tag v1.2.3
+git push origin v1.2.3
+```
+
+Both architecture jobs run `make test`, build an ad-hoc-signed app and verify the archive. GitHub
+publishes the Release only after both jobs succeed. An existing Release for the same tag is never
+overwritten; publish a new version tag instead.
 
 ## Sign in
 
@@ -311,8 +366,9 @@ Models with no known price appear without one until the catalog or an override s
 
 ## Limitations
 
-- The packaging script produces a host-architecture, ad-hoc-signed local build. Universal binaries
-  and notarization are not automated.
+- `make app` produces a host-architecture, ad-hoc-signed local build. The release workflow produces
+  separate `arm64` and `x86_64` ZIPs rather than a Universal binary. Developer ID signing and
+  notarization are not part of the release strategy.
 - Claude credential recovery is delegated to Claude Code only after a user-initiated `Refresh` and
   is bounded to one hidden status attempt. Automatic refreshes fail closed, and AgentUsageBar never
   writes CLI credentials. Claude Code may still require interactive sign-in; if it does, recovery
