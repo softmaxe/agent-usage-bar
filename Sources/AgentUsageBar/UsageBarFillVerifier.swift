@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import Metal
 import SwiftUI
 
 /// No XCTest without Xcode, so the fill policy is asserted from a launch flag the way the chart
@@ -45,27 +46,33 @@ enum UsageBarFillVerifier {
             failures.append("a rise of exactly the rollover threshold glided instead of sweeping")
         }
 
-        let marker = UsageProgressBar(
-            percent: 50,
-            tint: .cyan,
-            pacePercent: 50,
-            animatesFill: false
-        )
-        .frame(width: 100, height: 6)
-        let renderer = ImageRenderer(content: marker)
-        renderer.scale = 2
-        if let image = renderer.cgImage {
-            let bitmap = NSBitmapImageRep(cgImage: image)
-            let leftAlpha = bitmap.colorAt(x: 96, y: 6)?.alphaComponent ?? 1
-            let rightAlpha = bitmap.colorAt(x: 103, y: 6)?.alphaComponent ?? 1
-            if leftAlpha > 0.01 || rightAlpha > 0.01 {
-                failures.append(
-                    "the pace marker did not fully cut through both sides of the bar "
-                        + "(left alpha \(leftAlpha), right alpha \(rightAlpha))"
-                )
-            }
+        // ImageRenderer(Canvas) needs Metal. Headless runners without a GPU still exercise every
+        // fill-policy assertion above, while a GPU-backed runner owns the pixel check below.
+        if MTLCreateSystemDefaultDevice() == nil {
+            print("Skipping usage bar pixel check: no Metal device is available on this headless verifier.")
         } else {
-            failures.append("the pace marker render check did not produce an image")
+            let marker = UsageProgressBar(
+                percent: 50,
+                tint: .cyan,
+                pacePercent: 50,
+                animatesFill: false
+            )
+            .frame(width: 100, height: 6)
+            let renderer = ImageRenderer(content: marker)
+            renderer.scale = 2
+            if let image = renderer.cgImage {
+                let bitmap = NSBitmapImageRep(cgImage: image)
+                let leftAlpha = bitmap.colorAt(x: 96, y: 6)?.alphaComponent ?? 1
+                let rightAlpha = bitmap.colorAt(x: 103, y: 6)?.alphaComponent ?? 1
+                if leftAlpha > 0.01 || rightAlpha > 0.01 {
+                    failures.append(
+                        "the pace marker did not fully cut through both sides of the bar "
+                            + "(left alpha \(leftAlpha), right alpha \(rightAlpha))"
+                    )
+                }
+            } else {
+                failures.append("the pace marker render check did not produce an image")
+            }
         }
 
         return VerifierReport.finish(failures, label: Self.label, passed: Self.passed)
