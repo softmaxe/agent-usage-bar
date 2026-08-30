@@ -65,18 +65,18 @@ jobs:
               exit 1
             fi
             version="${REF_NAME#v}"
-            archive_base="AgentUsageBar-${version}-macos-${ARCH}"
+            archive_base="QuotaBar-${version}-macos-${ARCH}"
           else
             version="0.0.0"
             short_sha="${COMMIT_SHA:0:7}"
-            archive_base="AgentUsageBar-dev-${short_sha}-macos-${ARCH}"
+            archive_base="QuotaBar-dev-${short_sha}-macos-${ARCH}"
           fi
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
           echo "archive_base=${archive_base}" >> "${GITHUB_OUTPUT}"
 
       - name: Run tests
         env:
-          AGENT_USAGE_BAR_SKIP_GPU_RENDER_CHECK: ${{ matrix.skip_gpu_render_check }}
+          QUOTA_BAR_SKIP_GPU_RENDER_CHECK: ${{ matrix.skip_gpu_render_check }}
         run: make test
 
       - name: Package app
@@ -92,7 +92,7 @@ jobs:
           EXPECTED_ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
-          app="build/AgentUsageBar.app"
+          app="build/QuotaBar.app"
           info_plist="${app}/Contents/Info.plist"
           [[ -d "${app}" ]]
           [[ -f "${info_plist}" ]]
@@ -124,7 +124,7 @@ jobs:
           mkdir -p dist
 
           zip_path="dist/${ARCHIVE_BASE}.zip"
-          ditto -c -k --keepParent build/AgentUsageBar.app "${zip_path}"
+          ditto -c -k --keepParent build/QuotaBar.app "${zip_path}"
           unzip -t "${zip_path}"
 
           zip_name="$(basename "${zip_path}")"
@@ -202,10 +202,10 @@ jobs:
           fi
 
           expected_files=(
-            "dist/AgentUsageBar-${version}-macos-arm64.zip"
-            "dist/AgentUsageBar-${version}-macos-arm64.zip.sha256"
-            "dist/AgentUsageBar-${version}-macos-x86_64.zip"
-            "dist/AgentUsageBar-${version}-macos-x86_64.zip.sha256"
+            "dist/QuotaBar-${version}-macos-arm64.zip"
+            "dist/QuotaBar-${version}-macos-arm64.zip.sha256"
+            "dist/QuotaBar-${version}-macos-x86_64.zip"
+            "dist/QuotaBar-${version}-macos-x86_64.zip.sha256"
           )
           for expected_file in "${expected_files[@]}"; do
             if [[ ! -f "${expected_file}" ]]; then
@@ -243,14 +243,14 @@ jobs:
         run: |
           set -euo pipefail
           gh release create "${GITHUB_REF_NAME}" \
-            "dist/AgentUsageBar-${VERSION}-macos-arm64.zip" \
-            "dist/AgentUsageBar-${VERSION}-macos-arm64.zip.sha256" \
-            "dist/AgentUsageBar-${VERSION}-macos-x86_64.zip" \
-            "dist/AgentUsageBar-${VERSION}-macos-x86_64.zip.sha256" \
+            "dist/QuotaBar-${VERSION}-macos-arm64.zip" \
+            "dist/QuotaBar-${VERSION}-macos-arm64.zip.sha256" \
+            "dist/QuotaBar-${VERSION}-macos-x86_64.zip" \
+            "dist/QuotaBar-${VERSION}-macos-x86_64.zip.sha256" \
             --draft \
             --verify-tag \
             --generate-notes \
-            --title "AgentUsageBar ${VERSION}"
+            --title "QuotaBar ${VERSION}"
 
       - name: Publish release
         run: |
@@ -275,7 +275,7 @@ jobs:
           set -euo pipefail
           if [[ -z "${TAP_GITHUB_TOKEN:-}" ]]; then
             echo "TAP_GITHUB_TOKEN is not set, skip tap update." >&2
-            echo "Create a PAT with repo scope and add it as TAP_GITHUB_TOKEN in softmaxe/agent-usage-bar settings." >&2
+            echo "Create a PAT with repo scope and add it as TAP_GITHUB_TOKEN in softmaxe/quota-bar settings." >&2
             exit 0
           fi
 
@@ -288,7 +288,7 @@ jobs:
 
           git clone "https://x-access-token:${TAP_GITHUB_TOKEN}@github.com/softmaxe/homebrew-tap.git" "$tmp_tap"
 
-          gh release download "$TAG" --repo softmaxe/agent-usage-bar --pattern "*.zip.sha256" --dir "$tmp_dist"
+          gh release download "$TAG" --repo softmaxe/quota-bar --pattern "*.zip.sha256" --dir "$tmp_dist"
           cat "$tmp_dist"/*.sha256
 
           get_sha() {
@@ -296,8 +296,8 @@ jobs:
             awk -v n="$name" '$2 == n { print $1 }' "$tmp_dist"/*.sha256
           }
 
-          sha_arm="$(get_sha "AgentUsageBar-${version}-macos-arm64.zip")"
-          sha_intel="$(get_sha "AgentUsageBar-${version}-macos-x86_64.zip")"
+          sha_arm="$(get_sha "QuotaBar-${version}-macos-arm64.zip")"
+          sha_intel="$(get_sha "QuotaBar-${version}-macos-x86_64.zip")"
 
           for v in sha_arm sha_intel; do
             if [[ -z "${!v:-}" ]]; then
@@ -306,7 +306,7 @@ jobs:
             fi
           done
 
-          cask="$tmp_tap/Casks/agent-usage-bar.rb"
+          cask="$tmp_tap/Casks/quota-bar.rb"
 
           python3 - "$cask" "$version" "$sha_arm" "$sha_intel" <<'PY'
           import pathlib, sys, re
@@ -328,12 +328,12 @@ jobs:
 
           git -C "$tmp_tap" config user.name "github-actions[bot]"
           git -C "$tmp_tap" config user.email "github-actions[bot]@users.noreply.github.com"
-          git -C "$tmp_tap" add Casks/agent-usage-bar.rb
+          git -C "$tmp_tap" add Casks/quota-bar.rb
           if git -C "$tmp_tap" diff --cached --quiet; then
             echo "No changes to commit"
             exit 0
           fi
-          git -C "$tmp_tap" commit -m "chore: bump agent-usage-bar to ${version}"
+          git -C "$tmp_tap" commit -m "chore: bump quota-bar to ${version}"
           # Handle concurrent pushes to the tap (e.g., other formula bumps) by rebasing and retrying.
           for attempt in 1 2 3; do
             if git -C "$tmp_tap" push origin main; then

@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="Resources/AppIcon.png" alt="AgentUsageBar app logo" width="180">
+  <img src="Resources/AppIcon.png" alt="QuotaBar app logo" width="180">
 </p>
 
-<h1 align="center">AgentUsageBar</h1>
+<h1 align="center">QuotaBar</h1>
 
 <p align="center">
   <a href="README.md"><kbd>English</kbd></a>
@@ -211,22 +211,22 @@ If you already use Homebrew, this is the cleanest way to keep the app current.
 
 ```bash
 brew tap softmaxe/tap
-brew install --cask agent-usage-bar
+brew install --cask quota-bar
 ```
 
-That fetches the ZIP that matches your Mac, checks the SHA, and places `AgentUsageBar.app` in `/Applications`. You do not need Xcode or `make`.
+That fetches the ZIP that matches your Mac, checks the SHA, and places `QuotaBar.app` in `/Applications`. You do not need Xcode or `make`.
 
 Update later with:
 
 ```bash
 brew update
-brew upgrade --cask agent-usage-bar
+brew upgrade --cask quota-bar
 ```
 
 You can also skip the tap step:
 
 ```bash
-brew install --cask softmaxe/tap/agent-usage-bar
+brew install --cask softmaxe/tap/quota-bar
 ```
 
 The cask version tracks the GitHub tag, so `brew upgrade` follows new releases. The release workflow bumps the cask automatically from the `.sha256` files, so the SHA usually stays in sync without a manual edit.
@@ -234,14 +234,14 @@ The cask version tracks the GitHub tag, so `brew upgrade` follows new releases. 
 To remove it:
 
 ```bash
-brew uninstall --cask agent-usage-bar
-brew uninstall --zap --cask agent-usage-bar  # also clears ~/Library/Application Support/AgentUsageBar and caches
+brew uninstall --cask quota-bar
+brew uninstall --zap --cask quota-bar  # also clears ~/Library/Application Support/QuotaBar and caches
 ```
 
 ### Manual download
 
-Download the ZIP for your Mac from [GitHub Releases](https://github.com/softmaxe/agent-usage-bar/releases),
-then unzip it and move `AgentUsageBar.app` to `/Applications`.
+Download the ZIP for your Mac from [GitHub Releases](https://github.com/softmaxe/quota-bar/releases),
+then unzip it and move `QuotaBar.app` to `/Applications`.
 
 - Apple Silicon (M1 or later): download the `arm64` ZIP.
 - Intel: download the `x86_64` ZIP.
@@ -253,7 +253,7 @@ Each ZIP has a matching `.sha256` file. Download both files, open Terminal in th
 and verify the archive before unzipping it. For example:
 
 ```bash
-shasum -a 256 -c AgentUsageBar-1.2.3-macos-arm64.zip.sha256
+shasum -a 256 -c QuotaBar-1.2.3-macos-arm64.zip.sha256
 ```
 
 Both the Homebrew cask and the manual ZIP require macOS 14 or later and are ad-hoc signed for this project. They do not have an
@@ -262,13 +262,13 @@ After moving the app to `/Applications`, try opening it once, then use
 [Apple's approval flow](https://support.apple.com/en-us/102445):
 
 1. Open **System Settings → Privacy & Security**.
-2. Click **Open Anyway** next to the AgentUsageBar warning.
+2. Click **Open Anyway** next to the QuotaBar warning.
 3. Click **Open** to confirm.
 
 If you need a Terminal fallback, run this command only after placing the app in `/Applications`:
 
 ```bash
-xattr -dr com.apple.quarantine /Applications/AgentUsageBar.app
+xattr -dr com.apple.quarantine /Applications/QuotaBar.app
 ```
 
 This removes the quarantine attribute from this app bundle only and bypasses this bundle's quarantine
@@ -277,17 +277,17 @@ check. It does not add an Apple signature or notarization.
 ## Build
 
 ```bash
-git clone git@github.com:softmaxe/agent-usage-bar.git
-cd agent-usage-bar
+git clone git@github.com:softmaxe/quota-bar.git
+cd quota-bar
 make app
-open build/AgentUsageBar.app
+open build/QuotaBar.app
 ```
 
-`make app` builds for the current architecture, assembles `build/AgentUsageBar.app` and ad-hoc signs
+`make app` builds for the current architecture, assembles `build/QuotaBar.app` and ad-hoc signs
 it. To install it:
 
 ```bash
-ditto build/AgentUsageBar.app /Applications/AgentUsageBar.app
+ditto build/QuotaBar.app /Applications/QuotaBar.app
 ```
 
 This local build and the release ZIPs use the same ad-hoc signing approach. They can be distributed
@@ -314,7 +314,7 @@ overwritten; publish a new version tag instead.
 
 ## Sign in
 
-AgentUsageBar reuses the credentials the official CLIs already created. It has no login flow of its
+QuotaBar reuses the credentials the official CLIs already created. It has no login flow of its
 own.
 
 ```bash
@@ -323,10 +323,10 @@ claude        # complete the CLI's own flow; the token lands in the Keychain
 ```
 
 Reading the Claude entry goes through Apple's `/usr/bin/security`, which may raise a macOS access
-prompt the first time. If a user-initiated `Refresh` receives a 401, AgentUsageBar may start a
+prompt the first time. If a user-initiated `Refresh` receives a 401, QuotaBar may start a
 hidden, five-second Claude Code status command so Claude Code can refresh its own credentials. The
 app then rereads the Keychain and retries once only when the access token changed. It never writes
-the CLI credential item. AgentUsageBar itself does not call `auth login` or open Terminal or a
+the CLI credential item. QuotaBar itself does not call `auth login` or open Terminal or a
 browser. Claude Code may still require interactive sign-in; when that happens, recovery stops and
 you must open Claude Code yourself. Automatic refreshes fail closed and never start Claude Code.
 
@@ -334,18 +334,18 @@ you must open Claude Code yourself. Automatic refreshes fail closed and never st
 
 The app reads local credentials and logs and never writes to the CLI-owned credential stores.
 `auth.json` is read-only to it, and a refreshed Codex token stays in memory for that run. A Claude
-Code process may update its own credentials only after the user clicks `Refresh`. What AgentUsageBar
+Code process may update its own credentials only after the user clicks `Refresh`. What QuotaBar
 does write lives under its own directories:
 
 ```text
-~/Library/Application Support/AgentUsageBar/usage-history.json      quota samples, kept 56 days
-~/Library/Application Support/AgentUsageBar/pricing-overrides.json  manual rates, when set
-~/Library/Caches/AgentUsageBar/cost-usage/cost-usage.sqlite         incremental scan cache
-~/Library/Caches/AgentUsageBar/model-pricing/                       models.dev catalog, 24h TTL
+~/Library/Application Support/QuotaBar/usage-history.json      quota samples, kept 56 days
+~/Library/Application Support/QuotaBar/pricing-overrides.json  manual rates, when set
+~/Library/Caches/QuotaBar/cost-usage/cost-usage.sqlite         incremental scan cache
+~/Library/Caches/QuotaBar/model-pricing/                       models.dev catalog, 24h TTL
 ```
 
 The cost cache stores transcript paths, dates, model names, token counts and costs. It never stores
-prompt or response text. Settings live in `com.agentusagebar.app`.
+prompt or response text. Settings live in `com.quotabar.app`.
 
 Three hosts get requests: OpenAI's Codex usage endpoint, Anthropic's OAuth usage endpoint, and
 `models.dev` for the optional catalog.
@@ -360,7 +360,7 @@ make run                # Stop any running instance, build, run in the foregroun
 make test               # 185 assertions plus 12 verifiers that walk the animation curves
 make probe              # Check both provider integrations from the terminal
 make probe-cost         # Rescan local logs and print cost totals. No credentials, no network
-make logs               # Stream os.Logger output for com.agentusagebar.app
+make logs               # Stream os.Logger output for com.quotabar.app
 make app                # Release .app bundle
 make readme-assets      # Re-render every image in this file. Needs ffmpeg
 make clean
@@ -405,7 +405,7 @@ Models with no known price appear without one until the catalog or an override s
   separate `arm64` and `x86_64` ZIPs rather than a Universal binary. Developer ID signing and
   notarization are not part of the release strategy.
 - Claude credential recovery is delegated to Claude Code only after a user-initiated `Refresh` and
-  is bounded to one hidden status attempt. Automatic refreshes fail closed, and AgentUsageBar never
+  is bounded to one hidden status attempt. Automatic refreshes fail closed, and QuotaBar never
   writes CLI credentials. Claude Code may still require interactive sign-in; if it does, recovery
   stops and you must open Claude Code yourself.
 - Cost figures are reconstructed from local logs. They are not billing statements.

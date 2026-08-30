@@ -8,14 +8,14 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-BIN=.build/debug/AgentUsageBar
+BIN=.build/debug/QuotaBar
 OUT=docs/images
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
 command -v ffmpeg >/dev/null || { echo "ffmpeg is required: brew install ffmpeg" >&2; exit 1; }
 
-swift build -c debug --product AgentUsageBar
+swift build -c debug --product QuotaBar
 mkdir -p "$OUT"
 
 echo "==> rendering frames"
