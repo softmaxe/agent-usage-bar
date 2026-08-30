@@ -104,6 +104,7 @@ final class PricingEditorModel: ObservableObject {
     @Published private(set) var rows: [PricingRow] = []
     @Published private(set) var isLoading = true
     @Published private(set) var saveError: String?
+    @Published private(set) var openCodeScanStatus: String?
     @Published private(set) var hasUnsavedChanges = false
     /// Set after a save so the pane can say what the new rates do and do not touch.
     @Published private(set) var lastSavedAt: Date?
@@ -156,6 +157,7 @@ final class PricingEditorModel: ObservableObject {
         }
 
         await self.rebuild(overlay: PricingOverlayStore.loadFromDisk())
+        self.openCodeScanStatus = await self.costService.currentOpenCodeScanStatus().message
 
         // The table is on screen by now, so the catalog refresh costs the user nothing. It
         // only redraws when models.dev actually moved.

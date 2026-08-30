@@ -65,6 +65,12 @@ struct PricingSettingsView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            if let status = self.model.openCodeScanStatus {
+                Label(status, systemImage: "exclamationmark.triangle")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             // Three equal columns split by the panel's own margin, so the air between the buttons
             // and at either end of the row is the same. The row keeps the header's own symmetric
             // margins rather than the table's reserved scroller gutter, because the copy above it

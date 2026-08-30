@@ -15,6 +15,7 @@ public struct ModelUsageTotal: Sendable, Equatable {
 public actor CostService {
     private var cache: CostCache?
     private var overlay: PricingOverlay?
+    private var openCodeStatus: OpenCodeScanStatus = .idle
     /// Readable without the actor so `CostUsageReader` can open the same file on a connection
     /// of its own rather than queueing behind a scan.
     public nonisolated let databaseURL: URL
@@ -72,6 +73,10 @@ public actor CostService {
             guard entry.model != CostPricing.unknownModel else { return nil }
             return ModelUsageTotal(model: entry.model, tokens: entry.tokens)
         }
+    }
+
+    public func currentOpenCodeScanStatus() -> OpenCodeScanStatus {
+        self.openCodeStatus
     }
 
     /// Drops the cached price layers so the next refresh picks up an edited override file.
@@ -137,8 +142,15 @@ public actor CostService {
     /// Which scanner reads a provider's logs. The only place that mapping is spelled out.
     private func scan(_ provider: Provider, cache: CostCache, overlay: PricingOverlay) throws -> Int {
         switch provider {
-        case .codex: try CodexLogScanner.scan(cache: cache, overlay: overlay, env: self.env)
-        case .claude: try ClaudeLogScanner.scan(cache: cache, overlay: overlay, env: self.env)
+        case .codex:
+            let codexTouched = try CodexLogScanner.scan(cache: cache, overlay: overlay, env: self.env)
+            let openCode = OpenCodeLogScanner.scan(cache: cache, overlay: overlay, env: self.env)
+            self.openCodeStatus = openCode.status
+            if case .error = openCode.status {
+                Log.ui.error("OpenCode usage scan failed; cached usage was kept")
+            }
+            return codexTouched + openCode.touched
+        case .claude: return try ClaudeLogScanner.scan(cache: cache, overlay: overlay, env: self.env)
         }
     }
 

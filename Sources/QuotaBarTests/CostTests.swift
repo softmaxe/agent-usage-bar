@@ -1,6 +1,7 @@
 import QuotaBarCore
 import Combine
 import Foundation
+import SQLite3
 
 /// Cost-layer checks. The scan tests build synthetic transcripts in a temp directory and drive
 /// the real scanner through `CostService`, with pricing pinned so nothing touches the network.
@@ -11,7 +12,9 @@ enum CostTests {
         Self.longContextTiering()
         Self.overlayParsing()
         Self.catalogRefreshBackoff()
+        Self.legacyReadOnlyCache()
         await Self.scanning()
+        await Self.openCodeScanning()
         await Self.pricingEditsApplyForward()
     }
 
@@ -220,6 +223,186 @@ enum CostTests {
     }
 
     // MARK: - Scanning
+
+    private static func legacyReadOnlyCache() {
+        let url = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("quotabar-legacy-cache-\(ProcessInfo.processInfo.processIdentifier).sqlite")
+        try? FileManager.default.removeItem(at: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+        var db: OpaquePointer?
+        guard sqlite3_open(url.path, &db) == SQLITE_OK, let db else {
+            Harness.expect(false, "legacy cache fixture opens")
+            return
+        }
+        sqlite3_exec(db, """
+            CREATE TABLE codex_day (
+                path TEXT, day TEXT, model TEXT, long_context INTEGER,
+                input INTEGER, output INTEGER, cache_write INTEGER, cache_read INTEGER
+            );
+            INSERT INTO codex_day VALUES ('log', '2026-08-31', 'gpt-5.6-luna', 0, 7, 0, 0, 0);
+            """, nil, nil, nil)
+        sqlite3_close(db)
+        let usage = CostUsageReader.knownModelUsage(provider: .codex, databaseURL: url)
+        Harness.expectEqual(usage, [ModelUsageTotal(model: "gpt-5.6-luna", tokens: 7)], "old read-only cache needs no OpenCode table")
+    }
+
+    private static func openCodeScanning() async {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("quotabar-opencode-tests-\(ProcessInfo.processInfo.processIdentifier)")
+        try? FileManager.default.removeItem(at: root)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let codexHome = root.appendingPathComponent("codex")
+        let openCodeHome = root.appendingPathComponent("opencode")
+        try? FileManager.default.createDirectory(at: codexHome.appendingPathComponent("sessions"), withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: openCodeHome, withIntermediateDirectories: true)
+        try? #"{"tokens":{"account_id":"account-a"}}"#.write(
+            to: codexHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
+        )
+        try? #"{"openai":{"type":"oauth","accountId":"account-a"}}"#.write(
+            to: openCodeHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
+        )
+
+        let source = openCodeHome.appendingPathComponent("opencode.db")
+        var db: OpaquePointer?
+        guard sqlite3_open(source.path, &db) == SQLITE_OK, let db else {
+            Harness.expect(false, "OpenCode fixture database opens")
+            return
+        }
+        defer { sqlite3_close(db) }
+        sqlite3_exec(db, "CREATE TABLE message (id TEXT PRIMARY KEY, data TEXT NOT NULL)", nil, nil, nil)
+        sqlite3_exec(db, "CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT NOT NULL, data TEXT NOT NULL)", nil, nil, nil)
+
+        let now = Int64(Date().timeIntervalSince1970 * 1000)
+        func insert(_ id: String, provider: String = "openai", model: String = "gpt-5.6-luna") {
+            let message = #"{"time":{"created":\#(now)},"providerID":"\#(provider)","modelID":"\#(model)"}"#
+            let part = #"{"type":"step-finish","tokens":{"input":10,"output":20,"reasoning":30,"cache":{"read":40,"write":50}}}"#
+            var stmt: OpaquePointer?
+            sqlite3_prepare_v2(db, "INSERT INTO message (id, data) VALUES (?, ?)", -1, &stmt, nil)
+            sqlite3_bind_text(stmt, 1, "message-\(id)", -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            sqlite3_bind_text(stmt, 2, message, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            sqlite3_step(stmt)
+            sqlite3_finalize(stmt)
+            sqlite3_prepare_v2(db, "INSERT INTO part (id, message_id, data) VALUES (?, ?, ?)", -1, &stmt, nil)
+            sqlite3_bind_text(stmt, 1, id, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            sqlite3_bind_text(stmt, 2, "message-\(id)", -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            sqlite3_bind_text(stmt, 3, part, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            sqlite3_step(stmt)
+            sqlite3_finalize(stmt)
+        }
+        insert("part-1")
+        insert("third-party", provider: "openrouter")
+
+        let service = CostService(
+            databaseURL: root.appendingPathComponent("cache.sqlite"),
+            env: ["CODEX_HOME": codexHome.path, "OPENCODE_DATA_HOME": openCodeHome.path],
+            pricingOverlay: PricingOverlay()
+        )
+        let first = await service.refresh(.codex)
+        Harness.expectEqual(first?.windowTokens, 150, "OpenCode maps output reasoning and cache buckets")
+        Harness.expectEqual(first?.days.first?.tokens.output, 50, "OpenCode reasoning is output")
+        Harness.expectEqual(first?.days.first?.tokens.cacheRead, 40, "OpenCode cache reads are preserved")
+        Harness.expectEqual(first?.days.first?.tokens.cacheWrite, 50, "OpenCode cache writes are preserved")
+        Harness.expectEqual(await service.currentOpenCodeScanStatus(), .idle, "matching OAuth is quiet")
+
+        let repeated = await service.refresh(.codex)
+        Harness.expectEqual(repeated?.windowTokens, 150, "OpenCode part IDs dedupe repeated scans")
+
+        sqlite3_exec(
+            db,
+            "UPDATE part SET data = '{\"type\":\"step-finish\",\"tokens\":{\"input\":10,\"output\":120,\"reasoning\":30,\"cache\":{\"read\":40,\"write\":50}}}' WHERE id = 'part-1'",
+            nil,
+            nil,
+            nil
+        )
+        let completed = await service.refresh(.codex)
+        Harness.expectEqual(completed?.windowTokens, 250, "a growing OpenCode part updates its frozen usage")
+        let completedCost = completed?.windowCostUSD
+        await service.usePricingOverlay(PricingOverlay(userOverrides: [
+            "gpt-5.6-luna": ModelPricing(
+                input: 100,
+                output: 100,
+                cacheWrite: 100,
+                cacheRead: 100,
+                thresholdTokens: 1,
+                inputAbove: 200,
+                outputAbove: 200
+            ),
+        ]))
+        let repriced = await service.refresh(.codex)
+        Harness.expectClose(repriced?.windowCostUSD, completedCost ?? -1, "an overlay change does not reprice unchanged OpenCode usage")
+
+        try? #"{"openai":{"type":"api","accountId":"account-a"}}"#.write(
+            to: openCodeHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
+        )
+        insert("part-2")
+        let excluded = await service.refresh(.codex)
+        Harness.expectEqual(excluded?.windowTokens, 250, "API-key OpenCode rows are excluded")
+        Harness.expectEqual(await service.currentOpenCodeScanStatus(), .nonOAuth, "non-OAuth status is exposed")
+
+        try? #"{"openai":{"type":"oauth","accountId":"account-a"}}"#.write(
+            to: openCodeHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
+        )
+        let frozen = await service.refresh(.codex)
+        Harness.expectEqual(frozen?.windowTokens, 250, "excluded OpenCode rows stay excluded")
+
+        try? #"{"openai":null}"#.write(
+            to: openCodeHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
+        )
+        insert("part-3")
+        let indeterminate = await service.refresh(.codex)
+        Harness.expectEqual(indeterminate?.windowTokens, 250, "indeterminate auth does not classify new rows")
+        try? #"{"openai":{"type":"oauth","accountId":"account-a"}}"#.write(
+            to: openCodeHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
+        )
+        let retried = await service.refresh(.codex)
+        Harness.expectEqual(retried?.windowTokens, 400, "unclassified rows retry after auth recovers")
+
+        try? #"{"openai":{"type":"oauth","accountId":"account-b"}}"#.write(
+            to: openCodeHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
+        )
+        insert("part-4")
+        let mismatch = await service.refresh(.codex)
+        Harness.expectEqual(mismatch?.windowTokens, 400, "a different OpenAI account is excluded")
+        Harness.expectEqual(await service.currentOpenCodeScanStatus(), .accountMismatch, "account mismatch status is exposed")
+
+        try? #"{"openai":{"type":"oauth","accountId":"account-a"}}"#.write(
+            to: openCodeHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
+        )
+
+        sqlite3_exec(db, "DELETE FROM part WHERE id = 'part-1'", nil, nil, nil)
+        let pruned = await service.refresh(.codex)
+        Harness.expectEqual(pruned?.windowTokens, 150, "deleted OpenCode parts are pruned after a successful scan")
+
+        insert("unknown", model: "future-openai-model")
+        let unknown = await service.refresh(.codex)
+        Harness.expectEqual(unknown?.windowTokens, 300, "unknown OpenAI models still count tokens")
+        Harness.expectEqual(unknown?.hasUnpricedTokens, true, "unknown OpenAI models are unpriced")
+
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let timestamp = formatter.string(from: Date())
+        let codexLog = codexHome.appendingPathComponent("sessions/rollout-opencode-error.jsonl")
+        let codexLines = """
+        {"type":"turn_context","timestamp":"\(timestamp)","payload":{"model":"gpt-5.6-luna"}}
+        {"type":"event_msg","timestamp":"\(timestamp)","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":10,"cached_input_tokens":0,"output_tokens":0}}}}
+
+        """
+        try? codexLines.write(to: codexLog, atomically: true, encoding: .utf8)
+        sqlite3_exec(db, "ALTER TABLE message RENAME TO broken_message", nil, nil, nil)
+        let sourceFailure = await service.refresh(.codex)
+        Harness.expectEqual(sourceFailure?.windowTokens, 310, "OpenCode schema errors retain cache while Codex keeps scanning")
+        if case .error = await service.currentOpenCodeScanStatus() {
+            Harness.expect(true, "OpenCode schema error status is exposed")
+        } else {
+            Harness.expect(false, "OpenCode schema error status is exposed")
+        }
+
+        try? FileManager.default.removeItem(at: source)
+        let removed = await service.refresh(.codex)
+        Harness.expectEqual(removed?.windowTokens, 10, "a removed OpenCode database clears its cached usage")
+        Harness.expectEqual(await service.currentOpenCodeScanStatus(), .idle, "a removed OpenCode database is idle")
+    }
 
     /// A price edit must not rewrite history: what has already been scanned keeps the cost it was
     /// billed at, and the new rate reaches only the turns logged afterwards.

@@ -144,10 +144,16 @@
 
 <img src="docs/images/settings-pricing.png" width="620" alt="展开了一行模型的价格面板">
 
-token 和成本统计全部来自两家 CLI 自己的会话日志，不走任何计费 API：
+token 和成本统计全部来自本地会话数据，不走任何计费 API：
 
 - Codex：`~/.codex/sessions` 和 `~/.codex/archived_sessions`
+- OpenCode：`$XDG_DATA_HOME/opencode/opencode.db`，未设置时为 `~/.local/share/opencode/opencode.db`
 - Claude：`$CLAUDE_CONFIG_DIR/projects`，未设置时为 `~/.claude/projects` 和 `~/.config/claude/projects`
+
+只有 OpenCode 的 `openai` 供应商使用 OAuth，而且 account ID 和当前 Codex 账号一致时，这部分用量才会
+并入 Codex。扫描器只读 OpenAI `step-finish` 里的 token 元数据，其他 OpenCode 供应商一律忽略，也不会
+改动额度进度条。OpenCode 没给每条历史请求保存认证快照，所以第一次账号匹配时，已有 OpenAI 记录会被
+视为 OAuth 历史；之后的记录会保留 QuotaBar 第一次见到它时的认证分类。
 
 历史记录多的话第一次扫描会慢一些。之后都是基于 SQLite 缓存的增量扫描。
 
@@ -172,6 +178,7 @@ token 和成本统计全部来自两家 CLI 自己的会话日志，不走任何
 - macOS 14 或更高
 - Swift 6 工具链（Xcode 或命令行工具）
 - 本地已登录 Codex CLI 和/或 Claude Code
+- 如果要把 OpenAI OAuth 用量并进 Codex，还需要 OpenCode
 
 只用一家也可以，不需要两家都装。
 
@@ -298,8 +305,10 @@ claude        # 走 CLI 自己的登录流程；token 落在钥匙串里
 ## 隐私与网络
 
 应用只读本地凭据和日志，从不写 CLI 自己的凭据存储。`auth.json` 对它是只读的，刷新出来的 Codex
-token 只在本次运行的内存里。只有你点了 `Refresh` 之后，才可能由一个 Claude Code 进程去更新它自己的
-凭据。QuotaBar 真正写入的东西都在自己的目录下：
+token 只在本次运行的内存里。扫描 OpenCode 时，QuotaBar 只解析 OpenAI 的认证类型和 account ID，
+再从数据库的 `step-finish` 记录读取 token、模型和时间字段，不读消息正文或 reasoning 内容。只有你
+点了 `Refresh` 之后，才可能由一个 Claude Code 进程去更新它自己的凭据。QuotaBar 真正写入的东西都在
+自己的目录下：
 
 ```text
 ~/Library/Application Support/QuotaBar/usage-history.json      额度采样，保留 56 天
@@ -308,8 +317,8 @@ token 只在本次运行的内存里。只有你点了 `Refresh` 之后，才可
 ~/Library/Caches/QuotaBar/model-pricing/                       models.dev 目录，24 小时 TTL
 ```
 
-成本缓存里存的是会话文件路径、日期、模型名、token 数和费用，从不存 prompt 或回复正文。设置存在
-`com.quotabar.app` 域下。
+成本缓存里存的是来源记录 ID 或会话文件路径、日期、模型名、token 数、费用和已经冻结的 OpenCode
+纳入决定。它不存 account ID、prompt、回复正文或 reasoning 内容。设置存在 `com.quotabar.app` 域下。
 
 只请求三个地址：OpenAI 的 Codex 用量接口、Anthropic 的 OAuth 用量接口，以及可选的 `models.dev`。
 
@@ -320,7 +329,7 @@ Swift Package Manager，没有 Xcode 工程。
 ```bash
 make build              # Debug 二进制
 make run                # 先杀掉正在跑的实例，再构建并前台运行
-make test               # 185 条断言，加 12 个逐帧走动效曲线的验证器
+make test               # 277 条断言，加 12 个逐帧走动效曲线的验证器
 make probe              # 在终端里检查两家的接入是否正常
 make probe-cost         # 重扫本地日志并打印成本统计。不用凭据，不联网
 make logs               # 输出 com.quotabar.app 的 os.Logger 日志流
@@ -358,6 +367,10 @@ make clean
 **成本统计缺失。** 确认 CLI 确实在往上面列出的路径写 JSONL 会话日志。没有已知价格的模型会先不带
 价格显示，直到目录或手动覆盖补上。
 
+**OpenCode 用量缺失。** 确认 OpenCode 的 `openai` 使用 OAuth，而且账号和 Codex 相同。API key 会话、
+账号不匹配、OpenRouter 和其他 OpenCode 供应商都不会纳入。认证或数据库持续出错时，
+**Settings → Pricing** 会显示一条只读提示；在下次成功扫描完成校对前，已有 OpenCode 统计继续保留。
+
 ## 已知限制
 
 - `make app` 产出当前主机架构的 ad-hoc 签名本地构建；release workflow 产出分别面向 `arm64` 和 `x86_64` 的
@@ -366,6 +379,9 @@ make clean
   fail closed，QuotaBar 从不写 CLI 凭据。Claude Code 仍可能要求交互式登录；那样恢复就停下，
   得你自己打开 Claude Code。
 - 成本数字是从本地日志还原出来的，不是账单。
+- OpenCode 不记录每条历史请求使用的认证方式。第一次账号匹配时，QuotaBar 会推定已有 `openai` 记录
+  使用当前 OAuth 账号。如果 QuotaBar 没在运行，而你在这期间完成了一次 OAuth → API key → OAuth
+  切换，之后无法从历史数据库还原这次变化。
 
 ## 许可证
 

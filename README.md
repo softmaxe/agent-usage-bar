@@ -167,10 +167,17 @@ the quota endpoints are shared with the CLIs and will rate-limit you.
 
 <img src="docs/images/settings-pricing.png" width="620" alt="The pricing pane with a model row unfolded">
 
-Token and cost totals come from the CLIs' own session logs, never from a billing API:
+Token and cost totals come from local session data, never from a billing API:
 
 - Codex: `~/.codex/sessions` and `~/.codex/archived_sessions`
+- OpenCode: `$XDG_DATA_HOME/opencode/opencode.db`, or `~/.local/share/opencode/opencode.db`
 - Claude: `$CLAUDE_CONFIG_DIR/projects`, or `~/.claude/projects` and `~/.config/claude/projects`
+
+OpenCode usage is folded into Codex only when its `openai` provider uses OAuth and its account ID
+matches the current Codex account. The scan reads OpenAI `step-finish` token metadata, ignores every
+other OpenCode provider, and does not change the quota bars. Existing OpenAI rows are treated as
+OAuth history on the first matching scan because OpenCode does not store an auth snapshot per
+request. Later rows keep the auth classification they received when QuotaBar first saw them.
 
 The first scan of a large history takes a while. Later ones are incremental against a SQLite cache.
 
@@ -200,6 +207,7 @@ differ from an invoice.
 - macOS 14 or later
 - Swift 6 toolchain (Xcode or the Command Line Tools)
 - Codex CLI and/or Claude Code signed in locally
+- OpenCode, when its OpenAI OAuth usage should be included under Codex
 
 One provider is enough. You do not need both.
 
@@ -333,9 +341,11 @@ you must open Claude Code yourself. Automatic refreshes fail closed and never st
 ## Privacy
 
 The app reads local credentials and logs and never writes to the CLI-owned credential stores.
-`auth.json` is read-only to it, and a refreshed Codex token stays in memory for that run. A Claude
-Code process may update its own credentials only after the user clicks `Refresh`. What QuotaBar
-does write lives under its own directories:
+`auth.json` is read-only to it, and a refreshed Codex token stays in memory for that run. For
+OpenCode, QuotaBar decodes only the OpenAI auth type and account ID, then reads token, model, and
+time fields from `step-finish` rows in the database. It does not read message or reasoning text.
+A Claude Code process may update its own credentials only after the user clicks `Refresh`. What
+QuotaBar does write lives under its own directories:
 
 ```text
 ~/Library/Application Support/QuotaBar/usage-history.json      quota samples, kept 56 days
@@ -344,8 +354,9 @@ does write lives under its own directories:
 ~/Library/Caches/QuotaBar/model-pricing/                       models.dev catalog, 24h TTL
 ```
 
-The cost cache stores transcript paths, dates, model names, token counts and costs. It never stores
-prompt or response text. Settings live in `com.quotabar.app`.
+The cost cache stores source record IDs or transcript paths, dates, model names, token counts,
+costs, and the frozen OpenCode inclusion decision. It never stores account IDs, prompts, responses,
+or reasoning text. Settings live in `com.quotabar.app`.
 
 Three hosts get requests: OpenAI's Codex usage endpoint, Anthropic's OAuth usage endpoint, and
 `models.dev` for the optional catalog.
@@ -357,7 +368,7 @@ Swift Package Manager, no Xcode project.
 ```bash
 make build              # Debug binary
 make run                # Stop any running instance, build, run in the foreground
-make test               # 185 assertions plus 12 verifiers that walk the animation curves
+make test               # 277 assertions plus 12 verifiers that walk the animation curves
 make probe              # Check both provider integrations from the terminal
 make probe-cost         # Rescan local logs and print cost totals. No credentials, no network
 make logs               # Stream os.Logger output for com.quotabar.app
@@ -399,6 +410,11 @@ icon. Wait out the provider's window, pick a longer interval, and stop forcing r
 **Cost totals are missing.** Confirm the CLI is writing JSONL session logs to the paths above.
 Models with no known price appear without one until the catalog or an override supplies it.
 
+**OpenCode usage is missing.** Confirm OpenCode uses `openai` OAuth for the same account as Codex.
+QuotaBar ignores API-key sessions, account mismatches, OpenRouter, and other OpenCode providers.
+Persistent auth or database errors appear as a read-only message in **Settings → Pricing**; existing
+OpenCode totals remain cached until a successful scan can reconcile them.
+
 ## Limitations
 
 - `make app` produces a host-architecture, ad-hoc-signed local build. The release workflow produces
@@ -409,6 +425,9 @@ Models with no known price appear without one until the catalog or an override s
   writes CLI credentials. Claude Code may still require interactive sign-in; if it does, recovery
   stops and you must open Claude Code yourself.
 - Cost figures are reconstructed from local logs. They are not billing statements.
+- OpenCode does not record the auth method per historical request. The first matching scan infers
+  that existing `openai` rows used the current OAuth account. An OAuth-to-API-to-OAuth switch that
+  happens entirely while QuotaBar is not running cannot be reconstructed later.
 
 ## License
 
