@@ -2,6 +2,7 @@
 import QuotaBarCore
 import AppKit
 import Foundation
+import Metal
 import SwiftUI
 
 /// Proves the reset label's two faces read correctly, and that clicking one swaps to the other.
@@ -148,6 +149,14 @@ enum QuotaResetLabelVerifier {
     }
 
     private static func layoutFailures() -> [String] {
+        // NSHostingView on a headless Intel runner without Metal aborts inside MTLLoader.
+        // The arm64 runner already proved the 280pt card does not truncate; Intel can skip.
+        if ProcessInfo.processInfo.environment["QUOTA_BAR_SKIP_GPU_RENDER_CHECK"] == "1" {
+            return []
+        }
+        if MTLCreateSystemDefaultDevice() == nil {
+            return []
+        }
         var failures: [String] = []
         let now = Self.currentDate(2026, 8, 30, 9, 0)
         let reset = Self.currentDate(2026, 9, 6, 12, 45)
