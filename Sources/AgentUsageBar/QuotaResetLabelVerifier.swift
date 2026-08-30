@@ -1,6 +1,8 @@
 #if DEBUG
 import AgentUsageBarCore
+import AppKit
 import Foundation
+import SwiftUI
 
 /// Proves the reset label's two faces read correctly, and that clicking one swaps to the other.
 /// The whole point of the clock face is planning around a reset, so a label that names the wrong
@@ -74,8 +76,13 @@ enum QuotaResetLabelVerifier {
             "clicking the label does not swap the two faces"
         )
 
-        print("Quota reset label reads both faces correctly")
-        exit(0)
+        let layoutFailures = Self.layoutFailures()
+        VerifierReport.finish(
+            layoutFailures,
+            label: "quota-reset-label verification",
+            passed: "quota reset label text and 280pt card layout passed"
+        )
+
     }
 
     private static func date(_ year: Int, _ month: Int, _ day: Int, _ hour: Int, _ minute: Int) -> Date {
@@ -89,6 +96,25 @@ enum QuotaResetLabelVerifier {
         )
         guard let date = Self.calendar.date(from: components) else {
             VerifierReport.fail("could not build a fixture date", label: "quota-reset-label verification")
+        }
+        return date
+    }
+
+    private static func currentDate(_ year: Int, _ month: Int, _ day: Int, _ hour: Int, _ minute: Int) -> Date {
+        let calendar = Calendar.current
+        let components = DateComponents(
+            timeZone: calendar.timeZone,
+            year: year,
+            month: month,
+            day: day,
+            hour: hour,
+            minute: minute
+        )
+        guard let date = calendar.date(from: components) else {
+            VerifierReport.fail(
+                "could not build current-zone fixture date",
+                label: "quota-reset-label verification"
+            )
         }
         return date
     }
@@ -119,6 +145,118 @@ enum QuotaResetLabelVerifier {
 
     private static func require(_ condition: @autoclosure () -> Bool, _ message: String) {
         VerifierReport.require(condition(), message, label: "quota-reset-label verification")
+    }
+
+    private static func layoutFailures() -> [String] {
+        var failures: [String] = []
+        let now = Self.currentDate(2026, 8, 30, 9, 0)
+        let reset = Self.currentDate(2026, 9, 6, 12, 45)
+        let resetText = QuotaResetLabel.text(resetsAt: reset, mode: .clock, now: now)
+        let normalizedResetText = resetText
+            .replacingOccurrences(of: "\u{202F}", with: " ")
+            .replacingOccurrences(of: "\u{00A0}", with: " ")
+        if normalizedResetText != "Resets Sep 6, 12:45 PM" {
+            failures.append(
+                "layout fixture expected \"Resets Sep 6, 12:45 PM\", got \"\(normalizedResetText)\""
+            )
+        }
+
+        let snapshot = UsageSnapshot(
+            provider: .codex,
+            session: nil,
+            weekly: UsageWindow(
+                usedPercent: 9,
+                resetsAt: reset,
+                windowSeconds: 604_800
+            ),
+            planLabel: "Plus",
+            credits: nil,
+            fetchedAt: now
+        )
+        let hosting = NSHostingView(rootView: MenuCardView(
+            provider: .codex,
+            display: ProviderDisplay(snapshot: snapshot),
+            isRefreshing: false,
+            animatesFill: false,
+            now: now,
+            quotaResetDisplayMode: .clock
+        ))
+        hosting.frame = NSRect(
+            origin: .zero,
+            size: NSSize(width: 280, height: hosting.fittingSize.height)
+        )
+        let window = NSWindow(
+            contentRect: hosting.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = hosting
+        window.orderFront(nil)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        hosting.layoutSubtreeIfNeeded()
+        let probes = Self.layoutProbes(in: hosting)
+        guard let headlineProbe = probes.first(where: { $0.probeIdentifier == "headline" }) else {
+            window.orderOut(nil)
+            failures.append("the hosted card exposed no headline layout probe")
+            return failures
+        }
+        guard let resetProbe = probes.first(where: { $0.probeIdentifier == "reset" }) else {
+            window.orderOut(nil)
+            failures.append("the hosted card exposed no reset layout probe")
+            return failures
+        }
+        let headlineFrame = headlineProbe.convert(headlineProbe.bounds, to: hosting)
+        let resetFrame = resetProbe.convert(resetProbe.bounds, to: hosting)
+
+        let resetIdeal = NSHostingView(rootView: Text(resetText).font(.system(size: 11)).lineLimit(1))
+        let headlineIdeal = NSHostingView(rootView: QuotaHeadline(
+            title: "Weekly",
+            percent: 91,
+            tint: Theme.accent(for: .codex),
+            frame: nil
+        ))
+
+        let resetIntrinsicWidth = resetIdeal.fittingSize.width
+        if resetFrame.width + 0.5 < resetIntrinsicWidth {
+            failures.append(
+                "reset label was compressed to \(Self.round(resetFrame.width))pt; "
+                    + "its \(Self.round(resetIntrinsicWidth))pt intrinsic width was not preserved"
+            )
+        }
+        let headlineIntrinsic = headlineIdeal.fittingSize
+        if headlineFrame.width + 1 < headlineIntrinsic.width {
+            failures.append(
+                "headline was compressed to \(Self.round(headlineFrame.width))pt; "
+                    + "its \(Self.round(headlineIntrinsic.width))pt intrinsic width was not preserved"
+            )
+        }
+        if headlineFrame.height > headlineIntrinsic.height + 1 {
+            failures.append(
+                "headline wrapped to \(Self.round(headlineFrame.height))pt high; "
+                    + "its single-line height is \(Self.round(headlineIntrinsic.height))pt"
+            )
+        }
+        let contentMaxX = hosting.bounds.maxX - 14
+        if resetFrame.maxX > contentMaxX + 0.5 {
+            failures.append(
+                "reset label ended at \(Self.round(resetFrame.maxX))pt, outside the "
+                    + "card content edge at \(Self.round(contentMaxX))pt"
+            )
+        }
+        window.orderOut(nil)
+        return failures
+    }
+
+    private static func layoutProbes(in view: NSView) -> [QuotaLayoutProbeView] {
+        view.subviews.flatMap { subview in
+            let own = subview as? QuotaLayoutProbeView
+            return (own.map { [$0] } ?? []) + Self.layoutProbes(in: subview)
+        }
+    }
+
+    private static func round(_ value: CGFloat) -> CGFloat {
+        (value * 10).rounded() / 10
     }
 }
 #endif

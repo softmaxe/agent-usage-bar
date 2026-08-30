@@ -1,4 +1,5 @@
 import AgentUsageBarCore
+import AppKit
 import SwiftUI
 
 /// The custom card hosted inside the status item's menu — the top half of CodexBar's popover.
@@ -190,7 +191,12 @@ private struct QuotaWindowRow: View {
                     tint: Theme.accent(for: self.provider),
                     frame: self.celebration.frame
                 )
-                Spacer(minLength: 8)
+#if DEBUG
+                .background {
+                    QuotaLayoutProbe(identifier: "headline")
+                }
+#endif
+                Spacer(minLength: 0)
                 if let resetsAt = self.window.resetsAt {
                     ResetLabel(
                         text: QuotaResetLabel.text(
@@ -258,5 +264,38 @@ private struct ResetLabel: View {
                     onClicked: { _ in self.onToggle() }
                 )
             }
+            .fixedSize(horizontal: true, vertical: false)
+#if DEBUG
+            .background {
+                QuotaLayoutProbe(identifier: "reset")
+            }
+#endif
     }
 }
+
+#if DEBUG
+/// A zero-drawing AppKit view that records the frame SwiftUI assigned to one card label. It is
+/// present only in debug builds so the layout verifier can inspect the real hosting hierarchy.
+final class QuotaLayoutProbeView: NSView {
+    let probeIdentifier: String
+
+    init(identifier: String) {
+        self.probeIdentifier = identifier
+        super.init(frame: .zero)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+}
+
+private struct QuotaLayoutProbe: NSViewRepresentable {
+    let identifier: String
+
+    func makeNSView(context: Context) -> QuotaLayoutProbeView {
+        QuotaLayoutProbeView(identifier: self.identifier)
+    }
+
+    func updateNSView(_ nsView: QuotaLayoutProbeView, context: Context) {}
+}
+#endif
