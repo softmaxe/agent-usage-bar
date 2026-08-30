@@ -1,5 +1,5 @@
 #!/bin/bash
-# Assembles AgentUsageBar.app from a release build.
+# Assembles QuotaBar.app from a release build.
 #
 # SwiftPM cannot emit an app bundle, so the layout is built by hand: a release binary, an
 # Info.plist marking the app as an agent (no Dock icon), and an ad-hoc signature. Ad-hoc is
@@ -7,8 +7,8 @@
 # belongs to that binary rather than to this one.
 set -euo pipefail
 
-APP_NAME="AgentUsageBar"
-BUNDLE_ID="com.agentusagebar.app"
+APP_NAME="QuotaBar"
+BUNDLE_ID="com.quotabar.app"
 VERSION="${VERSION:-1.0.0}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="$ROOT/build"

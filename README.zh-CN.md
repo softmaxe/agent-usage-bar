@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="Resources/AppIcon.png" alt="AgentUsageBar app logo" width="180">
+  <img src="Resources/AppIcon.png" alt="QuotaBar app logo" width="180">
 </p>
 
-<h1 align="center">AgentUsageBar</h1>
+<h1 align="center">QuotaBar</h1>
 
 <p align="center">
   <a href="README.md"><kbd>English</kbd></a>
@@ -183,22 +183,22 @@ token 和成本统计全部来自两家 CLI 自己的会话日志，不走任何
 
 ```bash
 brew tap softmaxe/tap
-brew install --cask agent-usage-bar
+brew install --cask quota-bar
 ```
 
-这条命令会按你的 Mac 架构拉取对应的 ZIP，校验 SHA，然后把 `AgentUsageBar.app` 放到 `/Applications`。不需要 Xcode，也不用 `make`。
+这条命令会按你的 Mac 架构拉取对应的 ZIP，校验 SHA，然后把 `QuotaBar.app` 放到 `/Applications`。不需要 Xcode，也不用 `make`。
 
 之后更新：
 
 ```bash
 brew update
-brew upgrade --cask agent-usage-bar
+brew upgrade --cask quota-bar
 ```
 
 不想先 tap 也可以直接装：
 
 ```bash
-brew install --cask softmaxe/tap/agent-usage-bar
+brew install --cask softmaxe/tap/quota-bar
 ```
 
 cask 的版本号跟 GitHub tag 一致，`brew upgrade` 会跟着新版本走。发布流程会在每次打 tag 后自动用 `.sha256` 文件去更新 cask，一般不需要手动改 SHA。
@@ -206,14 +206,14 @@ cask 的版本号跟 GitHub tag 一致，`brew upgrade` 会跟着新版本走。
 卸载：
 
 ```bash
-brew uninstall --cask agent-usage-bar
-brew uninstall --zap --cask agent-usage-bar  # 同时清理 ~/Library/Application Support/AgentUsageBar 和缓存
+brew uninstall --cask quota-bar
+brew uninstall --zap --cask quota-bar  # 同时清理 ~/Library/Application Support/QuotaBar 和缓存
 ```
 
 ### 手动下载
 
-从 [GitHub Releases](https://github.com/softmaxe/agent-usage-bar/releases) 下载适合你的 Mac 的 ZIP，
-然后解压并将 `AgentUsageBar.app` 移到 `/Applications`。
+从 [GitHub Releases](https://github.com/softmaxe/quota-bar/releases) 下载适合你的 Mac 的 ZIP，
+然后解压并将 `QuotaBar.app` 移到 `/Applications`。
 
 - Apple Silicon（M1 或更新型号）：下载 `arm64` ZIP。
 - Intel：下载 `x86_64` ZIP。
@@ -225,7 +225,7 @@ brew uninstall --zap --cask agent-usage-bar  # 同时清理 ~/Library/Applicatio
 例如：
 
 ```bash
-shasum -a 256 -c AgentUsageBar-1.2.3-macos-arm64.zip.sha256
+shasum -a 256 -c QuotaBar-1.2.3-macos-arm64.zip.sha256
 ```
 
 无论是 Homebrew 还是手动下载的 ZIP，都要求 macOS 14 或更高版本，都是 ad-hoc 签名。它们没有 Apple Developer ID 签名，
@@ -233,13 +233,13 @@ shasum -a 256 -c AgentUsageBar-1.2.3-macos-arm64.zip.sha256
 先尝试打开一次，再按照 [Apple 的批准流程](https://support.apple.com/zh-cn/102445) 操作：
 
 1. 打开 **System Settings → Privacy & Security**。
-2. 在 AgentUsageBar 警告旁点击 **Open Anyway**。
+2. 在 QuotaBar 警告旁点击 **Open Anyway**。
 3. 点击 **Open** 确认。
 
 如果仍然打不开，可以改用 Terminal。先确认 app 已放进 `/Applications`，再运行：
 
 ```bash
-xattr -dr com.apple.quarantine /Applications/AgentUsageBar.app
+xattr -dr com.apple.quarantine /Applications/QuotaBar.app
 ```
 
 这只会移除该 app bundle 的 quarantine attribute，绕过这一个 bundle 的 quarantine check，
@@ -248,16 +248,16 @@ xattr -dr com.apple.quarantine /Applications/AgentUsageBar.app
 ## 构建
 
 ```bash
-git clone git@github.com:softmaxe/agent-usage-bar.git
-cd agent-usage-bar
+git clone git@github.com:softmaxe/quota-bar.git
+cd quota-bar
 make app
-open build/AgentUsageBar.app
+open build/QuotaBar.app
 ```
 
-`make app` 按当前架构构建，组装出 `build/AgentUsageBar.app` 并做 ad-hoc 签名。安装：
+`make app` 按当前架构构建，组装出 `build/QuotaBar.app` 并做 ad-hoc 签名。安装：
 
 ```bash
-ditto build/AgentUsageBar.app /Applications/AgentUsageBar.app
+ditto build/QuotaBar.app /Applications/QuotaBar.app
 ```
 
 这个本地构建和 Release ZIP 使用相同的 ad-hoc 签名。它们可以在没有 Apple Developer ID 签名或 notarization
@@ -281,7 +281,7 @@ git push origin v1.2.3
 
 ## 登录
 
-AgentUsageBar 直接复用官方 CLI 已经创建好的凭据，自己没有登录流程。
+QuotaBar 直接复用官方 CLI 已经创建好的凭据，自己没有登录流程。
 
 ```bash
 codex login   # 写入 $CODEX_HOME/auth.json，未设置时为 ~/.codex/auth.json
@@ -289,7 +289,7 @@ claude        # 走 CLI 自己的登录流程；token 落在钥匙串里
 ```
 
 读取 Claude 那条钥匙串记录走的是 Apple 的 `/usr/bin/security`，第一次可能会弹出 macOS 授权提示。
-如果你手动点的 `Refresh` 收到 401，AgentUsageBar 会起一个隐藏的、五秒超时的 Claude Code 状态命令，
+如果你手动点的 `Refresh` 收到 401，QuotaBar 会起一个隐藏的、五秒超时的 Claude Code 状态命令，
 让 Claude Code 自己去刷新凭据。之后它重读钥匙串，只有在 access token 确实变了的时候才重试一次。
 它从不写 CLI 的凭据记录，也不会去调 `auth login`、开 Terminal 或者开浏览器。Claude Code 仍然可能
 要求你交互式登录；真到那一步，恢复流程就停下，得你自己打开 Claude Code。自动刷新一律 fail closed，
@@ -299,17 +299,17 @@ claude        # 走 CLI 自己的登录流程；token 落在钥匙串里
 
 应用只读本地凭据和日志，从不写 CLI 自己的凭据存储。`auth.json` 对它是只读的，刷新出来的 Codex
 token 只在本次运行的内存里。只有你点了 `Refresh` 之后，才可能由一个 Claude Code 进程去更新它自己的
-凭据。AgentUsageBar 真正写入的东西都在自己的目录下：
+凭据。QuotaBar 真正写入的东西都在自己的目录下：
 
 ```text
-~/Library/Application Support/AgentUsageBar/usage-history.json      额度采样，保留 56 天
-~/Library/Application Support/AgentUsageBar/pricing-overrides.json  手动费率，设置后才有
-~/Library/Caches/AgentUsageBar/cost-usage/cost-usage.sqlite         增量扫描缓存
-~/Library/Caches/AgentUsageBar/model-pricing/                       models.dev 目录，24 小时 TTL
+~/Library/Application Support/QuotaBar/usage-history.json      额度采样，保留 56 天
+~/Library/Application Support/QuotaBar/pricing-overrides.json  手动费率，设置后才有
+~/Library/Caches/QuotaBar/cost-usage/cost-usage.sqlite         增量扫描缓存
+~/Library/Caches/QuotaBar/model-pricing/                       models.dev 目录，24 小时 TTL
 ```
 
 成本缓存里存的是会话文件路径、日期、模型名、token 数和费用，从不存 prompt 或回复正文。设置存在
-`com.agentusagebar.app` 域下。
+`com.quotabar.app` 域下。
 
 只请求三个地址：OpenAI 的 Codex 用量接口、Anthropic 的 OAuth 用量接口，以及可选的 `models.dev`。
 
@@ -323,7 +323,7 @@ make run                # 先杀掉正在跑的实例，再构建并前台运行
 make test               # 185 条断言，加 12 个逐帧走动效曲线的验证器
 make probe              # 在终端里检查两家的接入是否正常
 make probe-cost         # 重扫本地日志并打印成本统计。不用凭据，不联网
-make logs               # 输出 com.agentusagebar.app 的 os.Logger 日志流
+make logs               # 输出 com.quotabar.app 的 os.Logger 日志流
 make app                # 打包 release 版 .app
 make readme-assets      # 重新渲染本文里的所有图片。需要 ffmpeg
 make clean
@@ -363,7 +363,7 @@ make clean
 - `make app` 产出当前主机架构的 ad-hoc 签名本地构建；release workflow 产出分别面向 `arm64` 和 `x86_64` 的
   ad-hoc 签名 ZIP，而不是 Universal binary。Developer ID 签名和 notarization 不属于当前的 release strategy。
 - Claude 的凭据恢复只在你手动点 `Refresh` 之后交给 Claude Code，且最多一次隐藏的状态命令。自动刷新
-  fail closed，AgentUsageBar 从不写 CLI 凭据。Claude Code 仍可能要求交互式登录；那样恢复就停下，
+  fail closed，QuotaBar 从不写 CLI 凭据。Claude Code 仍可能要求交互式登录；那样恢复就停下，
   得你自己打开 Claude Code。
 - 成本数字是从本地日志还原出来的，不是账单。
 

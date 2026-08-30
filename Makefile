@@ -1,9 +1,9 @@
-APP_NAME := AgentUsageBar
+APP_NAME := QuotaBar
 BUILD_DIR := .build
 CONFIG ?= debug
 BIN := $(BUILD_DIR)/$(CONFIG)/$(APP_NAME)
 DEBUG_BIN := $(BUILD_DIR)/debug/$(APP_NAME)
-LOG_SUBSYSTEM := com.agentusagebar.app
+LOG_SUBSYSTEM := com.quotabar.app
 
 ## The assertion suite is a set of launch flags on the debug app rather than a product of its
 ## own, so `test` builds that app and then runs it once per flag.
@@ -52,7 +52,7 @@ kill:
 readme-assets:
 	Scripts/readme_assets.sh
 
-## Assemble a double-clickable AgentUsageBar.app under build/.
+## Assemble a double-clickable QuotaBar.app under build/.
 app:
 	Scripts/package_app.sh
 

@@ -2,36 +2,36 @@
 import PackageDescription
 
 let package = Package(
-    name: "AgentUsageBar",
+    name: "QuotaBar",
     platforms: [.macOS(.v14)],
     products: [
-        .executable(name: "AgentUsageBar", targets: ["AgentUsageBar"]),
-        .executable(name: "AgentUsageBarProbe", targets: ["AgentUsageBarProbe"]),
-        .executable(name: "AgentUsageBarTests", targets: ["AgentUsageBarTests"]),
-        .library(name: "AgentUsageBarCore", targets: ["AgentUsageBarCore"]),
+        .executable(name: "QuotaBar", targets: ["QuotaBar"]),
+        .executable(name: "QuotaBarProbe", targets: ["QuotaBarProbe"]),
+        .executable(name: "QuotaBarTests", targets: ["QuotaBarTests"]),
+        .library(name: "QuotaBarCore", targets: ["QuotaBarCore"]),
     ],
     targets: [
         // Data layer: credentials, usage endpoints, snapshot models. No AppKit.
         .target(
-            name: "AgentUsageBarCore",
+            name: "QuotaBarCore",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         // Menu bar UI.
         .executableTarget(
-            name: "AgentUsageBar",
-            dependencies: ["AgentUsageBarCore"],
+            name: "QuotaBar",
+            dependencies: ["QuotaBarCore"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         // Headless probe: prints what the providers return. Debugging aid, not shipped.
         .executableTarget(
-            name: "AgentUsageBarProbe",
-            dependencies: ["AgentUsageBarCore"],
+            name: "QuotaBarProbe",
+            dependencies: ["QuotaBarCore"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         // Command Line Tools ship no XCTest, so the suite is a plain executable.
         .executableTarget(
-            name: "AgentUsageBarTests",
-            dependencies: ["AgentUsageBarCore"],
+            name: "QuotaBarTests",
+            dependencies: ["QuotaBarCore"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
     ]
