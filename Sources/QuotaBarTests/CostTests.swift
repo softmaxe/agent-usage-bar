@@ -54,6 +54,47 @@ enum CostTests {
         Harness.expect(codexMini?.cacheWrite == nil, "codex-mini-latest has no separate cache-write rate")
         Harness.expect(codexMini?.thresholdTokens == nil, "codex-mini-latest has no long-context tier")
 
+        let fastExpected: [String: ModelPricing] = [
+            "gpt-5.6-sol": ModelPricing(
+                input: 8, output: 40, cacheWrite: 10, cacheRead: 0.8,
+                thresholdTokens: 272_000,
+                inputAbove: 16, outputAbove: 60, cacheWriteAbove: 20, cacheReadAbove: 1.6
+            ),
+            "gpt-5.6-terra": ModelPricing(
+                input: 4, output: 24, cacheWrite: 5, cacheRead: 0.4,
+                thresholdTokens: 272_000,
+                inputAbove: 8, outputAbove: 36, cacheWriteAbove: 10, cacheReadAbove: 0.8
+            ),
+            "gpt-5.6-luna": ModelPricing(
+                input: 0.4, output: 2.4, cacheWrite: 0.5, cacheRead: 0.04,
+                thresholdTokens: 272_000,
+                inputAbove: 0.8, outputAbove: 3.6, cacheWriteAbove: 1, cacheReadAbove: 0.08
+            ),
+            "gpt-5.3-codex": ModelPricing(input: 3.5, output: 28, cacheRead: 0.35),
+        ]
+        for (model, expected) in fastExpected {
+            Harness.expectEqual(
+                CostPricing.pricing(
+                    for: model,
+                    provider: .codex,
+                    codexServiceTier: .fast
+                ),
+                expected,
+                "\(model) Fast rates match the built-in table"
+            )
+        }
+        for model in ["gpt-5.6-cyber", "codex-mini-latest", "unknown-fast-model"] {
+            Harness.expect(
+                CostPricing.pricing(
+                    for: model,
+                    provider: .codex,
+                    overlay: PricingOverlay(userOverrides: [model: ModelPricing(input: 99, output: 99)]),
+                    codexServiceTier: .fast
+                ) == nil,
+                "\(model) has no Fast price"
+            )
+        }
+
         let haiku = CostPricing.pricing(for: "claude-3-5-haiku-20241022", provider: .claude)
         Harness.expectClose(haiku?.input, 0.8, "claude-3-5-haiku input rate")
         Harness.expectClose(haiku?.output, 4, "claude-3-5-haiku output rate")
@@ -567,6 +608,92 @@ enum CostTests {
         await Self.claudeOneHourCacheWritesCostDouble(root: root)
         await Self.codexSkipsReEmittedTokenCounts(root: root)
         await Self.codexCacheBucketsAreCarvedOutOfInput(root: root)
+        await Self.codexFastServiceTierPricing(root: root)
+    }
+
+    private static func codexFastServiceTierPricing(root: URL) async {
+        let home = root.appendingPathComponent("fast-codex")
+        let file = home.appendingPathComponent("sessions/rollout-fast.jsonl")
+        try? FileManager.default.createDirectory(
+            at: file.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let timestamp = formatter.string(from: Date())
+        let priorityLines = [
+            #"{"type":"event_msg","timestamp":"\#(timestamp)","payload":{"type":"thread_settings_applied","thread_settings":{"service_tier":"priority"}}}"#,
+            #"{"type":"turn_context","timestamp":"\#(timestamp)","payload":{"model":"gpt-5.6-sol"}}"#,
+            #"{"type":"event_msg","timestamp":"\#(timestamp)","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100000,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":0}}}}"#,
+        ]
+        try? (priorityLines.joined(separator: "\n") + "\n")
+            .write(to: file, atomically: true, encoding: .utf8)
+
+        let service = CostService(
+            databaseURL: root.appendingPathComponent("fast-cache.sqlite"),
+            env: ["CODEX_HOME": home.path],
+            pricingOverlay: PricingOverlay()
+        )
+        let snapshot = await service.refresh(.codex)
+        let modelUsage = await service.knownModelUsage(provider: .codex)
+
+        Harness.expectEqual(snapshot?.windowTokens, 100_000, "Fast usage tokens are scanned")
+        Harness.expectEqual(
+            modelUsage,
+            [ModelUsageTotal(model: "gpt-5.6-sol", tokens: 100_000)],
+            "Fast usage stays attributed to the turn context model"
+        )
+        Harness.expectClose(
+            snapshot?.windowCostUSD,
+            0.8,
+            "priority maps to the Fast short-context rate"
+        )
+
+        let appended = priorityLines.last! + "\n"
+        if let handle = try? FileHandle(forWritingTo: file) {
+            _ = try? handle.seekToEnd()
+            try? handle.write(contentsOf: Data(appended.utf8))
+            try? handle.close()
+        }
+        let resumed = await service.refresh(.codex)
+        Harness.expectEqual(resumed?.windowTokens, 200_000, "incremental Fast scanning adds only the new turn")
+        Harness.expectClose(resumed?.windowCostUSD, 1.6, "incremental scanning restores the Fast tier")
+
+        func scanTier(_ rawTier: String?, name: String) async -> CostSnapshot? {
+            let tierHome = root.appendingPathComponent("\(name)-codex")
+            let tierFile = tierHome.appendingPathComponent("sessions/rollout.jsonl")
+            try? FileManager.default.createDirectory(
+                at: tierFile.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            let settings: String
+            if let rawTier {
+                settings = #"{"type":"event_msg","timestamp":"\#(timestamp)","payload":{"type":"thread_settings_applied","thread_settings":{"service_tier":"\#(rawTier)"}}}"#
+            } else {
+                settings = #"{"type":"event_msg","timestamp":"\#(timestamp)","payload":{"type":"thread_settings_applied","thread_settings":{}}}"#
+            }
+            let lines = [settings, priorityLines[1], priorityLines[2]]
+            try? (lines.joined(separator: "\n") + "\n")
+                .write(to: tierFile, atomically: true, encoding: .utf8)
+            let tierService = CostService(
+                databaseURL: root.appendingPathComponent("\(name)-cache.sqlite"),
+                env: ["CODEX_HOME": tierHome.path],
+                pricingOverlay: PricingOverlay()
+            )
+            return await tierService.refresh(.codex)
+        }
+
+        let literalFast = await scanTier("fast", name: "literal-fast")
+        Harness.expectEqual(literalFast?.windowTokens, 100_000, "literal fast keeps all token totals")
+        Harness.expectClose(literalFast?.windowCostUSD, 0.8, "literal fast maps to the Fast rate")
+
+        let standard = await scanTier("default", name: "default")
+        Harness.expectEqual(standard?.windowTokens, 100_000, "default keeps all token totals")
+        Harness.expectClose(standard?.windowCostUSD, 0.4, "default stays on the Standard rate")
+
+        let missing = await scanTier(nil, name: "missing")
+        Harness.expectClose(missing?.windowCostUSD, 0.4, "a missing service tier stays Standard")
     }
 
     /// Claude writes an assistant message several times while it streams. The prompt figures are

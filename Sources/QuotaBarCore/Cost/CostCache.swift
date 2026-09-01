@@ -48,7 +48,7 @@ final class CostCache {
     /// Bumped whenever a scan would write different numbers for the same bytes — a parser change,
     /// a different token split, a change in what a stored cost means. The rows are a derivative of
     /// the scanner, and costs are frozen at scan time, so neither can be corrected in place.
-    private static let scanSemanticsVersion = 5
+    private static let scanSemanticsVersion = 6
 
     deinit {
         if let db = self.db { sqlite3_close(db) }
