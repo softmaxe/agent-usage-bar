@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="Resources/AppIcon.png" alt="QuotaBar app logo" width="180">
+  <img src="Resources/AppIcon.png" alt="QuotaBar 应用图标" width="180">
 </p>
 
 <h1 align="center">QuotaBar</h1>
@@ -9,391 +9,180 @@
   <a href="README.zh-CN.md"><kbd>简体中文</kbd></a>
 </p>
 
-一个 macOS 菜单栏应用，用来看 Codex 和 Claude 还剩多少额度、本地花了多少钱、窗口什么时候重置。
+一个 macOS 菜单栏应用，用来查看 Codex 和 Claude 的剩余额度、重置时间、本地 token 用量与预估成本。
 
-它是 [CodexBar](https://github.com/steipete/CodexBar) 的精简重写版。CodexBar 覆盖一长串 agent CLI，
-这个只做两家：Codex 和 Claude，把省下来的地方花在每天真正会看的部分上。菜单栏只占一个图标，卡片
-一屏放得下，所有动效出自同一条曲线，而不是五条。
+<img src="docs/images/hero.png" width="620" alt="Claude 和 Codex 额度卡片">
 
-<img src="docs/images/hero.png" width="620" alt="并排的 Claude 与 Codex 卡片">
+QuotaBar 是 [CodexBar](https://github.com/steipete/CodexBar) 的精简重写版，只支持 Codex 和 Claude，并将两者放在同一个菜单栏图标中。
 
-## 「精简」精简掉了什么
+## 功能
 
-每个从 CodexBar 移植过来的文件，文件头都写清楚了保留什么、丢掉什么。概括如下：
+- 显示会话与每周剩余额度、重置时间、使用节奏和可用 credits。
+- 按日期和模型展示本地 Codex、Claude 的 token 用量与预估成本。
+- 将同一账号的 OpenCode OpenAI OAuth 用量计入 Codex。
+- 在一个菜单栏图标中切换供应商，两家独立刷新。
+- 使用内置费率、公开的 [models.dev](https://models.dev) 目录和手动费率。
+- 刷新失败时保留最后一次有效的额度数据。
+- 跟随 macOS 的 **减弱动态效果** 设置。
 
-| 保留 | 丢掉 |
-| --- | --- |
-| Codex `wham/usage`、Claude `/api/oauth/usage` | Gemini、Antigravity、Factory、Warp |
-| 会话与周额度窗口、credits | 消费限额、按模型的额外限流、workspace 解析 |
-| 线性与历史两套用量节奏模型 | 工作日加权进度、耗尽风险百分比 |
-| 两家 CLI 的本地成本扫描 | profile 查询、超额计费、网页兜底 |
-| 胶囊图标和它的两个装饰 | 眨眼、扭动、倾斜、状态角标、morph 缓存 |
-
-腾出来的地方给了动效。CodexBar 的进度条直接跳到新值；这里的进度条是冲进去的，上面的数字跟着一起冲。
-
-## 菜单栏图标
-
-<img src="docs/images/menu-bar-icons.png" width="440" alt="菜单栏图标的各种状态">
-
-上排 Claude，下排 Codex。从左到右：充足、用掉一半、快见底、只有会话窗口、刷新失败后的置灰状态。
-图标按 18pt 的 2x 像素网格绘制，边缘落在像素边界上，所以不会发虚。
-
-菜单栏永远只有一个图标。右键点它切换到另一家，选择会保留到下次启动。只有屏幕上这一家会刷新，
-而且两家各自有一分钟冷却，来回切也不会在一分钟内重复请求同一家。
-
-## 重置动效
-
-五小时或每周窗口翻过去之后，下一次打开卡片会播这段。
-
-<img src="docs/images/quota-reset.gif" width="560" alt="额度窗口重置：进度条冲满、回弹、闪白、晕开">
-
-进度条从重置前看到的最后一个读数接着走，一路连续减速走进新读数，头部后面不拖任何东西。整段动效
-的落点就是抵达 100% 这一下：回弹、闪光、条下方泛起的辉光全部压在这一拍上。落地时画面里没有任何
-边缘。告诉你额度满了的是整条进度条暖起来，而不是在头部停下的位置画一个形状。
-
-百分比数字是跟着填充一起到位的，而不是在进度条还在冲的时候就已经是正确读数。它用的是填充自己的
-缓动曲线，在数字翻得最快的时候发虚，于是它是「化」进新读数而不是「停」在新读数上，落地也走同一拍。
-时钟只有一个，由进度条持有并逐帧发布，数字只负责渲染这些帧，两者不可能对不齐。
-
-五小时和每周窗口各自独立跟踪。正常消耗不会触发这段动效。重启之后，最后的读数和尚未播放的重置都
-还在。想再看一次就在进度条上连点五下。
-
-## 其他会动的地方
-
-用的是同一套动效语汇：一条指数衰减表示「正在充能」，一条阻尼正弦表示「落地了」，从庆祝的长度
-压缩到一次点击的长度。
-
-**设置页标签**是自己画的，没交给 AppKit，因为系统标签栏没有地方放曲线。选中态是一个胶囊，
-它的两条边跑同一条缓动但时长不同：朝目标那一侧先走，后面那一侧追上来，所以胶囊会短暂地横跨
-两段，然后收缩到新的那一段上。它不会同时出现在两处，也不会卡在中间两边都不覆盖。断言套件会
-逐帧走一遍曲线检查形状。
-
-<img src="docs/images/tab-switch.gif" width="420" alt="设置页胶囊横跨两段后收缩到目标段">
-
-**价格表**的分组和每个模型的展开走填充那条缓动，行与行之间错开 35ms，于是一组是从表头下面卷
-出来的，而不是整块同时出现。箭头是转四分之一圈，不是换成另一个图标。只有控件本身有弹性：表格
-如果超调自己的高度，会把下面每一行都顶一下，那读起来像 bug 而不像节奏。
-
-按下的反馈按被按的东西的大小给。模型行的箭头只有 9pt，所以它按下去缩到 0.86，再顺着落地那条
-弹簧弹回来。供应商表头是整行那么宽，同样的幅度放在这么大一块上，读起来像整张表抖了一下，所以它
-只缩到 0.985，走 100ms 的 ease-out 回来，不会超调。它是和「只有箭头缩」「只有底色变」「完全
-不给反馈」比过之后定下来的。
-
-<img src="docs/images/disclosure.gif" width="500" alt="价格分组把四行错开一拍依次卷出">
-
-**成本图表**会把高亮那根柱子抬高 5pt，并展开它当天的按模型明细。在柱子之间移动是在追指针，
-走的是快速弹簧；回到今天不是用户瞄准的动作，所以更长、用临界阻尼，高亮是落到今天而不是弹到
-今天。
-
-<img src="docs/images/chart-motion.gif" width="440" alt="图表高亮在柱子之间移动并落回今天">
-
-悬停某一根柱子会展开那天到底是由什么构成的：
-
-<img src="docs/images/chart-hover.gif" width="500" alt="每根柱子对应的按模型明细">
-
-点高亮的那根柱子，标签在 token 数和金额之间换，整张图表也跟着重新缩放：
-
-<img src="docs/images/label-toggle.gif" width="440" alt="标签从 37M 糊开、在原地析出 $37，同时每根柱子从 token 口径重新缩放到金额口径">
-
-这个单位同时也是图表的高度口径。每根柱子按标签读的那个单位量，再拿同一单位下最高的那天当基准，
-所以一次点击换掉的是柱子本身和它们量度的那把尺。一周里如果大部分 token 是便宜模型花掉的，那这
-一周换成金额就是另一个形状，而这个差别正是你会去点它的原因。柱高走的是读数析出的那条 260ms 曲线，
-所以图形和数字是一起到的。
-
-读数本身不动。这一下点在指针本来就停着的柱子上，所以这次切换没有距离要走：旧读数糊开，新读数在
-原地从模糊中析出。这正是在说这两个读数是同一个量的两种数法。把一个数推开、让另一个滑进来，说的
-会是「标签被换掉了」。默认单位是 token，选择会被记住；点在两根柱子中间的缝里不会有任何反应。
-
-**价格表里的费率输入框**拿到焦点时，会在 90ms 里淡入一圈 1 像素的系统强调色描边。聚焦前后框
-的尺寸完全一样，描边画在它原本就占的那个框里面：每行有四个这样的框，一圈自己要占地方的焦点环
-会把整行顶一下。它是和内描边、淡色底、下划线，以及它替掉的那个原生 `.roundedBorder` 输入框
-比过之后定下来的。
-
-**指针**也会动。Codex 卡片比 Claude 卡片高，而菜单只能向下长，所以切换供应商时下面每一行都会
-从没动过的指针底下滑走。指针会跟着位移同样的距离，继续指着原来那一行。
-
-打开 **系统设置 → 辅助功能 → 显示 → 减弱动态效果**，上面所有动效都变成直接切换。不是变慢，
-是直接切。
-
-## 卡片
-
-左键点图标打开。每个额度窗口显示还剩多少、什么时候重置，以及跟「按时钟均匀消耗」相比处在什么位置。
-`9% in reserve` 表示你用得比时钟慢；红色的节奏标记表示你用得更快。等到有三个可比的窗口跑完之后，
-周额度那一行就不再跟时钟比，而是跟你自己记录下来的历史周比。
-
-点任意一个 **`Resets in …`** 标签，倒计时会换成它正在倒数的那个时刻：当天显示 `Resets 3:30 PM`，
-更远的显示 `Resets Sat 9:00 AM`。
-
-<img src="docs/images/reset-toggle.gif" width="500" alt="点击 Session 行的重置标签，两个窗口一起在倒计时和时刻之间切换">
-
-指针移上去时标签会变亮。卡片上除了图表，没有别的东西会对指针有反应，所以这一点提亮就是「这行
-是个开关」的全部提示。一次点击会同时改掉两个窗口，因为这个选择属于卡片，不属于你点的那一行；
-重启之后也还在。哪一面更有用，一天之内是会变的：倒计时回答「还能撑多久」，时刻回答「赶在它重置
-之前做完来得及吗」。
-
-菜单里有 `Switch provider`、`Refresh`、`Settings`（⌘,）和 `Quit`（⌘Q）。Refresh 受一分钟冷却
-约束，冷却期间它会在行上把剩余秒数数出来，而不是默默吞掉你的点击。打开菜单会立刻请求刷新当前
-这一家，但不会重置后台定时器。
-
-<img src="docs/images/settings-general.png" width="620" alt="常规设置面板">
-
-后台刷新可以设为手动，或每 1、2、5、15、30 分钟一次。默认 5 分钟，因为额度接口是和 CLI 共用的，
-问得太勤会被限流。
-
-## 成本与价格
-
-<img src="docs/images/settings-pricing.png" width="620" alt="展开了一行模型的价格面板">
-
-token 和成本统计全部来自本地会话数据，不走任何计费 API：
-
-- Codex：`~/.codex/sessions` 和 `~/.codex/archived_sessions`
-- OpenCode：`$XDG_DATA_HOME/opencode/opencode.db`，未设置时为 `~/.local/share/opencode/opencode.db`
-- Claude：`$CLAUDE_CONFIG_DIR/projects`，未设置时为 `~/.claude/projects` 和 `~/.config/claude/projects`
-
-只有 OpenCode 的 `openai` 供应商使用 OAuth，而且 account ID 和当前 Codex 账号一致时，这部分用量才会
-并入 Codex。扫描器只读 OpenAI `step-finish` 里的 token 元数据，其他 OpenCode 供应商一律忽略，也不会
-改动额度进度条。OpenCode 没给每条历史请求保存认证快照，所以第一次账号匹配时，已有 OpenAI 记录会被
-视为 OAuth 历史；之后的记录会保留 QuotaBar 第一次见到它时的认证分类。
-
-历史记录多的话第一次扫描会慢一些。之后都是基于 SQLite 缓存的增量扫描。
-
-内置费率之外还会补上公开的 [models.dev](https://models.dev) 目录，缓存 24 小时。刷新失败后一小时
-内不重试，面板也从不等它：先用缓存画出来，新目录到了再从后面合进去。
-
-**Settings → Pricing** 把成本计算读到的每一个数字都摆了出来：输入、输出、五分钟缓存写入、缓存
-读取、一小时缓存写入（留空则按输入价的两倍计，这是 Anthropic 公布的比例），以及长上下文档位和它
-自己的单请求 token 阈值。表格默认按供应商分组，各家的 API 模型保持官方顺序，本地日志里翻出来的
-其他模型排在它们下面、用得多的在前。点列头按该列排序，再点一次反序，表头右端的控件恢复默认顺
-序；默认顺序生效时它保持高亮，就像被排序的那一列标题一样。
-
-一小时缓存写入和长上下文档位折在箭头后面。点模型名同样能展开这一行，于是可点的目标是整个左半
-行，而不是一个 9pt 的箭头。
-
-改过的费率只对之后的用量生效。已经扫描过的记录保留当时的价格，所以编辑不会重写过去的日子。
-
-这些数字都是估算。缓存计费方式、各家的计费规则、价格调整，都会让它和账单对不上。
-
-## 环境要求
-
-- macOS 14 或更高
-- Swift 6 工具链（Xcode 或命令行工具）
-- 本地已登录 Codex CLI 和/或 Claude Code
-- 如果要把 OpenAI OAuth 用量并进 Codex，还需要 OpenCode
-
-只用一家也可以，不需要两家都装。
+<img src="docs/images/menu-bar-icons.png" width="440" alt="从额度充足到数据过期的菜单栏图标状态">
 
 ## 安装
 
+QuotaBar 要求 macOS 14 或更高版本。同一台 Mac 上需要登录 Codex CLI、Claude Code，或其中一个。安装预编译版本不需要 Xcode 或 Swift。
+
 ### Homebrew
-
-如果你本机已经有 Homebrew，用它装最省事，也最容易保持更新。
-
-```bash
-brew tap softmaxe/tap
-brew install --cask quota-bar
-```
-
-这条命令会按你的 Mac 架构拉取对应的 ZIP，校验 SHA，然后把 `QuotaBar.app` 放到 `/Applications`。不需要 Xcode，也不用 `make`。
-
-之后更新：
-
-```bash
-brew update
-brew upgrade --cask quota-bar
-```
-
-不想先 tap 也可以直接装：
 
 ```bash
 brew install --cask softmaxe/tap/quota-bar
 ```
 
-cask 的版本号跟 GitHub tag 一致，`brew upgrade` 会跟着新版本走。发布流程会在每次打 tag 后自动用 `.sha256` 文件去更新 cask，一般不需要手动改 SHA。
-
-卸载：
+更新或卸载：
 
 ```bash
+brew upgrade --cask quota-bar
 brew uninstall --cask quota-bar
-brew uninstall --zap --cask quota-bar  # 同时清理 ~/Library/Application Support/QuotaBar 和缓存
+```
+
+同时删除应用数据：
+
+```bash
+brew uninstall --zap --cask quota-bar
 ```
 
 ### 手动下载
 
-从 [GitHub Releases](https://github.com/softmaxe/quota-bar/releases) 下载适合你的 Mac 的 ZIP，
-然后解压并将 `QuotaBar.app` 移到 `/Applications`。
+从 [GitHub Releases](https://github.com/softmaxe/quota-bar/releases) 下载对应的 ZIP，解压后将 `QuotaBar.app` 移到 `/Applications`。
 
-- Apple Silicon（M1 或更新型号）：下载 `arm64` ZIP。
-- Intel：下载 `x86_64` ZIP。
+| Mac | 下载文件 |
+| --- | --- |
+| Apple Silicon，M1 或更新型号 | `arm64` ZIP |
+| Intel | `x86_64` ZIP |
 
-要查看 Mac 类型，打开 **Apple 菜单 → 关于本机**。如果概览中显示的是 **芯片**，例如 Apple M1 或 M2，
-选择 `arm64`；如果显示的是 Intel **处理器**，选择 `x86_64`。
-
-每个 ZIP 都有一个匹配的 `.sha256` 文件。下载这两个文件，在下载文件夹中打开 Terminal，在解压前校验归档。
-例如：
+每个 ZIP 都有对应的 `.sha256` 文件。解压前可以校验：
 
 ```bash
 shasum -a 256 -c QuotaBar-1.2.3-macos-arm64.zip.sha256
 ```
 
-无论是 Homebrew 还是手动下载的 ZIP，都要求 macOS 14 或更高版本，都是 ad-hoc 签名。它们没有 Apple Developer ID 签名，
-也未经过 notarization，因此 macOS 可能会在你第一次打开 app 时发出警告。将 app 移到 `/Applications` 后，
-先尝试打开一次，再按照 [Apple 的批准流程](https://support.apple.com/zh-cn/102445) 操作：
-
-1. 打开 **System Settings → Privacy & Security**。
-2. 在 QuotaBar 警告旁点击 **Open Anyway**。
-3. 点击 **Open** 确认。
-
-如果仍然打不开，可以改用 Terminal。先确认 app 已放进 `/Applications`，再运行：
+发布包使用 ad hoc 签名，没有 Apple Developer ID 公证。若 macOS 首次启动时阻止打开，请先尝试打开一次，再前往 **系统设置 → 隐私与安全性**，选择 **仍要打开**。也可以在确认应用位于 `/Applications` 后，只移除这个应用的 quarantine attribute：
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/QuotaBar.app
 ```
 
-这只会移除该 app bundle 的 quarantine attribute，绕过这一个 bundle 的 quarantine check，
-不会补上 Apple 签名或 notarization。
+## 首次使用
 
-## 构建
+QuotaBar 复用官方 CLI 创建的凭据，没有单独的登录流程。
 
 ```bash
-git clone git@github.com:softmaxe/quota-bar.git
+codex login
+claude
+```
+
+然后打开 QuotaBar：
+
+- 左键点击菜单栏图标，查看额度与本地成本。
+- 右键点击图标，在 Codex 和 Claude 之间切换。
+- 打开 **Settings**，修改刷新间隔或模型费率。
+
+读取 Claude 凭据时，macOS 可能弹出 Keychain 授权提示。如果手动 `Refresh` 收到 HTTP 401，QuotaBar 会让 Claude Code 尝试一次短时凭据刷新。自动刷新不会启动 Claude Code。
+
+## 额度统计方式
+
+每个可用的额度窗口都会显示剩余百分比和重置时间。点击 `Resets in …` 可以在倒计时与具体时刻之间切换。
+
+QuotaBar 会比较用量与已过时间。记录满三个可比较的每周窗口后，每周节奏会改用你的历史数据。额度采样保留 56 天。
+
+后台刷新可设为手动，或每 1、2、5、15、30 分钟一次，默认 5 分钟。两家供应商各有一分钟刷新冷却，避免重复请求和 HTTP 429。
+
+会话或每周窗口重置后，下次打开卡片时会播放一段短动画。最后读数和尚未播放的动画会在重启后保留。
+
+<img src="docs/images/quota-reset.gif" width="560" alt="额度条从上次读数变化到重置后额度">
+
+## 成本统计方式
+
+QuotaBar 从本地会话数据计算 token 和成本，不使用计费 API。
+
+将指针移到图表中的某一天，可以查看模型明细。点击高亮日期，可以在 token 和成本之间切换图表。
+
+| 来源 | 本地数据 |
+| --- | --- |
+| Codex | `~/.codex/sessions`、`~/.codex/archived_sessions` |
+| Claude | `$CLAUDE_CONFIG_DIR/projects`，或 `~/.claude/projects` 和 `~/.config/claude/projects` |
+| OpenCode | `$OPENCODE_DATA_HOME/opencode.db`、`$XDG_DATA_HOME/opencode/opencode.db`，或 `~/.local/share/opencode/opencode.db` |
+
+只有 OpenCode 的 `openai` 供应商使用 OAuth，且 account ID 与当前 Codex 账号一致时，这部分数据才会计入 Codex。其他供应商、API key 会话和账号不匹配的数据都会被忽略。OpenCode 用量不会改变额度条。
+
+大量历史数据的首次扫描可能较慢，之后会通过 SQLite 缓存增量扫描。价格目录缓存 24 小时。手动费率只影响新用量，历史数据保留扫描时的价格。
+
+<img src="docs/images/settings-pricing.png" width="620" alt="可编辑模型费率的价格设置">
+
+成本是估算值。供应商计费规则、缓存计算方式和价格变化，都可能让结果与账单不同。
+
+## 隐私与网络
+
+QuotaBar 会读取 CLI 凭据和用量日志，但不会写入 CLI 的凭据存储。它只读取 token、模型、时间和用量元数据，不读取 prompt、回复或 reasoning 正文。
+
+应用自己的数据保存在：
+
+```text
+~/Library/Application Support/QuotaBar/usage-history.json
+~/Library/Application Support/QuotaBar/pricing-overrides.json
+~/Library/Caches/QuotaBar/cost-usage/cost-usage.sqlite
+~/Library/Caches/QuotaBar/model-pricing/
+```
+
+应用会请求 OpenAI Codex 用量和 token refresh 接口、Anthropic OAuth 用量接口，以及用于模型价格的 `models.dev`。
+
+## 构建与开发
+
+构建需要 Xcode 或 Command Line Tools 提供的 Swift 6 工具链。项目使用 Swift Package Manager，没有 Xcode 工程。
+
+```bash
+git clone https://github.com/softmaxe/quota-bar.git
 cd quota-bar
 make app
 open build/QuotaBar.app
 ```
 
-`make app` 按当前架构构建，组装出 `build/QuotaBar.app` 并做 ad-hoc 签名。安装：
+常用命令：
 
 ```bash
-ditto build/QuotaBar.app /Applications/QuotaBar.app
-```
-
-这个本地构建和 Release ZIP 使用相同的 ad-hoc 签名。它们可以在没有 Apple Developer ID 签名或 notarization
-的情况下分发，但 macOS 可能会显示上面所说的首次启动警告。
-
-## 发布版本
-
-要生成测试包，打开仓库的 **Actions** tab，选择 **Build and Release**，再点击 **Run workflow**。
-这个 `workflow_dispatch` workflow 会测试并打包两种架构，但不会创建 GitHub Release。开发构建的 app version
-是 `0.0.0`，文件名包含 commit SHA，产物保留 14 天。
-
-要发布一个版本，创建并推送一个三段式版本 tag：
-
-```bash
-git tag v1.2.3
-git push origin v1.2.3
-```
-
-两个架构 job 都会运行 `make test`，构建 ad-hoc 签名的 app 并验证归档。只有两个 job 都成功后，GitHub 才会
-发布 Release。相同 tag 已有的 Release 不会被覆盖；请改用新的版本 tag 发布。
-
-## 登录
-
-QuotaBar 直接复用官方 CLI 已经创建好的凭据，自己没有登录流程。
-
-```bash
-codex login   # 写入 $CODEX_HOME/auth.json，未设置时为 ~/.codex/auth.json
-claude        # 走 CLI 自己的登录流程；token 落在钥匙串里
-```
-
-读取 Claude 那条钥匙串记录走的是 Apple 的 `/usr/bin/security`，第一次可能会弹出 macOS 授权提示。
-如果你手动点的 `Refresh` 收到 401，QuotaBar 会起一个隐藏的、五秒超时的 Claude Code 状态命令，
-让 Claude Code 自己去刷新凭据。之后它重读钥匙串，只有在 access token 确实变了的时候才重试一次。
-它从不写 CLI 的凭据记录，也不会去调 `auth login`、开 Terminal 或者开浏览器。Claude Code 仍然可能
-要求你交互式登录；真到那一步，恢复流程就停下，得你自己打开 Claude Code。自动刷新一律 fail closed，
-不会启动 Claude Code。
-
-## 隐私与网络
-
-应用只读本地凭据和日志，从不写 CLI 自己的凭据存储。`auth.json` 对它是只读的，刷新出来的 Codex
-token 只在本次运行的内存里。扫描 OpenCode 时，QuotaBar 只解析 OpenAI 的认证类型和 account ID，
-再从数据库的 `step-finish` 记录读取 token、模型和时间字段，不读消息正文或 reasoning 内容。只有你
-点了 `Refresh` 之后，才可能由一个 Claude Code 进程去更新它自己的凭据。QuotaBar 真正写入的东西都在
-自己的目录下：
-
-```text
-~/Library/Application Support/QuotaBar/usage-history.json      额度采样，保留 56 天
-~/Library/Application Support/QuotaBar/pricing-overrides.json  手动费率，设置后才有
-~/Library/Caches/QuotaBar/cost-usage/cost-usage.sqlite         增量扫描缓存
-~/Library/Caches/QuotaBar/model-pricing/                       models.dev 目录，24 小时 TTL
-```
-
-成本缓存里存的是来源记录 ID 或会话文件路径、日期、模型名、token 数、费用和已经冻结的 OpenCode
-纳入决定。它不存 account ID、prompt、回复正文或 reasoning 内容。设置存在 `com.quotabar.app` 域下。
-
-只请求三个地址：OpenAI 的 Codex 用量接口、Anthropic 的 OAuth 用量接口，以及可选的 `models.dev`。
-
-## 开发
-
-Swift Package Manager，没有 Xcode 工程。
-
-```bash
-make build              # Debug 二进制
-make run                # 先杀掉正在跑的实例，再构建并前台运行
-make test               # 277 条断言，加 12 个逐帧走动效曲线的验证器
-make probe              # 在终端里检查两家的接入是否正常
-make probe-cost         # 重扫本地日志并打印成本统计。不用凭据，不联网
-make logs               # 输出 com.quotabar.app 的 os.Logger 日志流
-make app                # 打包 release 版 .app
-make readme-assets      # 重新渲染本文里的所有图片。需要 ffmpeg
+make build          # Build the debug binary
+make run            # Build and run in the foreground
+make test           # Run assertions and animation verifiers
+make probe          # Check both provider integrations
+make probe-cost     # Rescan local logs without credentials or network
+make logs           # Stream logs for com.quotabar.app
+make readme-assets  # Rebuild README images; requires ffmpeg
 make clean
 ```
 
-没有 Xcode 就没有 XCTest，所以测试套件是一个纯断言的可执行文件，外加十二个逐帧采样动效曲线的
-验证器。
+`make probe` 会输出账号和用量元数据，分享前请先检查内容。
 
-`make readme-assets` 背后的各个 dump 也是同一个二进制上的参数：`--dump-card`、`--dump-icons`、
-`--dump-settings`、`--dump-card-celebration`、`--dump-chart-hover`、`--dump-reset-toggle`、
-`--dump-tab-switch`、`--dump-disclosure`、`--dump-chart-motion`、`--dump-label-toggle`，每个都
-接一个输出目录。它们和验证器一样都不会编进 release 构建，所以发布出去的 app 不认任何参数。
-
-上面所有图片都是生成的，不是截屏。静态图是拿固定假数据对线上视图做的离屏渲染，价格面板也是：
-它用的是编好的模型用量和内置费率表，不读运行它的这台机器。`quota-reset.gif`、`chart-hover.gif`
-和 `reset-toggle.gif` 是线上视图的逐帧导出；只有 `reset-toggle.gif` 的 dump 多加了一样东西：它把
-标签画成悬停状态，因为离屏渲染没有指针可以悬停。另外四张来自 `MotionFilmStrip`，它用的是替身布局，因为
-一个由两条 SwiftUI state 边驱动的胶囊没法从外面问它「140ms 时长什么样」；但这四张里的时长、曲线、
-弹簧和错拍参数，读的都是真实控件所用的同一组常量。`label-toggle.gif` 的柱高也是从线上那套策略里
-取的，所以里面那次重新缩放就是图表真的会做的那次，不是照着画的。
-
-`make probe` 会打印账号和用量元数据。贴到别处之前先看一眼。
+如需生成测试包，在仓库的 **Actions** 页面手动运行 **Build and Release**。发布正式版本时，推送符合 `vMAJOR.MINOR.PATCH` 格式的 tag。workflow 会测试并分别打包 `arm64` 和 `x86_64` ZIP，然后创建 GitHub Release。
 
 ## 排查
 
-**某一家显示未登录。** 跑对应 CLI 的登录流程，然后点 `Refresh`。`make probe` 会直接告诉你是凭据
-问题还是接口问题。
-
-**数据是旧的，或者刷新返回 HTTP 429。** 应用会保留最后一次好的读数并把图标置灰。等过了对方的限流
-窗口，把刷新间隔调长，别反复强制刷新。
-
-**成本统计缺失。** 确认 CLI 确实在往上面列出的路径写 JSONL 会话日志。没有已知价格的模型会先不带
-价格显示，直到目录或手动覆盖补上。
-
-**OpenCode 用量缺失。** 确认 OpenCode 的 `openai` 使用 OAuth，而且账号和 Codex 相同。API key 会话、
-账号不匹配、OpenRouter 和其他 OpenCode 供应商都不会纳入。认证或数据库持续出错时，
-**Settings → Pricing** 会显示一条只读提示；在下次成功扫描完成校对前，已有 OpenCode 统计继续保留。
+| 问题 | 检查方法 |
+| --- | --- |
+| 供应商显示未登录 | 运行对应 CLI 的登录流程，再选择 `Refresh`。用 `make probe` 查看原始错误。 |
+| 数据过期或刷新返回 HTTP 429 | 等待供应商冷却结束，并选择更长的刷新间隔。 |
+| 缺少成本统计 | 确认 CLI 正在向上面的路径写入会话日志，并确认模型有目录价格或手动费率。 |
+| 缺少 OpenCode 用量 | 确认 OpenCode 使用 `openai` OAuth，且账号与 Codex 相同。在 **Settings → Pricing** 查看数据库或认证错误。 |
 
 ## 已知限制
 
-- `make app` 产出当前主机架构的 ad-hoc 签名本地构建；release workflow 产出分别面向 `arm64` 和 `x86_64` 的
-  ad-hoc 签名 ZIP，而不是 Universal binary。Developer ID 签名和 notarization 不属于当前的 release strategy。
-- Claude 的凭据恢复只在你手动点 `Refresh` 之后交给 Claude Code，且最多一次隐藏的状态命令。自动刷新
-  fail closed，QuotaBar 从不写 CLI 凭据。Claude Code 仍可能要求交互式登录；那样恢复就停下，
-  得你自己打开 Claude Code。
-- 成本数字是从本地日志还原出来的，不是账单。
-- OpenCode 不记录每条历史请求使用的认证方式。第一次账号匹配时，QuotaBar 会推定已有 `openai` 记录
-  使用当前 OAuth 账号。如果 QuotaBar 没在运行，而你在这期间完成了一次 OAuth → API key → OAuth
-  切换，之后无法从历史数据库还原这次变化。
+- 发布包按架构区分，使用 ad hoc 签名，且未经过公证。
+- Claude 凭据恢复只会在手动 `Refresh` 后运行，交互式登录仍需自行打开 Claude Code。
+- 成本来自本地日志，不是账单。
+- OpenCode 不记录每条历史请求的认证方式。QuotaBar 无法还原它未运行期间发生的 OAuth → API key → OAuth 切换。
 
 ## 许可证
 
-AGPL-3.0，全文见 [LICENSE](LICENSE)。
-
-这是 copyleft 里最严的一档，选它就是为了这一点。你分发改过的版本，就得连源码一起给，而且用同一个
-许可证。第 13 条补上了普通 GPL 漏掉的那种情况：把改过的版本挂成联网服务跑，任何通过网络用到它的人
-都可以向你要源码。自己改了自己用、不对外，仍然没问题。
-
-从 CodexBar 拿来的那部分按它自己的条款仍是 MIT。整个项目是 AGPL-3.0。
+QuotaBar 使用 [AGPL-3.0](LICENSE) 许可证。从 CodexBar 改编的代码仍按其 MIT 条款提供。详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
 ## 致谢
 
-基于 CodexBar 的思路和实现细节，Copyright © 2026 Peter Steinberger，MIT License。
-详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+QuotaBar 使用了 CodexBar 的思路与实现细节，Copyright © 2026 Peter Steinberger。
