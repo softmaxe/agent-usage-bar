@@ -202,9 +202,14 @@ struct CostSectionView: View {
 
             if let day = self.hoveredDay {
                 let ranked = day.rankedModels
-                ForEach(Array(ranked.prefix(Self.maxBreakdownRows).enumerated()), id: \.element.model) {
+                ForEach(Array(ranked.prefix(Self.maxBreakdownRows).enumerated()), id: \.element.key) {
                     index, entry in
-                    self.breakdownRow(model: entry.model, usage: entry.usage, index: index)
+                    self.breakdownRow(
+                        source: entry.key.source,
+                        model: entry.model,
+                        usage: entry.usage,
+                        index: index
+                    )
                 }
                 if ranked.count > Self.maxBreakdownRows {
                     Text("+\(ranked.count - Self.maxBreakdownRows) more")
@@ -229,13 +234,18 @@ struct CostSectionView: View {
         return height + CGFloat(max(0, lines - 1)) * Self.detailSpacing
     }
 
-    private func breakdownRow(model: String, usage: ModelDayUsage, index: Int) -> some View {
+    private func breakdownRow(
+        source: CostUsageSource,
+        model: String,
+        usage: ModelDayUsage,
+        index: Int
+    ) -> some View {
         HStack(spacing: 6) {
             // Each row fades a step further, so rank reads without numbering.
             Rectangle()
                 .fill(Theme.accent(for: self.provider).opacity(max(0.3, 0.75 - Double(index) * 0.12)))
                 .frame(width: 2, height: 10)
-            Text(model)
+            Text(self.provider == .codex ? "\(source.displayName) · \(model)" : model)
                 .font(.system(size: 10))
                 .lineLimit(1)
                 .truncationMode(.middle)

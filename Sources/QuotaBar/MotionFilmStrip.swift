@@ -431,7 +431,7 @@ private struct ChartLabelSwapFrame: View {
         CostDay(
             dayKey: String(format: "2026-08-%02d", 17 + index),
             byModel: [
-                "opus-5": ModelDayUsage(
+                ModelUsageKey(source: .claude, model: "opus-5"): ModelDayUsage(
                     tokens: TokenTotals(input: Int(day.tokensM * 1_000_000)),
                     costUSD: day.costUSD
                 ),

@@ -199,17 +199,17 @@ enum CardDump {
         let (values, top) = provider == .codex
             ? ([18.0, 22, 12, 20, 24, 176], "gpt-5.6-sol")
             : ([62.0, 90, 48, 71, 9, 88, 41, 37], "claude-opus-5")
-        let mix = provider == .codex
-            ? [(top, 0.72), ("gpt-5.6-terra", 0.2), ("gpt-5.6-luna", 0.08)]
-            : [(top, 0.8), ("claude-sonnet-5", 0.15), ("claude-haiku-4-5", 0.05)]
+        let mix: [(CostUsageSource, String, Double)] = provider == .codex
+            ? [(.codex, top, 0.72), (.openCode, "gpt-5.6-terra", 0.2), (.piAgent, "gpt-5.6-luna", 0.08)]
+            : [(.claude, top, 0.8), (.claude, "claude-sonnet-5", 0.15), (.claude, "claude-haiku-4-5", 0.05)]
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
         let days = values.enumerated().map { index, value in
             let date = calendar.date(byAdding: .day, value: index - (values.count - 1), to: today) ?? today
             return CostDay(
                 dayKey: Formatters.dayKey(for: date),
-                byModel: Dictionary(uniqueKeysWithValues: mix.map { model, share in
-                    (model, ModelDayUsage(
+                byModel: Dictionary(uniqueKeysWithValues: mix.map { source, model, share in
+                    (ModelUsageKey(source: source, model: model), ModelDayUsage(
                         tokens: TokenTotals(input: Int(value * share * 1_000_000)),
                         costUSD: value * share
                     ))

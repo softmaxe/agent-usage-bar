@@ -531,8 +531,9 @@ final class CostCache {
 
     // MARK: - Reads
 
-    /// Identifies one priced bucket: a model at either the base or the long-context tier.
+    /// Identifies one priced bucket: a source/model pair at either pricing tier.
     struct ModelTier: Hashable {
+        let source: CostUsageSource
         let model: String
         let longContext: Bool
     }
@@ -637,6 +638,7 @@ final class CostCache {
         while sqlite3_step(stmt) == SQLITE_ROW {
             let day = String(cString: sqlite3_column_text(stmt, 0))
             let key = ModelTier(
+                source: provider == .codex ? .codex : .claude,
                 model: String(cString: sqlite3_column_text(stmt, 1)),
                 longContext: sqlite3_column_int64(stmt, 2) != 0
             )
@@ -654,15 +656,25 @@ final class CostCache {
             )
         }
         if provider == .codex {
-            for table in ["opencode_part", "pi_message"] {
-                try self.mergeIncludedUsage(table: table, fromDay: fromDay, into: &result)
-            }
+            try self.mergeIncludedUsage(
+                table: "opencode_part",
+                source: .openCode,
+                fromDay: fromDay,
+                into: &result
+            )
+            try self.mergeIncludedUsage(
+                table: "pi_message",
+                source: .piAgent,
+                fromDay: fromDay,
+                into: &result
+            )
         }
         return result
     }
 
     private func mergeIncludedUsage(
         table: String,
+        source: CostUsageSource,
         fromDay: String,
         into result: inout [String: [ModelTier: StoredUsage]]
     ) throws {
@@ -682,6 +694,7 @@ final class CostCache {
         while sqlite3_step(stmt) == SQLITE_ROW {
             let day = String(cString: sqlite3_column_text(stmt, 0))
             let tier = ModelTier(
+                source: source,
                 model: String(cString: sqlite3_column_text(stmt, 1)),
                 longContext: sqlite3_column_int64(stmt, 2) != 0
             )

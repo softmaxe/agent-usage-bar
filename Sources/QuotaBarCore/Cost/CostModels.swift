@@ -43,7 +43,35 @@ public struct TokenTotals: Sendable, Equatable {
     public static func += (lhs: inout Self, rhs: Self) { lhs = lhs + rhs }
 }
 
-/// What one model did on one day.
+/// The local tool that produced a usage record.
+public enum CostUsageSource: String, Sendable, Hashable {
+    case codex
+    case openCode
+    case piAgent
+    case claude
+
+    public var displayName: String {
+        switch self {
+        case .codex: "Codex"
+        case .openCode: "OpenCode"
+        case .piAgent: "Pi Agent"
+        case .claude: "Claude"
+        }
+    }
+}
+
+/// Keeps same-model usage from different local tools separate in the daily breakdown.
+public struct ModelUsageKey: Sendable, Hashable {
+    public let source: CostUsageSource
+    public let model: String
+
+    public init(source: CostUsageSource, model: String) {
+        self.source = source
+        self.model = model
+    }
+}
+
+/// What one model from one local tool did on one day.
 public struct ModelDayUsage: Sendable, Equatable {
     public let tokens: TokenTotals
     /// nil when the model has no price, so its tokens count but its cost does not.
@@ -55,16 +83,21 @@ public struct ModelDayUsage: Sendable, Equatable {
     }
 }
 
-/// One local-calendar day of usage, already split by model.
+/// One local-calendar day of usage, already split by source and model.
 public struct CostDay: Sendable, Equatable {
     /// `yyyy-MM-dd` in the local time zone, matching how the chart buckets days.
     public let dayKey: String
-    public let byModel: [String: ModelDayUsage]
+    public let byModel: [ModelUsageKey: ModelDayUsage]
     public let costUSD: Double?
     /// Tokens whose model had no price, so they count toward totals but not toward cost.
     public let unpricedTokens: Int
 
-    public init(dayKey: String, byModel: [String: ModelDayUsage], costUSD: Double?, unpricedTokens: Int) {
+    public init(
+        dayKey: String,
+        byModel: [ModelUsageKey: ModelDayUsage],
+        costUSD: Double?,
+        unpricedTokens: Int
+    ) {
         self.dayKey = dayKey
         self.byModel = byModel
         self.costUSD = costUSD
@@ -75,11 +108,11 @@ public struct CostDay: Sendable, Equatable {
         self.byModel.values.reduce(into: TokenTotals()) { $0 += $1.tokens }
     }
 
-    /// Models that ran that day, most expensive first; unpriced models sort by token count
-    /// behind every priced one.
-    public var rankedModels: [(model: String, usage: ModelDayUsage)] {
+    /// Source/model rows that ran that day, most expensive first; unpriced rows sort by token
+    /// count behind every priced one.
+    public var rankedModels: [(key: ModelUsageKey, model: String, usage: ModelDayUsage)] {
         self.byModel
-            .map { (model: $0.key, usage: $0.value) }
+            .map { (key: $0.key, model: $0.key.model, usage: $0.value) }
             .sorted { lhs, rhs in
                 let lhsCost = lhs.usage.costUSD ?? -1
                 let rhsCost = rhs.usage.costUSD ?? -1
@@ -87,7 +120,8 @@ public struct CostDay: Sendable, Equatable {
                 if lhs.usage.tokens.total != rhs.usage.tokens.total {
                     return lhs.usage.tokens.total > rhs.usage.tokens.total
                 }
-                return lhs.model < rhs.model
+                if lhs.model != rhs.model { return lhs.model < rhs.model }
+                return lhs.key.source.rawValue < rhs.key.source.rawValue
             }
     }
 }
