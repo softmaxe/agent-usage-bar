@@ -53,7 +53,7 @@ public struct CodexUsageResponse: Decodable, Sendable {
 
         public init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
-            self.usedPercent = (try? container.decode(Double.self, forKey: .usedPercent)) ?? 0
+            self.usedPercent = try container.decode(Double.self, forKey: .usedPercent)
             self.resetAt = try? container.decodeIfPresent(Int.self, forKey: .resetAt)
             self.limitWindowSeconds = try? container.decodeIfPresent(Int.self, forKey: .limitWindowSeconds)
         }

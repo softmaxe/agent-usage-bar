@@ -188,15 +188,16 @@ enum IconRenderer {
                 }
             }
 
-            // The weekly lane carries no decoration, so it takes the full span itself.
+            // The weekly lane carries no decoration, so it takes the full span. When a plan has
+            // no session limit, the upper lane stays full to communicate that it is unrestricted.
             let topRectPx = RectPx(x: barXPx, y: 19, w: barWidthPx, h: 12)
             let bottomRectPx = RectPx(x: 0, y: 5, w: spanPx, h: 8)
             // One meaningful quota should read as one meter: reserving an unusable second lane
             // would make 46% remaining look like roughly 23% of the icon.
             let singleRectPx = RectPx(x: barXPx, y: 14, w: barWidthPx, h: 16)
 
-            if let weeklyRemaining, weeklyRemaining > 0 {
-                drawBar(rectPx: topRectPx, remaining: primaryRemaining, decoration: decoration)
+            if let weeklyRemaining {
+                drawBar(rectPx: topRectPx, remaining: primaryRemaining ?? 100, decoration: decoration)
                 drawBar(rectPx: bottomRectPx, remaining: weeklyRemaining)
             } else if let primaryRemaining {
                 drawBar(rectPx: singleRectPx, remaining: primaryRemaining, decoration: decoration)
