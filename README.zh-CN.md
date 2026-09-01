@@ -19,7 +19,7 @@ QuotaBar 是 [CodexBar](https://github.com/steipete/CodexBar) 的精简重写版
 
 - 显示会话与每周剩余额度、重置时间、使用节奏和可用 credits。
 - 按日期和模型展示本地 Codex、Claude 的 token 用量与预估成本。
-- 将同一账号的 OpenCode OpenAI OAuth 用量计入 Codex。
+- 将同一账号的 OpenCode 和 Pi Agent OpenAI OAuth 用量计入 Codex。
 - 在一个菜单栏图标中切换供应商，两家独立刷新。
 - 使用内置费率、公开的 [models.dev](https://models.dev) 目录和手动费率。
 - 刷新失败时保留最后一次有效的额度数据。
@@ -111,10 +111,13 @@ QuotaBar 从本地会话数据计算 token 和成本，不使用计费 API。
 | Codex | `~/.codex/sessions`、`~/.codex/archived_sessions` |
 | Claude | `$CLAUDE_CONFIG_DIR/projects`，或 `~/.claude/projects` 和 `~/.config/claude/projects` |
 | OpenCode | `$OPENCODE_DATA_HOME/opencode.db`、`$XDG_DATA_HOME/opencode/opencode.db`，或 `~/.local/share/opencode/opencode.db` |
+| Pi Agent | `$PI_CODING_AGENT_SESSION_DIR`、`$PI_CODING_AGENT_DIR/sessions`，或 `~/.pi/agent/sessions` |
 
 只有 OpenCode 的 `openai` 供应商使用 OAuth，且 account ID 与当前 Codex 账号一致时，这部分数据才会计入 Codex。其他供应商、API key 会话和账号不匹配的数据都会被忽略。OpenCode 用量不会改变额度条。
 
-大量历史数据的首次扫描可能较慢，之后会通过 SQLite 缓存增量扫描。价格目录缓存 24 小时。手动费率只影响新用量，历史数据保留扫描时的价格。
+Pi Agent 遵循同样的规则。只有匹配 OAuth 账号的 `openai-codex` assistant 用量会被计入。Pi Agent 用量不会改变额度条，成本使用 QuotaBar 的模型价格估算，不代表 OpenAI 账单。
+
+大量历史数据的首次扫描可能较慢。扫描结果会缓存在 SQLite 中：Codex 和 Claude 从上次读取的位置继续，OpenCode 和 Pi Agent 通过稳定 ID 去重。价格目录缓存 24 小时。手动费率只影响新用量，历史数据保留扫描时的价格。
 
 <img src="docs/images/settings-pricing.png" width="620" alt="可编辑模型费率的价格设置">
 
@@ -171,6 +174,7 @@ make clean
 | 数据过期或刷新返回 HTTP 429 | 等待供应商冷却结束，并选择更长的刷新间隔。 |
 | 缺少成本统计 | 确认 CLI 正在向上面的路径写入会话日志，并确认模型有目录价格或手动费率。 |
 | 缺少 OpenCode 用量 | 确认 OpenCode 使用 `openai` OAuth，且账号与 Codex 相同。在 **Settings → Pricing** 查看数据库或认证错误。 |
+| 缺少 Pi Agent 用量 | 确认 Pi Agent 通过 `/login openai-codex` 登录了与 Codex 相同的账号。在 **Settings → Pricing** 查看会话或认证错误。 |
 
 ## 已知限制
 

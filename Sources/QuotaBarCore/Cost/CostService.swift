@@ -16,6 +16,7 @@ public actor CostService {
     private var cache: CostCache?
     private var overlay: PricingOverlay?
     private var openCodeStatus: OpenCodeScanStatus = .idle
+    private var piAgentStatus: PiAgentScanStatus = .idle
     /// Readable without the actor so `CostUsageReader` can open the same file on a connection
     /// of its own rather than queueing behind a scan.
     public nonisolated let databaseURL: URL
@@ -77,6 +78,10 @@ public actor CostService {
 
     public func currentOpenCodeScanStatus() -> OpenCodeScanStatus {
         self.openCodeStatus
+    }
+
+    public func currentPiAgentScanStatus() -> PiAgentScanStatus {
+        self.piAgentStatus
     }
 
     /// Drops the cached price layers so the next refresh picks up an edited override file.
@@ -149,7 +154,12 @@ public actor CostService {
             if case .error = openCode.status {
                 Log.ui.error("OpenCode usage scan failed; cached usage was kept")
             }
-            return codexTouched + openCode.touched
+            let pi = PiAgentLogScanner.scan(cache: cache, overlay: overlay, env: self.env)
+            self.piAgentStatus = pi.status
+            if case .error = pi.status {
+                Log.ui.error("Pi Agent usage scan failed; cached usage was kept")
+            }
+            return codexTouched + openCode.touched + pi.touched
         case .claude: return try ClaudeLogScanner.scan(cache: cache, overlay: overlay, env: self.env)
         }
     }

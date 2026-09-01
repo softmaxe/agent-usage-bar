@@ -117,6 +117,23 @@ final class CostCache {
         """)
         try self.exec("CREATE INDEX IF NOT EXISTS opencode_part_day ON opencode_part(day)")
         try self.exec("""
+        CREATE TABLE IF NOT EXISTS pi_message (
+            key TEXT PRIMARY KEY,
+            included INTEGER NOT NULL,
+            day TEXT NOT NULL,
+            model TEXT NOT NULL,
+            long_context INTEGER NOT NULL,
+            input INTEGER NOT NULL,
+            output INTEGER NOT NULL,
+            cache_write INTEGER NOT NULL,
+            cache_write_1h INTEGER NOT NULL DEFAULT 0,
+            cache_read INTEGER NOT NULL,
+            cost_usd REAL NOT NULL,
+            unpriced_tokens INTEGER NOT NULL
+        )
+        """)
+        try self.exec("CREATE INDEX IF NOT EXISTS pi_message_day ON pi_message(day)")
+        try self.exec("""
         CREATE TABLE IF NOT EXISTS opencode_state (
             key TEXT PRIMARY KEY,
             value INTEGER NOT NULL
@@ -145,6 +162,7 @@ final class CostCache {
         try self.exec("DELETE FROM claude_message")
         try self.exec("DELETE FROM codex_day")
         try self.exec("DELETE FROM opencode_part")
+        try self.exec("DELETE FROM pi_message")
         try self.exec("DELETE FROM opencode_state")
         try self.exec("DELETE FROM file_cursor")
         try self.exec("PRAGMA user_version = \(Self.scanSemanticsVersion)")
@@ -426,33 +444,89 @@ final class CostCache {
     }
 
     func pruneOpenCodeParts(keeping keys: Set<String>) throws {
-        var select: OpaquePointer?
-        defer { sqlite3_finalize(select) }
-        guard sqlite3_prepare_v2(self.db, "SELECT key FROM opencode_part", -1, &select, nil) == SQLITE_OK else {
-            throw CostCacheError.statementFailed(self.lastErrorMessage)
-        }
-        var stale: [String] = []
-        while sqlite3_step(select) == SQLITE_ROW {
-            let key = String(cString: sqlite3_column_text(select, 0))
-            if !keys.contains(key) { stale.append(key) }
-        }
-        for key in stale {
-            var delete: OpaquePointer?
-            guard sqlite3_prepare_v2(self.db, "DELETE FROM opencode_part WHERE key = ?", -1, &delete, nil) == SQLITE_OK else {
-                throw CostCacheError.statementFailed(self.lastErrorMessage)
-            }
-            sqlite3_bind_text(delete, 1, key, -1, sqliteTransient)
-            guard sqlite3_step(delete) == SQLITE_DONE else {
-                sqlite3_finalize(delete)
-                throw CostCacheError.statementFailed(self.lastErrorMessage)
-            }
-            sqlite3_finalize(delete)
-        }
+        try self.pruneRows(table: "opencode_part", keeping: keys)
     }
 
     func clearOpenCodeParts() throws {
         try self.exec("DELETE FROM opencode_part")
         try self.exec("DELETE FROM opencode_state")
+    }
+
+    func addPiMessage(
+        key: String,
+        included: Bool,
+        day: String,
+        model: String,
+        longContext: Bool,
+        totals: TokenTotals,
+        costUSD: Double?
+    ) throws {
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(self.db, """
+            INSERT INTO pi_message
+                (key, included, day, model, long_context, input, output, cache_write,
+                 cache_write_1h, cache_read, cost_usd, unpriced_tokens)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET
+                day = excluded.day, model = excluded.model, long_context = excluded.long_context,
+                input = excluded.input, output = excluded.output,
+                cache_write = excluded.cache_write, cache_write_1h = excluded.cache_write_1h,
+                cache_read = excluded.cache_read, cost_usd = excluded.cost_usd,
+                unpriced_tokens = excluded.unpriced_tokens
+            WHERE excluded.day IS NOT pi_message.day
+               OR excluded.model IS NOT pi_message.model
+               OR excluded.input IS NOT pi_message.input
+               OR excluded.output IS NOT pi_message.output
+               OR excluded.cache_write IS NOT pi_message.cache_write
+               OR excluded.cache_write_1h IS NOT pi_message.cache_write_1h
+               OR excluded.cache_read IS NOT pi_message.cache_read
+            """, -1, &stmt, nil) == SQLITE_OK else {
+            throw CostCacheError.statementFailed(self.lastErrorMessage)
+        }
+        sqlite3_bind_text(stmt, 1, key, -1, sqliteTransient)
+        sqlite3_bind_int64(stmt, 2, included ? 1 : 0)
+        sqlite3_bind_text(stmt, 3, day, -1, sqliteTransient)
+        sqlite3_bind_text(stmt, 4, model, -1, sqliteTransient)
+        sqlite3_bind_int64(stmt, 5, longContext ? 1 : 0)
+        sqlite3_bind_int64(stmt, 6, Int64(totals.input))
+        sqlite3_bind_int64(stmt, 7, Int64(totals.output))
+        sqlite3_bind_int64(stmt, 8, Int64(totals.cacheWrite))
+        sqlite3_bind_int64(stmt, 9, Int64(totals.cacheWrite1h))
+        sqlite3_bind_int64(stmt, 10, Int64(totals.cacheRead))
+        sqlite3_bind_double(stmt, 11, costUSD ?? 0)
+        sqlite3_bind_int64(stmt, 12, Int64(costUSD == nil ? totals.total : 0))
+        guard sqlite3_step(stmt) == SQLITE_DONE else {
+            throw CostCacheError.statementFailed(self.lastErrorMessage)
+        }
+    }
+
+    func prunePiMessages(keeping keys: Set<String>) throws {
+        try self.pruneRows(table: "pi_message", keeping: keys)
+    }
+
+    func clearPiMessages() throws { try self.exec("DELETE FROM pi_message") }
+
+    private func pruneRows(table: String, keeping keys: Set<String>) throws {
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(self.db, "SELECT key FROM \(table)", -1, &stmt, nil) == SQLITE_OK else {
+            throw CostCacheError.statementFailed(self.lastErrorMessage)
+        }
+        var stale: [String] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            let key = String(cString: sqlite3_column_text(stmt, 0))
+            if !keys.contains(key) { stale.append(key) }
+        }
+        for key in stale {
+            var delete: OpaquePointer?
+            defer { sqlite3_finalize(delete) }
+            guard sqlite3_prepare_v2(self.db, "DELETE FROM \(table) WHERE key = ?", -1, &delete, nil) == SQLITE_OK else {
+                throw CostCacheError.statementFailed(self.lastErrorMessage)
+            }
+            sqlite3_bind_text(delete, 1, key, -1, sqliteTransient)
+            guard sqlite3_step(delete) == SQLITE_DONE else { throw CostCacheError.statementFailed(self.lastErrorMessage) }
+        }
     }
 
     // MARK: - Reads
@@ -580,26 +654,28 @@ final class CostCache {
             )
         }
         if provider == .codex {
-            try self.mergeOpenCodeUsage(fromDay: fromDay, into: &result)
+            for table in ["opencode_part", "pi_message"] {
+                try self.mergeIncludedUsage(table: table, fromDay: fromDay, into: &result)
+            }
         }
         return result
     }
 
-    private func mergeOpenCodeUsage(
+    private func mergeIncludedUsage(
+        table: String,
         fromDay: String,
         into result: inout [String: [ModelTier: StoredUsage]]
     ) throws {
-        guard try self.tableExists("opencode_part") else { return }
+        guard try self.tableExists(table) else { return }
         var stmt: OpaquePointer?
         defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(self.db, """
+        let sql = """
             SELECT day, model, long_context,
                    SUM(input), SUM(output), SUM(cache_write), SUM(cache_write_1h), SUM(cache_read),
                    SUM(cost_usd), SUM(unpriced_tokens)
-            FROM opencode_part
-            WHERE included = 1 AND day >= ?
-            GROUP BY day, model, long_context
-            """, -1, &stmt, nil) == SQLITE_OK else {
+            FROM \(table) WHERE included = 1 AND day >= ? GROUP BY day, model, long_context
+            """
+        guard sqlite3_prepare_v2(self.db, sql, -1, &stmt, nil) == SQLITE_OK else {
             throw CostCacheError.statementFailed(self.lastErrorMessage)
         }
         sqlite3_bind_text(stmt, 1, fromDay, -1, sqliteTransient)
@@ -658,18 +734,17 @@ final class CostCache {
             ))
         }
         guard provider == .codex else { return models }
-        guard try self.tableExists("opencode_part") else { return models }
-        var openCode: OpaquePointer?
-        defer { sqlite3_finalize(openCode) }
-        guard sqlite3_prepare_v2(self.db, """
-            SELECT model, SUM(input + output + cache_write + cache_read)
-            FROM opencode_part WHERE included = 1 GROUP BY model
-            """, -1, &openCode, nil) == SQLITE_OK else {
-            throw CostCacheError.statementFailed(self.lastErrorMessage)
-        }
         var totals = Dictionary(uniqueKeysWithValues: models.map { ($0.model, $0.tokens) })
-        while sqlite3_step(openCode) == SQLITE_ROW {
-            totals[String(cString: sqlite3_column_text(openCode, 0)), default: 0] += Int(sqlite3_column_int64(openCode, 1))
+        for extraTable in ["opencode_part", "pi_message"] where try self.tableExists(extraTable) {
+            var extra: OpaquePointer?
+            defer { sqlite3_finalize(extra) }
+            let sql = "SELECT model, SUM(input + output + cache_write + cache_read) FROM \(extraTable) WHERE included = 1 GROUP BY model"
+            guard sqlite3_prepare_v2(self.db, sql, -1, &extra, nil) == SQLITE_OK else {
+                throw CostCacheError.statementFailed(self.lastErrorMessage)
+            }
+            while sqlite3_step(extra) == SQLITE_ROW {
+                totals[String(cString: sqlite3_column_text(extra, 0)), default: 0] += Int(sqlite3_column_int64(extra, 1))
+            }
         }
         return totals.map { ($0.key, $0.value) }.sorted { $0.tokens > $1.tokens }
     }
