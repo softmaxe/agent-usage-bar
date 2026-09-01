@@ -44,6 +44,69 @@ do {
     Harness.expect(false, "codex partial decode threw: \(error)")
 }
 
+// Some Pro responses expose a primary window shell without a usable percentage. It
+// must not become a fully available five-hour limit when the weekly limit is valid.
+do {
+    let json = """
+    {
+      "plan_type": "pro",
+      "rate_limit": {
+        "primary_window": { "used_percent": null },
+        "secondary_window": { "used_percent": 50, "reset_at": 2000, "limit_window_seconds": 604800 }
+      }
+    }
+    """
+    let response = try JSONDecoder().decode(CodexUsageResponse.self, from: Data(json.utf8))
+    let snapshot = CodexProvider.snapshot(from: response)
+
+    Harness.expect(snapshot.session == nil, "codex missing five-hour utilization hides the session limit")
+    Harness.expectEqual(snapshot.weekly?.remainingPercent, 50, "codex weekly-only remaining")
+} catch {
+    Harness.expect(false, "codex weekly-only usage decode threw: \(error)")
+}
+
+// A plan with one seven-day quota may return it in the primary slot. Classify the
+// window by duration so the menu bar does not present it as a five-hour session.
+do {
+    let json = """
+    {
+      "plan_type": "pro",
+      "rate_limit": {
+        "primary_window": { "used_percent": 25, "reset_at": 2000, "limit_window_seconds": 604800 },
+        "secondary_window": null
+      }
+    }
+    """
+    let response = try JSONDecoder().decode(CodexUsageResponse.self, from: Data(json.utf8))
+    let snapshot = CodexProvider.snapshot(from: response)
+
+    Harness.expect(snapshot.session == nil, "codex seven-day primary window does not become a session limit")
+    Harness.expectEqual(snapshot.weekly?.remainingPercent, 75, "codex seven-day primary becomes weekly")
+} catch {
+    Harness.expect(false, "codex primary weekly usage decode threw: \(error)")
+}
+
+// If a five-hour quota returns beside a primary seven-day quota, duration-based
+// classification restores both lanes even when the API does not reorder the slots.
+do {
+    let json = """
+    {
+      "plan_type": "pro",
+      "rate_limit": {
+        "primary_window": { "used_percent": 25, "reset_at": 2000, "limit_window_seconds": 604800 },
+        "secondary_window": { "used_percent": 40, "reset_at": 1000, "limit_window_seconds": 18000 }
+      }
+    }
+    """
+    let response = try JSONDecoder().decode(CodexUsageResponse.self, from: Data(json.utf8))
+    let snapshot = CodexProvider.snapshot(from: response)
+
+    Harness.expectEqual(snapshot.session?.remainingPercent, 60, "codex restored five-hour remaining")
+    Harness.expectEqual(snapshot.weekly?.remainingPercent, 75, "codex retained weekly remaining")
+} catch {
+    Harness.expect(false, "codex restored five-hour usage decode threw: \(error)")
+}
+
 // An empty balance is not worth a section: the popover hides it rather than showing "0 left".
 Harness.expect(
     !CreditsSnapshot(hasCredits: false, unlimited: false, balance: 0).hasSpendableBalance,

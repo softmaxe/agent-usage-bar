@@ -69,10 +69,16 @@ public enum CodexProvider {
     }
 
     public static func snapshot(from response: CodexUsageResponse, now: Date = Date()) -> UsageSnapshot {
-        UsageSnapshot(
+        let primary = response.rateLimit?.primaryWindow?.window
+        let secondary = response.rateLimit?.secondaryWindow?.window
+        // `primary` describes ordering, not duration. Plans with one quota can put a
+        // seven-day window there, so use the reported duration to classify it.
+        let primaryIsWeekly = primary?.windowSeconds.map { $0 >= 24 * 60 * 60 } == true
+
+        return UsageSnapshot(
             provider: .codex,
-            session: response.rateLimit?.primaryWindow?.window,
-            weekly: response.rateLimit?.secondaryWindow?.window,
+            session: primaryIsWeekly ? secondary : primary,
+            weekly: primaryIsWeekly ? primary : secondary,
             planLabel: response.planType.map(Self.planLabel),
             credits: response.credits.map {
                 CreditsSnapshot(hasCredits: $0.hasCredits, unlimited: $0.unlimited, balance: $0.balance)

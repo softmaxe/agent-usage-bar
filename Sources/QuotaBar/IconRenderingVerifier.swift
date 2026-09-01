@@ -25,12 +25,41 @@ enum IconRenderingVerifier {
             label: "dual-window",
             failures: &failures
         )
+        Self.expectWeeklyOnlyUsesUnlimitedSessionLane(failures: &failures)
 
         VerifierReport.finish(
             failures,
             label: "icon rendering verification",
             passed: "status-item icon rendering checks passed"
         )
+    }
+
+    private static func expectWeeklyOnlyUsesUnlimitedSessionLane(failures: inout [String]) {
+        let expected = IconRenderer.makeIcon(
+            provider: .codex,
+            primaryRemaining: 100,
+            weeklyRemaining: 50,
+            stale: false
+        )
+        let weeklyOnly = IconRenderer.makeIcon(
+            provider: .codex,
+            primaryRemaining: nil,
+            weeklyRemaining: 50,
+            stale: false
+        )
+        guard let expectedBitmap = expected.representations.compactMap({ $0 as? NSBitmapImageRep }).first,
+              let weeklyBitmap = weeklyOnly.representations.compactMap({ $0 as? NSBitmapImageRep }).first,
+              let expectedData = expectedBitmap.bitmapData,
+              let weeklyData = weeklyBitmap.bitmapData else {
+            failures.append("weekly-only Codex icon did not expose bitmap data")
+            return
+        }
+
+        let expectedBytes = Data(bytes: expectedData, count: expectedBitmap.bytesPerRow * expectedBitmap.pixelsHigh)
+        let weeklyBytes = Data(bytes: weeklyData, count: weeklyBitmap.bytesPerRow * weeklyBitmap.pixelsHigh)
+        if expectedBytes != weeklyBytes {
+            failures.append("weekly-only Codex quota did not keep a full upper lane")
+        }
     }
 
     private static func expectCodexFace(
