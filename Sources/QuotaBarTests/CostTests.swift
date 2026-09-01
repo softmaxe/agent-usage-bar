@@ -15,6 +15,7 @@ enum CostTests {
         Self.legacyReadOnlyCache()
         await Self.scanning()
         await Self.openCodeScanning()
+        await Self.piAgentScanning()
         await Self.pricingEditsApplyForward()
     }
 
@@ -443,6 +444,117 @@ enum CostTests {
         let removed = await service.refresh(.codex)
         Harness.expectEqual(removed?.windowTokens, 10, "a removed OpenCode database clears its cached usage")
         Harness.expectEqual(await service.currentOpenCodeScanStatus(), .idle, "a removed OpenCode database is idle")
+    }
+
+    private static func piAgentScanning() async {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("quotabar-pi-tests-\(ProcessInfo.processInfo.processIdentifier)")
+        try? FileManager.default.removeItem(at: root)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let codexHome = root.appendingPathComponent("codex")
+        let agentHome = root.appendingPathComponent("pi-agent")
+        let sessions = root.appendingPathComponent("pi-sessions")
+        try? FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: agentHome, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: sessions.appendingPathComponent("project"), withIntermediateDirectories: true)
+        try? #"{"tokens":{"account_id":"account-a"}}"#.write(
+            to: codexHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
+        )
+        try? #"{"openai-codex":{"type":"oauth","accountId":"account-a"}}"#.write(
+            to: agentHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
+        )
+
+        let now = Int64(Date().timeIntervalSince1970 * 1000)
+        let transcript = sessions.appendingPathComponent("project/session.jsonl")
+        func message(
+            _ id: String,
+            model: String = "gpt-5.6-luna",
+            input: Int = 10,
+            output: Int = 20,
+            cacheWrite: Int = 30,
+            cacheRead: Int = 40
+        ) -> String {
+            #"{"type":"message","id":"\#(id)","message":{"role":"assistant","provider":"openai-codex","model":"\#(model)","timestamp":\#(now),"usage":{"input":\#(input),"output":\#(output),"reasoning":999,"cacheWrite":\#(cacheWrite),"cacheRead":\#(cacheRead),"cost":999}}}"#
+        }
+        func write(_ lines: [String]) {
+            try? (lines.joined(separator: "\n") + "\n").write(to: transcript, atomically: true, encoding: .utf8)
+        }
+        write([
+            message("one"),
+            #"{"type":"message","message":{"id":"ignored","role":"assistant","provider":"other","model":"gpt-5.6-luna","timestamp":\#(now),"usage":{"input":500}}}"#,
+        ])
+
+        let overlay = PricingOverlay(userOverrides: [
+            "gpt-5.6-luna": ModelPricing(input: 1, output: 2, cacheWrite: 3, cacheRead: 0.5),
+        ])
+        let service = CostService(
+            databaseURL: root.appendingPathComponent("cache.sqlite"),
+            env: [
+                "CODEX_HOME": codexHome.path,
+                "PI_CODING_AGENT_DIR": agentHome.path,
+                "PI_CODING_AGENT_SESSION_DIR": sessions.path,
+                "OPENCODE_DATA_HOME": root.appendingPathComponent("missing-opencode").path,
+            ],
+            pricingOverlay: overlay
+        )
+
+        let first = await service.refresh(.codex)
+        Harness.expectEqual(first?.windowTokens, 100, "Pi maps token buckets without adding reasoning twice")
+        Harness.expectEqual(first?.days.first?.tokens.input, 10, "Pi input excludes cache reads")
+        Harness.expectEqual(first?.days.first?.tokens.output, 20, "Pi output already contains reasoning")
+        Harness.expectEqual(first?.days.first?.tokens.cacheWrite, 30, "Pi cache writes are preserved")
+        Harness.expectEqual(first?.days.first?.tokens.cacheRead, 40, "Pi cache reads are preserved")
+        Harness.expectClose(first?.windowCostUSD, 0.00016, "Pi usage uses local model pricing")
+        Harness.expectEqual(await service.currentPiAgentScanStatus(), .idle, "matching Pi OAuth is quiet")
+
+        let forkedTranscript = sessions.appendingPathComponent("project/fork.jsonl")
+        try? (message("one") + "\n").write(to: forkedTranscript, atomically: true, encoding: .utf8)
+        let repeated = await service.refresh(.codex)
+        Harness.expectEqual(repeated?.windowTokens, 100, "Pi message IDs dedupe copied session history")
+        try? FileManager.default.removeItem(at: forkedTranscript)
+
+        write([message("one", output: 120), message("two")])
+        let grown = await service.refresh(.codex)
+        Harness.expectEqual(grown?.windowTokens, 300, "Pi updates growing messages and adds new messages")
+
+        try? #"{"openai-codex":{"type":"api","accountId":"account-a"}}"#.write(
+            to: agentHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
+        )
+        write([message("one", output: 120), message("two"), message("excluded")])
+        let nonOAuth = await service.refresh(.codex)
+        Harness.expectEqual(nonOAuth?.windowTokens, 300, "non-OAuth Pi messages are excluded")
+        Harness.expectEqual(await service.currentPiAgentScanStatus(), .nonOAuth, "Pi non-OAuth status is exposed")
+
+        try? #"{"openai-codex":{"type":"oauth","accountId":"account-b"}}"#.write(
+            to: agentHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
+        )
+        let mismatch = await service.refresh(.codex)
+        Harness.expectEqual(mismatch?.windowTokens, 300, "Pi account mismatch stays excluded")
+        Harness.expectEqual(await service.currentPiAgentScanStatus(), .accountMismatch, "Pi account mismatch status is exposed")
+
+        try? #"{"openai-codex":{"type":"oauth","accountId":"account-a"}}"#.write(
+            to: agentHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
+        )
+        write([message("two"), message("unknown", model: "future-codex-model")])
+        let pruned = await service.refresh(.codex)
+        Harness.expectEqual(pruned?.windowTokens, 200, "Pi removes messages missing from the source")
+        Harness.expectEqual(pruned?.hasUnpricedTokens, true, "unknown Pi models keep unpriced tokens")
+
+        try? "invalid".write(to: agentHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8)
+        write([])
+        let authFailure = await service.refresh(.codex)
+        Harness.expectEqual(authFailure?.windowTokens, 200, "Pi auth errors retain cached totals")
+        if case .error = await service.currentPiAgentScanStatus() {
+            Harness.expect(true, "Pi auth error status is exposed")
+        } else {
+            Harness.expect(false, "Pi auth error status is exposed")
+        }
+
+        try? FileManager.default.removeItem(at: sessions)
+        let removed = await service.refresh(.codex)
+        Harness.expectEqual(removed?.windowTokens, 0, "a missing Pi sessions directory clears cached usage")
+        Harness.expectEqual(await service.currentPiAgentScanStatus(), .idle, "missing Pi sessions are idle")
     }
 
     /// A price edit must not rewrite history: what has already been scanned keeps the cost it was

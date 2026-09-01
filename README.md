@@ -19,7 +19,7 @@ QuotaBar is a focused rebuild of [CodexBar](https://github.com/steipete/CodexBar
 
 - Shows remaining session and weekly quota, reset time, usage pace, and credits when available.
 - Charts local Codex and Claude token use and estimated cost by day and model.
-- Includes matching OpenCode OpenAI OAuth usage under Codex.
+- Includes matching OpenCode and Pi Agent OpenAI OAuth usage under Codex.
 - Switches providers from one menu bar icon and refreshes each provider independently.
 - Uses built-in pricing, the public [models.dev](https://models.dev) catalog, and optional manual rate overrides.
 - Keeps the last good quota reading when a refresh fails.
@@ -111,10 +111,13 @@ Hover a day in the chart to see its model breakdown. Click the highlighted day t
 | Codex | `~/.codex/sessions`, `~/.codex/archived_sessions` |
 | Claude | `$CLAUDE_CONFIG_DIR/projects`, or `~/.claude/projects` and `~/.config/claude/projects` |
 | OpenCode | `$OPENCODE_DATA_HOME/opencode.db`, `$XDG_DATA_HOME/opencode/opencode.db`, or `~/.local/share/opencode/opencode.db` |
+| Pi Agent | `$PI_CODING_AGENT_SESSION_DIR`, `$PI_CODING_AGENT_DIR/sessions`, or `~/.pi/agent/sessions` |
 
 OpenCode data is included only when its `openai` provider uses OAuth and its account ID matches the current Codex account. Other providers, API-key sessions, and account mismatches are ignored. OpenCode totals do not affect quota bars.
 
-The first scan of a large history may take time. Later scans use an incremental SQLite cache. The pricing catalog is cached for 24 hours. Manual rate changes apply to new usage only, so past totals keep the prices used when they were scanned.
+Pi Agent data follows the same rule. Only `openai-codex` assistant usage from a matching OAuth account is included. Pi Agent totals do not affect quota bars, and their cost is estimated from QuotaBar's model prices rather than treated as an OpenAI billing statement.
+
+The first scan of a large history may take time. Scanned rows are cached in SQLite; Codex and Claude resume from the last byte read, while OpenCode and Pi Agent deduplicate records by stable IDs. The pricing catalog is cached for 24 hours. Manual rate changes apply to new usage only, so past totals keep the prices used when they were scanned.
 
 <img src="docs/images/settings-pricing.png" width="620" alt="Pricing settings with editable model rates">
 
@@ -171,6 +174,7 @@ To create a test package, run **Build and Release** from the repository's **Acti
 | Data is stale or refresh returns HTTP 429 | Wait for the provider cooldown and select a longer refresh interval. |
 | Cost totals are missing | Confirm the CLI writes session logs to the paths above. A model also needs a catalog price or manual rate. |
 | OpenCode usage is missing | Confirm OpenCode uses `openai` OAuth with the same account as Codex. Check **Settings → Pricing** for database or authentication errors. |
+| Pi Agent usage is missing | Confirm Pi Agent uses `/login openai-codex` with the same account as Codex. Check **Settings → Pricing** for session or authentication errors. |
 
 ## Limitations
 

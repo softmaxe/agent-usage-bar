@@ -65,7 +65,7 @@ struct PricingSettingsView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            if let status = self.model.openCodeScanStatus {
+            ForEach(self.model.externalScanStatuses, id: \.self) { status in
                 Label(status, systemImage: "exclamationmark.triangle")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
