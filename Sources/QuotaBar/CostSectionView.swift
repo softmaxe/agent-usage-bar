@@ -201,7 +201,7 @@ struct CostSectionView: View {
                 .truncationMode(.tail)
 
             if let day = self.hoveredDay {
-                let ranked = day.rankedModels
+                let ranked = day.rankedModels(by: self.selectedLabelMode)
                 ForEach(Array(ranked.prefix(Self.maxBreakdownRows).enumerated()), id: \.element.key) {
                     index, entry in
                     self.breakdownRow(

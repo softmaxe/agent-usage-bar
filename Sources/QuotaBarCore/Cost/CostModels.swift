@@ -111,14 +111,27 @@ public struct CostDay: Sendable, Equatable {
     /// Source/model rows that ran that day, most expensive first; unpriced rows sort by token
     /// count behind every priced one.
     public var rankedModels: [(key: ModelUsageKey, model: String, usage: ModelDayUsage)] {
+        self.rankedModels(by: .cost)
+    }
+
+    /// Ranks the daily breakdown by the metric selected for the chart.
+    public func rankedModels(
+        by mode: CostChartLabelMode
+    ) -> [(key: ModelUsageKey, model: String, usage: ModelDayUsage)] {
         self.byModel
             .map { (key: $0.key, model: $0.key.model, usage: $0.value) }
             .sorted { lhs, rhs in
+                let lhsTokens = lhs.usage.tokens.total
+                let rhsTokens = rhs.usage.tokens.total
                 let lhsCost = lhs.usage.costUSD ?? -1
                 let rhsCost = rhs.usage.costUSD ?? -1
-                if lhsCost != rhsCost { return lhsCost > rhsCost }
-                if lhs.usage.tokens.total != rhs.usage.tokens.total {
-                    return lhs.usage.tokens.total > rhs.usage.tokens.total
+                switch mode {
+                case .tokens:
+                    if lhsTokens != rhsTokens { return lhsTokens > rhsTokens }
+                    if lhsCost != rhsCost { return lhsCost > rhsCost }
+                case .cost:
+                    if lhsCost != rhsCost { return lhsCost > rhsCost }
+                    if lhsTokens != rhsTokens { return lhsTokens > rhsTokens }
                 }
                 if lhs.model != rhs.model { return lhs.model < rhs.model }
                 return lhs.key.source.rawValue < rhs.key.source.rawValue
