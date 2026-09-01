@@ -345,6 +345,10 @@ enum CostTests {
         Harness.expectEqual(first?.days.first?.tokens.output, 50, "OpenCode reasoning is output")
         Harness.expectEqual(first?.days.first?.tokens.cacheRead, 40, "OpenCode cache reads are preserved")
         Harness.expectEqual(first?.days.first?.tokens.cacheWrite, 50, "OpenCode cache writes are preserved")
+        Harness.expect(
+            first?.days.first?.rankedModels.first?.key.source == .openCode,
+            "OpenCode usage keeps its source in the day breakdown"
+        )
         Harness.expectEqual(await service.currentOpenCodeScanStatus(), .idle, "matching OAuth is quiet")
 
         let repeated = await service.refresh(.codex)
@@ -434,6 +438,14 @@ enum CostTests {
         sqlite3_exec(db, "ALTER TABLE message RENAME TO broken_message", nil, nil, nil)
         let sourceFailure = await service.refresh(.codex)
         Harness.expectEqual(sourceFailure?.windowTokens, 310, "OpenCode schema errors retain cache while Codex keeps scanning")
+        let lunaSources = Set(sourceFailure?.days.first?.rankedModels
+            .filter { $0.model == "gpt-5.6-luna" }
+            .map { $0.key.source } ?? [])
+        Harness.expectEqual(
+            lunaSources,
+            Set([CostUsageSource.codex, .openCode]),
+            "same-model Codex and OpenCode usage remains split by source"
+        )
         if case .error = await service.currentOpenCodeScanStatus() {
             Harness.expect(true, "OpenCode schema error status is exposed")
         } else {
@@ -505,6 +517,10 @@ enum CostTests {
         Harness.expectEqual(first?.days.first?.tokens.output, 20, "Pi output already contains reasoning")
         Harness.expectEqual(first?.days.first?.tokens.cacheWrite, 30, "Pi cache writes are preserved")
         Harness.expectEqual(first?.days.first?.tokens.cacheRead, 40, "Pi cache reads are preserved")
+        Harness.expect(
+            first?.days.first?.rankedModels.first?.key.source == .piAgent,
+            "Pi usage keeps its source in the day breakdown"
+        )
         Harness.expectClose(first?.windowCostUSD, 0.00016, "Pi usage uses local model pricing")
         Harness.expectEqual(await service.currentPiAgentScanStatus(), .idle, "matching Pi OAuth is quiet")
 
@@ -685,6 +701,10 @@ enum CostTests {
         )
         Harness.expectClose(breakdown?.rankedModels.first?.usage.costUSD, 0.8, "per-model cost for sol")
         Harness.expectClose(breakdown?.rankedModels.last?.usage.costUSD, 0.04, "per-model cost for luna")
+        Harness.expect(
+            breakdown?.rankedModels.allSatisfy { $0.key.source == .codex } == true,
+            "Codex CLI usage keeps its source in the day breakdown"
+        )
 
         let claude = await service.refresh(.claude)
         // The duplicated message must not double the total.
@@ -708,7 +728,9 @@ enum CostTests {
         let codexGrown = await service.refresh(.codex)
         Harness.expectEqual(codexGrown?.windowTokens, 600_000, "appended turns are picked up incrementally")
         Harness.expectClose(
-            codexGrown?.days.first?.byModel["gpt-5.6-luna"]?.costUSD,
+            codexGrown?.days.first?.byModel[
+                ModelUsageKey(source: .codex, model: "gpt-5.6-luna")
+            ]?.costUSD,
             0.08,
             "a resumed scan attributes the appended turn to the last announced model"
         )

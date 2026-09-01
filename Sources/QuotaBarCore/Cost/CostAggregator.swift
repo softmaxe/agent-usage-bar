@@ -19,24 +19,25 @@ enum CostAggregator {
         var hasUnpriced = false
 
         for (dayKey, buckets) in rows {
-            var dayTokens: [String: TokenTotals] = [:]
-            // Per-model cost stays nil until something prices it, so an unpriced model reads as
-            // "no price" in the breakdown rather than as zero dollars.
-            var dayCostByModel: [String: Double] = [:]
+            var dayTokens: [ModelUsageKey: TokenTotals] = [:]
+            // Per-source/model cost stays nil until something prices it, so an unpriced row reads
+            // as "no price" in the breakdown rather than as zero dollars.
+            var dayCostByModel: [ModelUsageKey: Double] = [:]
             var dayCost = 0.0
             var dayPriced = false
             var dayUnpricedTokens = 0
 
             for (key, stored) in buckets {
                 let totals = stored.tokens
-                dayTokens[key.model, default: TokenTotals()] += totals
+                let usageKey = ModelUsageKey(source: key.source, model: key.model)
+                dayTokens[usageKey, default: TokenTotals()] += totals
                 modelTokens[key.model, default: 0] += totals.total
 
                 let pricedTokens = totals.total - stored.unpricedTokens
                 if pricedTokens > 0 {
                     dayCost += stored.costUSD
                     dayPriced = true
-                    dayCostByModel[key.model, default: 0] += stored.costUSD
+                    dayCostByModel[usageKey, default: 0] += stored.costUSD
                     modelCost[key.model, default: 0] += stored.costUSD
                 }
                 if stored.unpricedTokens > 0 {
@@ -49,8 +50,8 @@ enum CostAggregator {
                 ModelDayUsage(tokens: tokens, costUSD: nil)
             }
             .merging(
-                dayCostByModel.map { model, cost in
-                    (model, ModelDayUsage(tokens: dayTokens[model] ?? TokenTotals(), costUSD: cost))
+                dayCostByModel.map { key, cost in
+                    (key, ModelDayUsage(tokens: dayTokens[key] ?? TokenTotals(), costUSD: cost))
                 },
                 uniquingKeysWith: { _, priced in priced }
             )

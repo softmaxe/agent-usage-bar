@@ -60,7 +60,7 @@ enum CostChartHighlightVerifier {
         let tokenHeavyDay = CostDay(
             dayKey: yesterday,
             byModel: [
-                "token-heavy": ModelDayUsage(
+                ModelUsageKey(source: .codex, model: "token-heavy"): ModelDayUsage(
                     tokens: TokenTotals(input: 120, output: 80),
                     costUSD: 10
                 ),
@@ -71,7 +71,7 @@ enum CostChartHighlightVerifier {
         let costHeavyDay = CostDay(
             dayKey: today,
             byModel: [
-                "cost-heavy": ModelDayUsage(
+                ModelUsageKey(source: .codex, model: "cost-heavy"): ModelDayUsage(
                     tokens: TokenTotals(input: 40, output: 60),
                     costUSD: 20
                 ),
@@ -82,7 +82,7 @@ enum CostChartHighlightVerifier {
         let unpricedDay = CostDay(
             dayKey: "2026-08-27",
             byModel: [
-                "unpriced": ModelDayUsage(
+                ModelUsageKey(source: .codex, model: "unpriced"): ModelDayUsage(
                     tokens: TokenTotals(input: 7),
                     costUSD: nil
                 ),
