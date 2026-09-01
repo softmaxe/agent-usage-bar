@@ -2,8 +2,8 @@
 // Sources/CodexBarCore/Vendored/CostUsage/CostUsagePricing.swift
 //
 // Rates are USD per million tokens here and divided down at lookup, which keeps the table
-// readable against published price lists. Resolution order is user override, then the
-// models.dev overlay, then this built-in table.
+// readable against published price lists. Standard resolution uses the user override, then the
+// models.dev overlay, then the built-in table. Fast resolution uses its own built-in table.
 
 import Foundation
 
@@ -89,6 +89,11 @@ public enum CostPricing {
     /// Model name recorded for tokens whose model could not be determined. Never priced.
     public static let unknownModel = "unknown"
 
+    public enum CodexServiceTier: Sendable {
+        case standard
+        case fast
+    }
+
     // MARK: - Built-in table
 
     /// Codex / OpenAI rates, USD per million tokens, checked against
@@ -155,6 +160,27 @@ public enum CostPricing {
             thresholdTokens: 272_000, inputAbove: 10, outputAbove: 45, cacheReadAbove: 1
         ),
         "gpt-5.5-pro": ModelPricing(input: 30, output: 180),
+    ]
+
+    /// Fast Codex rates, USD per million tokens. Fast pricing is intentionally separate from
+    /// the standard overlay so an unknown Fast model stays unpriced.
+    public static let fastCodex: [String: ModelPricing] = [
+        "gpt-5.6-sol": ModelPricing(
+            input: 8, output: 40, cacheWrite: 10, cacheRead: 0.8,
+            thresholdTokens: 272_000,
+            inputAbove: 16, outputAbove: 60, cacheWriteAbove: 20, cacheReadAbove: 1.6
+        ),
+        "gpt-5.6-terra": ModelPricing(
+            input: 4, output: 24, cacheWrite: 5, cacheRead: 0.4,
+            thresholdTokens: 272_000,
+            inputAbove: 8, outputAbove: 36, cacheWriteAbove: 10, cacheReadAbove: 0.8
+        ),
+        "gpt-5.6-luna": ModelPricing(
+            input: 0.4, output: 2.4, cacheWrite: 0.5, cacheRead: 0.04,
+            thresholdTokens: 272_000,
+            inputAbove: 0.8, outputAbove: 3.6, cacheWriteAbove: 1, cacheReadAbove: 0.08
+        ),
+        "gpt-5.3-codex": ModelPricing(input: 3.5, output: 28, cacheRead: 0.35),
     ]
 
     /// Anthropic rates, USD per million tokens, checked against
@@ -237,10 +263,12 @@ public enum CostPricing {
     public static func pricing(
         for rawModel: String,
         provider: Provider,
-        overlay: PricingOverlay? = nil
+        overlay: PricingOverlay? = nil,
+        codexServiceTier: CodexServiceTier = .standard
     ) -> ModelPricing? {
         let name = self.normalize(rawModel, provider: provider)
         guard name != Self.unknownModel, !name.isEmpty else { return nil }
+        if provider == .codex, codexServiceTier == .fast { return Self.fastCodex[name] }
         if let override = overlay?.pricing(for: name) { return override }
         return provider == .codex ? Self.codex[name] : Self.claude[name]
     }
@@ -251,9 +279,15 @@ public enum CostPricing {
         totals: TokenTotals,
         model: String,
         provider: Provider,
-        overlay: PricingOverlay? = nil
+        overlay: PricingOverlay? = nil,
+        codexServiceTier: CodexServiceTier = .standard
     ) -> Bool {
-        guard let threshold = self.pricing(for: model, provider: provider, overlay: overlay)?
+        guard let threshold = self.pricing(
+            for: model,
+            provider: provider,
+            overlay: overlay,
+            codexServiceTier: codexServiceTier
+        )?
             .thresholdTokens else { return false }
         let measured = switch provider {
         case .codex: totals.input + totals.cacheRead + totals.cacheWrite
@@ -268,9 +302,15 @@ public enum CostPricing {
         model: String,
         provider: Provider,
         longContext: Bool,
-        overlay: PricingOverlay? = nil
+        overlay: PricingOverlay? = nil,
+        codexServiceTier: CodexServiceTier = .standard
     ) -> Double? {
-        guard let pricing = self.pricing(for: model, provider: provider, overlay: overlay) else {
+        guard let pricing = self.pricing(
+            for: model,
+            provider: provider,
+            overlay: overlay,
+            codexServiceTier: codexServiceTier
+        ) else {
             return nil
         }
         return pricing.cost(for: totals, longContext: longContext)

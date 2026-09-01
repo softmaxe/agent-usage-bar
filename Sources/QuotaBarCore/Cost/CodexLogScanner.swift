@@ -11,6 +11,7 @@ import Foundation
 enum CodexLogScanner {
     private static let tokenCountMarker = Array(#""token_count""#.utf8)
     private static let turnContextMarker = Array(#""turn_context""#.utf8)
+    private static let threadSettingsMarker = Array(#""thread_settings_applied""#.utf8)
 
     static func sessionRoots(env: [String: String] = ProcessInfo.processInfo.environment) -> [URL] {
         let home = CodexHome.url(env: env)
@@ -50,7 +51,8 @@ enum CodexLogScanner {
                     guard parseError == nil else { return }
                     let isTurnContext = buffer.contains(ascii: Self.turnContextMarker)
                     let isTokenCount = buffer.contains(ascii: Self.tokenCountMarker)
-                    guard isTurnContext || isTokenCount else { return }
+                    let isThreadSettings = buffer.contains(ascii: Self.threadSettingsMarker)
+                    guard isTurnContext || isTokenCount || isThreadSettings else { return }
                     do {
                         try Self.ingest(
                             line: buffer,
@@ -88,6 +90,8 @@ enum CodexLogScanner {
     struct ResumeState {
         /// Model announced by the most recent turn_context.
         var model: String?
+        /// Service tier applied to subsequent turns.
+        var serviceTier: CostPricing.CodexServiceTier = .standard
         /// The most recent `total_token_usage`, which is how a re-emitted event is recognised.
         var lastTotalUsage: [String: Int]?
     }
@@ -103,12 +107,24 @@ enum CodexLogScanner {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
 
         if root["type"] as? String == "turn_context" {
-            if let payload = root["payload"] as? [String: Any],
-               let model = (payload["model"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !model.isEmpty {
-                // Normalize on the way in so dated aliases aggregate as one model.
-                state.model = CostPricing.normalizeCodexModel(model)
+            if let payload = root["payload"] as? [String: Any] {
+                if let tier = payload["service_tier"] as? String {
+                    state.serviceTier = Self.serviceTier(tier)
+                }
+                if let model = (payload["model"] as? String)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines), !model.isEmpty {
+                    // Normalize on the way in so dated aliases aggregate as one model.
+                    state.model = CostPricing.normalizeCodexModel(model)
+                }
             }
+            return
+        }
+
+        if root["type"] as? String == "event_msg",
+           let payload = root["payload"] as? [String: Any],
+           payload["type"] as? String == "thread_settings_applied" {
+            let settings = payload["thread_settings"] as? [String: Any]
+            state.serviceTier = Self.serviceTier(settings?["service_tier"] as? String)
             return
         }
 
@@ -149,7 +165,8 @@ enum CodexLogScanner {
             totals: totals,
             model: model,
             provider: .codex,
-            overlay: overlay
+            overlay: overlay,
+            codexServiceTier: state.serviceTier
         )
         try cache.addCodexTokens(
             path: path,
@@ -162,7 +179,8 @@ enum CodexLogScanner {
                 model: model,
                 provider: .codex,
                 longContext: longContext,
-                overlay: overlay
+                overlay: overlay,
+                codexServiceTier: state.serviceTier
             )
         )
     }
@@ -175,14 +193,25 @@ enum CodexLogScanner {
         _ = try? LogFileScanner.readLines(of: url, from: 0, upTo: offset) { buffer in
             let isTurnContext = buffer.contains(ascii: Self.turnContextMarker)
             let isTokenCount = buffer.contains(ascii: Self.tokenCountMarker)
-            guard isTurnContext || isTokenCount else { return }
+            let isThreadSettings = buffer.contains(ascii: Self.threadSettingsMarker)
+            guard isTurnContext || isTokenCount || isThreadSettings else { return }
             guard let root = try? JSONSerialization.jsonObject(with: Data(buffer)) as? [String: Any],
                   let payload = root["payload"] as? [String: Any] else { return }
 
             if root["type"] as? String == "turn_context" {
+                if let tier = payload["service_tier"] as? String {
+                    state.serviceTier = Self.serviceTier(tier)
+                }
                 guard let value = (payload["model"] as? String)?
                     .trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return }
                 state.model = CostPricing.normalizeCodexModel(value)
+                return
+            }
+
+            if root["type"] as? String == "event_msg",
+               payload["type"] as? String == "thread_settings_applied" {
+                let settings = payload["thread_settings"] as? [String: Any]
+                state.serviceTier = Self.serviceTier(settings?["service_tier"] as? String)
                 return
             }
 
@@ -193,6 +222,13 @@ enum CodexLogScanner {
             state.lastTotalUsage = total
         }
         return state
+    }
+
+    private static func serviceTier(_ raw: String?) -> CostPricing.CodexServiceTier {
+        switch raw?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "priority", "fast": .fast
+        default: .standard
+        }
     }
 
     /// The integer fields of a `*_token_usage` object, which is what makes two events comparable.
