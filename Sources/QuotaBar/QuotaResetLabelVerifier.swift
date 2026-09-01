@@ -157,27 +157,40 @@ enum QuotaResetLabelVerifier {
         if MTLCreateSystemDefaultDevice() == nil {
             return []
         }
-        var failures: [String] = []
         let now = Self.currentDate(2026, 8, 30, 9, 0)
-        let reset = Self.currentDate(2026, 9, 6, 12, 45)
-        let resetText = QuotaResetLabel.text(resetsAt: reset, mode: .clock, now: now)
+        let countdownReset = now.addingTimeInterval((7 * 86_400) + (3 * 3_600))
+        let clockReset = Self.currentDate(2026, 9, 6, 12, 45)
+        return Self.layoutFailures(mode: .countdown, now: now, reset: countdownReset)
+            + Self.layoutFailures(mode: .clock, now: now, reset: clockReset)
+    }
+
+    private static func layoutFailures(
+        mode: QuotaResetDisplayMode,
+        now: Date,
+        reset: Date
+    ) -> [String] {
+        var failures: [String] = []
+        let resetText = QuotaResetLabel.text(resetsAt: reset, mode: mode, now: now)
         let normalizedResetText = resetText
             .replacingOccurrences(of: "\u{202F}", with: " ")
             .replacingOccurrences(of: "\u{00A0}", with: " ")
-        if normalizedResetText != "Resets Sep 6, 12:45 PM" {
+        let expectedResetText = mode == .countdown
+            ? "Resets in 7d 3h"
+            : "Resets Sep 6, 12:45 PM"
+        if normalizedResetText != expectedResetText {
             failures.append(
-                "layout fixture expected \"Resets Sep 6, 12:45 PM\", got \"\(normalizedResetText)\""
+                "\(mode) layout fixture expected \"\(expectedResetText)\", got \"\(normalizedResetText)\""
             )
         }
 
         let snapshot = UsageSnapshot(
             provider: .codex,
-            session: nil,
-            weekly: UsageWindow(
-                usedPercent: 9,
+            session: UsageWindow(
+                usedPercent: 0,
                 resetsAt: reset,
-                windowSeconds: 604_800
+                windowSeconds: 18_000
             ),
+            weekly: nil,
             planLabel: "Plus",
             credits: nil,
             fetchedAt: now
@@ -188,7 +201,7 @@ enum QuotaResetLabelVerifier {
             isRefreshing: false,
             animatesFill: false,
             now: now,
-            quotaResetDisplayMode: .clock
+            quotaResetDisplayMode: mode
         ))
         hosting.frame = NSRect(
             origin: .zero,
@@ -220,8 +233,8 @@ enum QuotaResetLabelVerifier {
 
         let resetIdeal = NSHostingView(rootView: Text(resetText).font(.system(size: 11)).lineLimit(1))
         let headlineIdeal = NSHostingView(rootView: QuotaHeadline(
-            title: "Weekly",
-            percent: 91,
+            title: "Session",
+            percent: 100,
             tint: Theme.accent(for: .codex),
             frame: nil
         ))
@@ -229,27 +242,27 @@ enum QuotaResetLabelVerifier {
         let resetIntrinsicWidth = resetIdeal.fittingSize.width
         if resetFrame.width + 0.5 < resetIntrinsicWidth {
             failures.append(
-                "reset label was compressed to \(Self.round(resetFrame.width))pt; "
+                "\(mode) reset label was compressed to \(Self.round(resetFrame.width))pt; "
                     + "its \(Self.round(resetIntrinsicWidth))pt intrinsic width was not preserved"
             )
         }
         let headlineIntrinsic = headlineIdeal.fittingSize
         if headlineFrame.width + 1 < headlineIntrinsic.width {
             failures.append(
-                "headline was compressed to \(Self.round(headlineFrame.width))pt; "
+                "\(mode) headline was compressed to \(Self.round(headlineFrame.width))pt; "
                     + "its \(Self.round(headlineIntrinsic.width))pt intrinsic width was not preserved"
             )
         }
         if headlineFrame.height > headlineIntrinsic.height + 1 {
             failures.append(
-                "headline wrapped to \(Self.round(headlineFrame.height))pt high; "
+                "\(mode) headline wrapped to \(Self.round(headlineFrame.height))pt high; "
                     + "its single-line height is \(Self.round(headlineIntrinsic.height))pt"
             )
         }
         let contentMaxX = hosting.bounds.maxX - 14
         if resetFrame.maxX > contentMaxX + 0.5 {
             failures.append(
-                "reset label ended at \(Self.round(resetFrame.maxX))pt, outside the "
+                "\(mode) reset label ended at \(Self.round(resetFrame.maxX))pt, outside the "
                     + "card content edge at \(Self.round(contentMaxX))pt"
             )
         }

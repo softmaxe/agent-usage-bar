@@ -184,7 +184,7 @@ private struct QuotaWindowRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 0) {
                 QuotaHeadline(
                     title: self.title,
                     percent: self.window.remainingPercent,
