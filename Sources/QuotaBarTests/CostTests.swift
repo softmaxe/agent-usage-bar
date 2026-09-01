@@ -9,6 +9,7 @@ enum CostTests {
     static func run() async {
         Self.pricingLookup()
         Self.normalization()
+        Self.modelBreakdownRanking()
         Self.longContextTiering()
         Self.overlayParsing()
         Self.catalogRefreshBackoff()
@@ -146,6 +147,39 @@ enum CostTests {
             "codex vendor prefix and dated suffix stripped"
         )
         Harness.expectEqual(CostPricing.normalizeCodexModel("gpt-5.6"), "gpt-5.6-sol", "sol alias applied")
+    }
+
+    private static func modelBreakdownRanking() {
+        let day = CostDay(
+            dayKey: "2026-09-02",
+            byModel: [
+                ModelUsageKey(source: .codex, model: "token-heavy"): ModelDayUsage(
+                    tokens: TokenTotals(input: 200),
+                    costUSD: 1
+                ),
+                ModelUsageKey(source: .codex, model: "cost-heavy"): ModelDayUsage(
+                    tokens: TokenTotals(input: 100),
+                    costUSD: 2
+                ),
+                ModelUsageKey(source: .codex, model: "unpriced"): ModelDayUsage(
+                    tokens: TokenTotals(input: 300),
+                    costUSD: nil
+                ),
+            ],
+            costUSD: 3,
+            unpricedTokens: 300
+        )
+
+        Harness.expectEqual(
+            day.rankedModels(by: .tokens).map(\.model),
+            ["unpriced", "token-heavy", "cost-heavy"],
+            "token labels rank the daily breakdown by tokens"
+        )
+        Harness.expectEqual(
+            day.rankedModels(by: .cost).map(\.model),
+            ["cost-heavy", "token-heavy", "unpriced"],
+            "cost labels rank the daily breakdown by cost"
+        )
     }
 
     private static func longContextTiering() {
