@@ -108,6 +108,29 @@ enum CostTests {
             "claude-3-5-haiku one-hour cache-write rate is derived"
         )
 
+        // The 5.1 pair is the one Anthropic family that breaks the 0.1x cache-read ratio, so
+        // its read rate is worth pinning rather than left to look like a typo.
+        let fable = CostPricing.pricing(for: "claude-fable-5-1-20260101", provider: .claude)
+        Harness.expectClose(fable?.input, 10, "claude-fable-5-1 input rate")
+        Harness.expectClose(fable?.output, 50, "claude-fable-5-1 output rate")
+        Harness.expectClose(fable?.cacheWrite, 12.5, "claude-fable-5-1 five-minute cache-write rate")
+        Harness.expectClose(fable?.cacheRead, 0.25, "claude-fable-5-1 cache-read rate is 0.025x input")
+        Harness.expectClose(
+            fable?.cacheWrite1hRate(longContext: false),
+            20,
+            "claude-fable-5-1 one-hour cache-write rate is derived"
+        )
+        Harness.expectClose(
+            CostPricing.pricing(for: "claude-mythos-5-1", provider: .claude)?.cacheRead,
+            0.25,
+            "claude-mythos-5-1 shares the 5.1 cache-read rate"
+        )
+        Harness.expectClose(
+            CostPricing.pricing(for: "claude-fable-5", provider: .claude)?.cacheRead,
+            1,
+            "claude-fable-5 keeps the standard 0.1x cache-read rate"
+        )
+
         // An unknown model must return nil rather than silently costing zero.
         Harness.expect(
             CostPricing.cost(
@@ -140,6 +163,11 @@ enum CostTests {
             CostPricing.normalizeClaudeModel("claude-3-5-haiku@20241022"),
             "claude-3-5-haiku",
             "Haiku 3.5 Vertex id normalized"
+        )
+        Harness.expectEqual(
+            CostPricing.normalizeClaudeModel("anthropic.claude-fable-5-1-v1:0"),
+            "claude-fable-5-1",
+            "a point-release id keeps its minor version"
         )
         Harness.expectEqual(
             CostPricing.normalizeCodexModel("openai/gpt-5.1-2026-01-01"),

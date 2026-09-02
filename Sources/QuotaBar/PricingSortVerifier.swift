@@ -76,6 +76,7 @@ enum PricingSortVerifier {
         // token usage for the default order.
         let whitelistModel = PricingEditorModel(costService: CostService())
         whitelistModel.debugSetRows([
+            Self.row("claude-fable-5-1", usageTokens: 5, input: "10", output: "50", cacheRead: "0.25"),
             Self.row("claude-fable-5", usageTokens: 10, input: "10", output: "50", cacheRead: "1"),
             Self.row("claude-opus-5", usageTokens: 900, input: "15", output: "75", cacheRead: "1.5"),
             Self.row("claude-sonnet-5", usageTokens: 20, input: "3", output: "15", cacheRead: "0.3"),
@@ -88,7 +89,10 @@ enum PricingSortVerifier {
             Self.row("other-heavy", usageTokens: 900, input: "", output: "", cacheRead: "", group: .others),
             Self.row("other-light", usageTokens: 10, input: "", output: "", cacheRead: "", group: .others),
         ])
-        let expectedClaude = ["claude-fable-5", "claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5", "claude-3-5-haiku"]
+        let expectedClaude = [
+            "claude-fable-5-1", "claude-fable-5", "claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5",
+            "claude-3-5-haiku",
+        ]
         let expectedCodex = ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "codex-mini-latest"]
         let expectedOthers = ["other-heavy", "other-light"]
         if whitelistModel.rows(in: .claude).map(\.model) != expectedClaude {

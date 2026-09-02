@@ -184,17 +184,21 @@ public enum CostPricing {
     ]
 
     /// Anthropic rates, USD per million tokens, checked against
-    /// https://platform.claude.com/docs/en/about-claude/pricing on 2026-08-26.
+    /// https://platform.claude.com/docs/en/about-claude/pricing on 2026-09-02.
     ///
     /// That page still states the family-wide ratios: a five-minute cache write is 1.25x the
-    /// base input rate, a one-hour write 2x, and a cache read 0.1x. The cache-write column below
-    /// is the five-minute rate; the one-hour rate stays derived from input rather than repeated
-    /// per model.
+    /// base input rate, a one-hour write 2x, and a cache read 0.1x, the last of which the 5.1
+    /// pair breaks at 0.025x. The cache-write column below is the five-minute rate; the one-hour
+    /// rate stays derived from input rather than repeated per model.
     ///
     /// No model on that page carries a long-context tier any more: 4.6 and later, and Mythos,
     /// bill their full 1M window at the standard rate, and Sonnet 4.5 is back to a 200K window
     /// priced flat.
     public static let claude: [String: ModelPricing] = [
+        // Fable 5.1 and Mythos 5.1 price a cache read at 0.025x input, not the 0.1x every other
+        // model bills, so the read rate here is a quarter of what the 5 pair below charges.
+        "claude-fable-5-1": ModelPricing(input: 10, output: 50, cacheWrite: 12.5, cacheRead: 0.25),
+        "claude-mythos-5-1": ModelPricing(input: 10, output: 50, cacheWrite: 12.5, cacheRead: 0.25),
         "claude-fable-5": ModelPricing(input: 10, output: 50, cacheWrite: 12.5, cacheRead: 1),
         "claude-mythos-5": ModelPricing(input: 10, output: 50, cacheWrite: 12.5, cacheRead: 1),
         "claude-opus-5": ModelPricing(input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5),
