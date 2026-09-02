@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     tags:
-      - 'v*.*.*'
+      - "v*.*.*"
 
 permissions:
   contents: read
@@ -19,10 +19,7 @@ jobs:
         include:
           - os: macos-15
             arch: arm64
-            skip_gpu_render_check: '0'
-          - os: macos-15-intel
-            arch: x86_64
-            skip_gpu_render_check: '1'
+            skip_gpu_render_check: "0"
     defaults:
       run:
         shell: bash
@@ -196,16 +193,14 @@ jobs:
           shopt -s nullglob
           zip_files=(dist/*.zip)
           checksum_files=(dist/*.zip.sha256)
-          if [[ "${#zip_files[@]}" -ne 2 || "${#checksum_files[@]}" -ne 2 ]]; then
-            echo "::error::Expected exactly two ZIP files and two checksum files in dist/."
+          if [[ "${#zip_files[@]}" -ne 1 || "${#checksum_files[@]}" -ne 1 ]]; then
+            echo "::error::Expected exactly one ZIP file and one checksum file in dist/."
             exit 1
           fi
 
           expected_files=(
             "dist/QuotaBar-${version}-macos-arm64.zip"
             "dist/QuotaBar-${version}-macos-arm64.zip.sha256"
-            "dist/QuotaBar-${version}-macos-x86_64.zip"
-            "dist/QuotaBar-${version}-macos-x86_64.zip.sha256"
           )
           for expected_file in "${expected_files[@]}"; do
             if [[ ! -f "${expected_file}" ]]; then
@@ -245,8 +240,6 @@ jobs:
           gh release create "${GITHUB_REF_NAME}" \
             "dist/QuotaBar-${VERSION}-macos-arm64.zip" \
             "dist/QuotaBar-${VERSION}-macos-arm64.zip.sha256" \
-            "dist/QuotaBar-${VERSION}-macos-x86_64.zip" \
-            "dist/QuotaBar-${VERSION}-macos-x86_64.zip.sha256" \
             --draft \
             --verify-tag \
             --generate-notes \
@@ -297,9 +290,8 @@ jobs:
           }
 
           sha_arm="$(get_sha "QuotaBar-${version}-macos-arm64.zip")"
-          sha_intel="$(get_sha "QuotaBar-${version}-macos-x86_64.zip")"
 
-          for v in sha_arm sha_intel; do
+          for v in sha_arm; do
             if [[ -z "${!v:-}" ]]; then
               echo "Missing SHA for $v" >&2
               exit 1
@@ -308,17 +300,26 @@ jobs:
 
           cask="$tmp_tap/Casks/quota-bar.rb"
 
-          python3 - "$cask" "$version" "$sha_arm" "$sha_intel" <<'PY'
+          python3 - "$cask" "$version" "$sha_arm" <<'PY'
           import pathlib, sys, re
           path = pathlib.Path(sys.argv[1])
-          version, sha_arm, sha_intel = sys.argv[2:5]
+          version, sha_arm = sys.argv[2:4]
           text = path.read_text()
           text = re.sub(r'version "[^"]+"', f'version "{version}"', text)
+          text = re.sub(r'  arch arm: "arm64", intel: "x86_64"\n\n', '', text)
           text = re.sub(
-              r'sha256 arm:\s*"[^"]+",\s*\n\s*intel:\s*"[^"]+"',
-              f'sha256 arm:   "{sha_arm}",\n         intel: "{sha_intel}"',
-              text
+              r'  sha256 arm:\s*"[^"]+",\n         intel: "[^"]+"|  sha256 "[^"]+"',
+              f'  sha256 "{sha_arm}"',
+              text,
+              count=1,
           )
+          text = text.replace('-macos-#{arch}.zip', '-macos-arm64.zip')
+          if 'depends_on arch: :arm64' not in text:
+              text = text.replace(
+                  '  depends_on macos:',
+                  '  depends_on arch: :arm64\n  depends_on macos:',
+                  1,
+              )
           path.write_text(text)
           print(path.read_text())
           PY
