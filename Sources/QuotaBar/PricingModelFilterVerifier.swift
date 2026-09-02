@@ -10,7 +10,10 @@ enum PricingModelFilterVerifier {
         var failures: [String] = []
 
         let codexWhitelist = ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "codex-mini-latest"]
-        let claudeWhitelist = ["claude-fable-5", "claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5", "claude-3-5-haiku"]
+        let claudeWhitelist = [
+            "claude-fable-5-1", "claude-fable-5", "claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5",
+            "claude-3-5-haiku",
+        ]
         self.expect(
             PricingGroup.whitelist(for: .codex) == codexWhitelist,
             "Codex whitelist changed",
