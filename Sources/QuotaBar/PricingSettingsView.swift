@@ -433,7 +433,7 @@ struct PricingSettingsView: View {
 
     private static func rate(_ value: Double?) -> String {
         guard let value else { return "—" }
-        return value == value.rounded() ? String(format: "%.0f", value) : String(format: "%g", value)
+        return PricingEditorModel.text(value)
     }
 
     private var footer: some View {

@@ -34,14 +34,6 @@ enum PiAgentLogScanner {
         enum CodingKeys: String, CodingKey { case openAICodex = "openai-codex" }
     }
 
-    private struct CodexAuth: Decodable {
-        let tokens: Tokens?
-        struct Tokens: Decodable {
-            let accountId: String?
-            enum CodingKeys: String, CodingKey { case accountId = "account_id" }
-        }
-    }
-
     private struct Row {
         let key: String
         let day: String
@@ -188,13 +180,12 @@ enum PiAgentLogScanner {
     private static func eligibility(agentDirectory: URL, env: [String: String]) -> Eligibility {
         do {
             let piData = try Data(contentsOf: agentDirectory.appendingPathComponent("auth.json"))
-            let codexData = try Data(contentsOf: CodexHome.url(env: env).appendingPathComponent("auth.json"))
             let pi = try JSONDecoder().decode(PiAuth.self, from: piData).openAICodex
-            let codex = try JSONDecoder().decode(CodexAuth.self, from: codexData).tokens
+            let codexAccountId = try CodexCredentialsStore.accountId(env: env)
             guard let pi else { return .indeterminate }
             guard pi.type?.lowercased() == "oauth" else { return .ineligible(.nonOAuth) }
             guard let left = pi.accountId?.trimmingCharacters(in: .whitespacesAndNewlines), !left.isEmpty,
-                  let right = codex?.accountId?.trimmingCharacters(in: .whitespacesAndNewlines), !right.isEmpty else {
+                  let right = codexAccountId, !right.isEmpty else {
                 return .indeterminate
             }
             return left == right ? .eligible : .ineligible(.accountMismatch)

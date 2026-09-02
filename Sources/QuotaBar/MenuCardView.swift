@@ -89,10 +89,10 @@ struct MenuCardView: View {
         VStack(alignment: .leading, spacing: 12) {
             if let snapshot = self.display.snapshot {
                 if let session = snapshot.session {
-                    self.window(title: "Session", window: session, kind: .session, context: .session)
+                    self.window(window: session, kind: .session)
                 }
                 if let weekly = snapshot.weekly {
-                    self.window(title: "Weekly", window: weekly, kind: .weekly, context: .weekly)
+                    self.window(window: weekly, kind: .weekly)
                 }
                 if snapshot.session == nil, snapshot.weekly == nil {
                     Text("No quota windows reported.")
@@ -102,7 +102,6 @@ struct MenuCardView: View {
 
                 if let cost = self.display.cost {
                     CostSectionView(
-                        provider: self.provider,
                         snapshot: cost,
                         labelMode: self.costChartLabelMode,
                         onLabelModeChanged: self.onCostChartLabelModeChanged
@@ -131,23 +130,22 @@ struct MenuCardView: View {
     }
 
     private func window(
-        title: String,
         window: UsageWindow,
-        kind: QuotaWindowKind,
-        context: UsagePace.Context
+        kind: QuotaWindowKind
     ) -> some View {
+        let presentation = kind.presentation
         // Past weeks describe the real shape of usage better than the clock does, but only once
         // enough of them are on record; until then this falls back to the linear model.
-        let pace = (context == .weekly
+        let pace = (presentation.paceContext == .weekly
             ? HistoricalUsagePace.evaluate(window: window, dataset: self.display.history)
             : nil)
-            ?? UsagePace.evaluate(window: window, context: context)
+            ?? UsagePace.evaluate(window: window, context: presentation.paceContext)
         return QuotaWindowRow(
             provider: self.provider,
-            title: title,
+            title: presentation.title,
             window: window,
             pace: pace,
-            paceLine: pace.map { Self.paceLine(for: $0, context: context) },
+            paceLine: pace.map { Self.paceLine(for: $0, context: presentation.paceContext) },
             animatesFill: self.animatesFill,
             celebrationToken: self.recoveries[kind] == nil ? 0 : self.celebrationTokens[kind] ?? 0,
             celebrationStartPercent: self.recoveries[kind]?.fromRemainingPercent,
@@ -158,6 +156,15 @@ struct MenuCardView: View {
                 self.onQuotaResetDisplayModeChanged(self.quotaResetDisplayMode.toggled)
             }
         )
+    }
+}
+
+private extension QuotaWindowKind {
+    var presentation: (title: String, paceContext: UsagePace.Context) {
+        switch self {
+        case .session: ("Session", .session)
+        case .weekly: ("Weekly", .weekly)
+        }
     }
 }
 

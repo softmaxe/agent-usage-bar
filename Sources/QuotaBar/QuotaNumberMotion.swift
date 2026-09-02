@@ -29,12 +29,6 @@ final class QuotaCelebrationRelay: ObservableObject {
 /// already runs — same easing, same landing beat, same decay — so the number arrives with the fill
 /// instead of announcing a second event of its own.
 enum QuotaNumberMotion {
-    /// The counted value. Literally the fill's own easing, so the digits and the head of the fill
-    /// are the same motion shown twice.
-    static func value(at time: TimeInterval, from start: Double, to target: Double) -> Double {
-        QuotaCelebration.fillPercent(at: time, from: start, to: target)
-    }
-
     /// A uniform read of the bar's damped sine. The bar can stretch 50% in height because it is a
     /// 6 pt pill; text at the same amplitude would read as a layout bug, so the same pulse drives
     /// a much smaller scale.

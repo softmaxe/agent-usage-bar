@@ -46,15 +46,9 @@ enum CostAggregator {
                 }
             }
 
-            let byModel = dayTokens.mapValues { tokens in
-                ModelDayUsage(tokens: tokens, costUSD: nil)
-            }
-            .merging(
-                dayCostByModel.map { key, cost in
-                    (key, ModelDayUsage(tokens: dayTokens[key] ?? TokenTotals(), costUSD: cost))
-                },
-                uniquingKeysWith: { _, priced in priced }
-            )
+            let byModel = Dictionary(uniqueKeysWithValues: dayTokens.map { key, tokens in
+                (key, ModelDayUsage(tokens: tokens, costUSD: dayCostByModel[key]))
+            })
 
             days.append(CostDay(
                 dayKey: dayKey,
@@ -66,7 +60,7 @@ enum CostAggregator {
 
         days.sort { $0.dayKey < $1.dayKey }
 
-        let todayKey = DayKey.make(from: now, calendar: calendar)
+        let todayKey = DayKey.today(calendar: calendar, now: now)
         let today = days.last { $0.dayKey == todayKey }
         let latest = days.last
 

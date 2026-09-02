@@ -58,20 +58,7 @@ public enum CodexCredentialsStore {
     public static func load(
         env: [String: String] = ProcessInfo.processInfo.environment
     ) throws -> CodexCredentials {
-        let url = self.authFileURL(env: env)
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            throw CodexCredentialsError.notFound
-        }
-        guard let data = try? Data(contentsOf: url) else {
-            throw CodexCredentialsError.unreadable
-        }
-
-        let payload: AuthFile
-        do {
-            payload = try JSONDecoder().decode(AuthFile.self, from: data)
-        } catch {
-            throw CodexCredentialsError.decodeFailed(String(describing: error))
-        }
+        let payload = try self.authFile(env: env)
 
         guard let tokens = payload.tokens,
               let accessToken = tokens.accessToken?.trimmed, !accessToken.isEmpty else {
@@ -82,11 +69,52 @@ public enum CodexCredentialsStore {
             accessToken: accessToken,
             refreshToken: tokens.refreshToken?.trimmed ?? "",
             accountId: tokens.accountId?.trimmed,
-            lastRefresh: payload.lastRefresh.flatMap(Self.parseDate)
+            lastRefresh: payload.lastRefresh.flatMap(ISO8601.parse)
         )
     }
 
-    private static func parseDate(_ raw: String) -> Date? { ISO8601.parse(raw) }
+    /// Reads only the account identity needed to match other local Codex clients. Unlike `load`,
+    /// this does not require an access token because usage eligibility depends only on account ID.
+    static func accountId(env: [String: String]) throws -> String? {
+        let data = try self.authData(env: env)
+        do {
+            return try JSONDecoder().decode(AccountAuthFile.self, from: data).tokens?.accountId?.trimmed
+        } catch {
+            throw CodexCredentialsError.decodeFailed(String(describing: error))
+        }
+    }
+
+    private static func authFile(env: [String: String]) throws -> AuthFile {
+        let data = try self.authData(env: env)
+        do {
+            return try JSONDecoder().decode(AuthFile.self, from: data)
+        } catch {
+            throw CodexCredentialsError.decodeFailed(String(describing: error))
+        }
+    }
+
+    private static func authData(env: [String: String]) throws -> Data {
+        let url = self.authFileURL(env: env)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            throw CodexCredentialsError.notFound
+        }
+        guard let data = try? Data(contentsOf: url) else {
+            throw CodexCredentialsError.unreadable
+        }
+        return data
+    }
+
+    private struct AccountAuthFile: Decodable {
+        let tokens: Tokens?
+
+        struct Tokens: Decodable {
+            let accountId: String?
+
+            enum CodingKeys: String, CodingKey {
+                case accountId = "account_id"
+            }
+        }
+    }
 
     private struct AuthFile: Decodable {
         let tokens: Tokens?

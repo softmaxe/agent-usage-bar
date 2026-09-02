@@ -196,21 +196,14 @@ public actor UsageHistoryStore {
                 value: min(max(sample.usedPercent, 0), 100)
             )
         }
+        let endValue = points.map(\.value).max() ?? 0
+        points.append((u: 0, value: 0))
+        points.append((u: 1, value: endValue))
         points.sort { $0.u == $1.u ? $0.value < $1.value : $0.u < $1.u }
 
         // Cumulative usage never decreases; a dip means a stale or reordered reading.
-        var monotone: [(u: Double, value: Double)] = []
+        var monotone = points
         var runningMax = 0.0
-        for point in points {
-            runningMax = max(runningMax, point.value)
-            monotone.append((u: point.u, value: runningMax))
-        }
-
-        let endValue = monotone.last?.value ?? 0
-        monotone.append((u: 0, value: 0))
-        monotone.append((u: 1, value: endValue))
-        monotone.sort { $0.u == $1.u ? $0.value < $1.value : $0.u < $1.u }
-        runningMax = 0
         for index in monotone.indices {
             runningMax = max(runningMax, monotone[index].value)
             monotone[index].value = runningMax

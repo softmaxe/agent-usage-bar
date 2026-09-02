@@ -101,7 +101,6 @@ enum CardDump {
 
         for (index, day) in cost.days.enumerated() {
             let hosting = NSHostingView(rootView: CostSectionView(
-                provider: provider,
                 snapshot: cost,
                 previewHoveredDayKey: day.dayKey,
                 previewTodayDayKey: today.dayKey
@@ -262,7 +261,6 @@ enum CardDump {
                   let hovered = cost.days.max(by: { ($0.costUSD ?? 0) < ($1.costUSD ?? 0) }) else { continue }
             for (name, hoveredDayKey) in [("today", nil), ("hover", hovered.dayKey)] {
                 let hosting = NSHostingView(rootView: CostSectionView(
-                    provider: provider,
                     snapshot: cost,
                     previewHoveredDayKey: hoveredDayKey,
                     previewTodayDayKey: today.dayKey

@@ -29,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 enum QuotaBarApp {
     @MainActor
     static func main() {
+#if DEBUG
         let arguments = CommandLine.arguments
 
         /// `--flag <value>...`: the `count` arguments after `flag`, when the caller passed that
@@ -41,7 +42,6 @@ enum QuotaBarApp {
             return Array(arguments[(index + 1)...(index + count)])
         }
 
-#if DEBUG
         // The assertion suite and the README asset dumps are launch flags rather than separate
         // executables, so none of this exists in a release build. Each entry owns the process
         // once its flag is present: the first match wins, and the order here is the order the

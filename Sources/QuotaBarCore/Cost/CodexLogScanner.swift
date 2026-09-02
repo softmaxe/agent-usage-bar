@@ -156,7 +156,7 @@ enum CodexLogScanner {
         guard totals.total > 0 else { return }
 
         guard let timestamp = root["timestamp"] as? String,
-              let date = ClaudeLogScanner.parseTimestamp(timestamp) else { return }
+              let date = ISO8601.parse(timestamp) else { return }
 
         // Older rollouts predate turn_context; count their tokens but leave them unpriced.
         let model = state.model ?? CostPricing.unknownModel

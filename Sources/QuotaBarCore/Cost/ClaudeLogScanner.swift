@@ -112,7 +112,7 @@ enum ClaudeLogScanner {
         guard totals.total > 0 else { return }
 
         guard let timestamp = root["timestamp"] as? String,
-              let date = Self.parseTimestamp(timestamp) else { return }
+              let date = ISO8601.parse(timestamp) else { return }
 
         // The same assistant message is replayed into resumed and forked transcripts, so identity
         // comes from the message id paired with the request that produced it.
@@ -150,6 +150,4 @@ enum ClaudeLogScanner {
             )
         )
     }
-
-    static func parseTimestamp(_ raw: String) -> Date? { ISO8601.parse(raw) }
 }

@@ -38,14 +38,14 @@ final class QuotaRecoveryTracker {
         "quota.rollover.\(provider.rawValue).\(kind.rawValue).\(field.rawValue)"
     }
 
-    func observe(provider: Provider, snapshot: UsageSnapshot) {
+    func observe(snapshot: UsageSnapshot) {
         // The reading's own timestamp, not the clock: a window that had already reset when the
         // response was built must be read against the time it was built.
         if let session = snapshot.session {
-            self.observe(provider: provider, kind: .session, window: session, now: snapshot.fetchedAt)
+            self.observe(provider: snapshot.provider, kind: .session, window: session, now: snapshot.fetchedAt)
         }
         if let weekly = snapshot.weekly {
-            self.observe(provider: provider, kind: .weekly, window: weekly, now: snapshot.fetchedAt)
+            self.observe(provider: snapshot.provider, kind: .weekly, window: weekly, now: snapshot.fetchedAt)
         }
     }
 

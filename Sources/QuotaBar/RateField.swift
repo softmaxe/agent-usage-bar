@@ -10,21 +10,13 @@ enum RateFieldFocusMotion {
     static let curve = (0.16, 1.0, 0.3, 1.0)
 
     static func animation(speed: Double = 1, reduceMotion: Bool) -> Animation? {
-        self.animation(duration: Self.duration, speed: speed, reduceMotion: reduceMotion)
-    }
-
-    static func animation(
-        duration: TimeInterval,
-        speed: Double,
-        reduceMotion: Bool
-    ) -> Animation? {
         guard !reduceMotion else { return nil }
         return .timingCurve(
             Self.curve.0,
             Self.curve.1,
             Self.curve.2,
             Self.curve.3,
-            duration: duration / max(0.01, speed)
+            duration: Self.duration / max(0.01, speed)
         )
     }
 }
