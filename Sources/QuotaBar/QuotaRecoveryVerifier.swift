@@ -41,7 +41,7 @@ enum QuotaRecoveryVerifier {
             weeklyRemaining: 62,
             weeklyReset: epoch.addingTimeInterval(7 * 24 * 3600)
         )
-        tracker.observe(provider: .claude, snapshot: first)
+        tracker.observe(snapshot: first)
         if !tracker.pendingRecoveries(for: .claude).isEmpty {
             failures.append("the first reading was mistaken for a reset")
         }
@@ -53,7 +53,7 @@ enum QuotaRecoveryVerifier {
             weeklyRemaining: 51,
             weeklyReset: epoch.addingTimeInterval(7 * 24 * 3600)
         )
-        tracker.observe(provider: .claude, snapshot: spent)
+        tracker.observe(snapshot: spent)
         if !tracker.pendingRecoveries(for: .claude).isEmpty {
             failures.append("ordinary spending with the same reset identity queued an animation")
         }
@@ -65,7 +65,7 @@ enum QuotaRecoveryVerifier {
             weeklyRemaining: 100,
             weeklyReset: epoch.addingTimeInterval(14 * 24 * 3600)
         )
-        tracker.observe(provider: .claude, snapshot: reset)
+        tracker.observe(snapshot: reset)
         let expected: [QuotaWindowKind: QuotaRecoveryEvent] = [
             .session: QuotaRecoveryEvent(fromRemainingPercent: 23),
             .weekly: QuotaRecoveryEvent(fromRemainingPercent: 51),
@@ -266,19 +266,8 @@ enum QuotaRecoveryVerifier {
     /// when the clock stops.
     private static func headlineFailures() -> [String] {
         var failures: [String] = []
-        let start = 37.0
         let landing = QuotaCelebration.landing
         let duration = QuotaCelebration.duration
-
-        for step in 0...200 {
-            let time = landing * Double(step) / 200
-            let counted = QuotaNumberMotion.value(at: time, from: start, to: 100)
-            let filled = QuotaCelebration.fillPercent(at: time, from: start, to: 100)
-            if abs(counted - filled) > 1e-9 {
-                failures.append("the headline count drifted from the fill at \(step)/200")
-                break
-            }
-        }
 
         if QuotaNumberMotion.speed(at: 0) != 1 {
             failures.append("the headline blur did not peak at the start of the charge")

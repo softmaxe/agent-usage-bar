@@ -277,8 +277,7 @@ public enum CostPricing {
         return provider == .codex ? Self.codex[name] : Self.claude[name]
     }
 
-    /// Whether one request's tokens cross the model's long-context threshold.
-    /// Codex measures total input; Claude measures input plus both cache buckets.
+    /// Whether one request's input and cache tokens cross the model's long-context threshold.
     public static func isLongContext(
         totals: TokenTotals,
         model: String,
@@ -293,10 +292,7 @@ public enum CostPricing {
             codexServiceTier: codexServiceTier
         )?
             .thresholdTokens else { return false }
-        let measured = switch provider {
-        case .codex: totals.input + totals.cacheRead + totals.cacheWrite
-        case .claude: totals.input + totals.cacheRead + totals.cacheWrite
-        }
+        let measured = totals.input + totals.cacheRead + totals.cacheWrite
         return measured > threshold
     }
 

@@ -4,7 +4,6 @@ import SwiftUI
 /// The cost half of the popover: a KPI grid, the per-day bar chart, the top model, and the
 /// estimate disclaimer.
 struct CostSectionView: View {
-    let provider: Provider
     let snapshot: CostSnapshot
 
     /// The chart stays readable at card width; older days fall off the left.
@@ -37,14 +36,12 @@ struct CostSectionView: View {
 
     /// Seeds the hover state so `--dump-card` can capture what hovering looks like.
     init(
-        provider: Provider,
         snapshot: CostSnapshot,
         previewHoveredDayKey: String? = nil,
         previewTodayDayKey: String? = nil,
         labelMode: CostChartLabelMode = .tokens,
         onLabelModeChanged: @escaping (CostChartLabelMode) -> Void = { _ in }
     ) {
-        self.provider = provider
         self.snapshot = snapshot
         self._hoveredDayKey = State(initialValue: previewHoveredDayKey)
         self._selectedLabelMode = State(initialValue: labelMode)
@@ -99,7 +96,7 @@ struct CostSectionView: View {
 
     /// Codex labels the window plainly; Claude spells out that the figure is a cost.
     private var windowCostLabel: String {
-        self.provider == .codex ? "30d" : "30d cost"
+        self.snapshot.provider == .codex ? "30d" : "30d cost"
     }
 
     private func kpi(label: String, value: String) -> some View {
@@ -142,7 +139,7 @@ struct CostSectionView: View {
         )
         let isSelected = day.dayKey == selectedDayKey
         return RoundedRectangle(cornerRadius: 2)
-            .fill(Theme.accent(for: self.provider))
+            .fill(Theme.accent(for: self.snapshot.provider))
             // Opacity as a modifier rather than folded into the fill, so the tone change is a
             // plain animatable value.
             .opacity(opacity)
@@ -243,9 +240,9 @@ struct CostSectionView: View {
         HStack(spacing: 6) {
             // Each row fades a step further, so rank reads without numbering.
             Rectangle()
-                .fill(Theme.accent(for: self.provider).opacity(max(0.3, 0.75 - Double(index) * 0.12)))
+                .fill(Theme.accent(for: self.snapshot.provider).opacity(max(0.3, 0.75 - Double(index) * 0.12)))
                 .frame(width: 2, height: 10)
-            Text(self.provider == .codex ? "\(source.displayName) · \(model)" : model)
+            Text(self.snapshot.provider == .codex ? "\(source.displayName) · \(model)" : model)
                 .font(.system(size: 10))
                 .lineLimit(1)
                 .truncationMode(.middle)

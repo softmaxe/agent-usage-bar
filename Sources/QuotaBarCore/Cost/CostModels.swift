@@ -178,14 +178,14 @@ public struct CostSnapshot: Sendable, Equatable {
     }
 }
 
-enum DayKey {
+package enum DayKey {
     /// Days bucket by the local calendar, so "today" matches what the user's clock says.
-    static func make(from date: Date, calendar: Calendar = .current) -> String {
+    package static func make(from date: Date, calendar: Calendar = .current) -> String {
         let components = calendar.dateComponents([.year, .month, .day], from: date)
         return String(format: "%04d-%02d-%02d", components.year ?? 0, components.month ?? 0, components.day ?? 0)
     }
 
-    static func today(calendar: Calendar = .current, now: Date = Date()) -> String {
+    package static func today(calendar: Calendar = .current, now: Date = Date()) -> String {
         self.make(from: now, calendar: calendar)
     }
 }

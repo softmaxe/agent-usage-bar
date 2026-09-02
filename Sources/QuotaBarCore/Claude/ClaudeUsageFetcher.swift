@@ -33,12 +33,10 @@ public struct ClaudeUsageResponse: Decodable, Sendable {
         public var window: UsageWindow {
             UsageWindow(
                 usedPercent: self.utilization ?? 0,
-                resetsAt: self.resetsAt.flatMap(Self.parseDate),
+                resetsAt: self.resetsAt.flatMap(ISO8601.parse),
                 windowSeconds: nil
             )
         }
-
-        static func parseDate(_ raw: String) -> Date? { ISO8601.parse(raw) }
     }
 }
 

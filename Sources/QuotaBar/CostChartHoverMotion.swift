@@ -39,22 +39,11 @@ enum CostChartHoverMotion {
         timeScale: Double = 1
     ) -> Animation? {
         guard !reduceMotion else { return nil }
-        return returningToToday
-            ? Self.returnAnimation(timeScale: timeScale)
-            : Self.hoverAnimation(timeScale: timeScale)
-    }
-
-    static func hoverAnimation(timeScale: Double = 1) -> Animation {
-        .spring(
-            response: Self.scaled(Self.hoverResponse, timeScale: timeScale),
-            dampingFraction: Self.hoverDamping
-        )
-    }
-
-    static func returnAnimation(timeScale: Double = 1) -> Animation {
-        .spring(
-            response: Self.scaled(Self.returnResponse, timeScale: timeScale),
-            dampingFraction: Self.returnDamping
+        let response = returningToToday ? Self.returnResponse : Self.hoverResponse
+        let damping = returningToToday ? Self.returnDamping : Self.hoverDamping
+        return .spring(
+            response: Self.scaled(response, timeScale: timeScale),
+            dampingFraction: damping
         )
     }
 

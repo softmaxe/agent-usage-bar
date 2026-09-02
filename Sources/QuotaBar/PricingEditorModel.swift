@@ -220,10 +220,8 @@ final class PricingEditorModel: ObservableObject {
 
             for name in names {
                 let fallbackPricing = CostPricing.pricing(for: name, provider: provider, overlay: fallback)
-                defaults["\(provider.rawValue)|\(name)"] = fallbackPricing
-
                 let effective = CostPricing.pricing(for: name, provider: provider, overlay: overlay)
-                built.append(PricingRow(
+                let row = PricingRow(
                     provider: provider,
                     group: PricingGroup.classify(model: name),
                     model: name,
@@ -241,7 +239,9 @@ final class PricingEditorModel: ObservableObject {
                     cacheWriteAbove: Self.text(effective?.cacheWriteAbove),
                     cacheWrite1hAbove: Self.text(effective?.cacheWrite1hAbove),
                     cacheReadAbove: Self.text(effective?.cacheReadAbove)
-                ))
+                )
+                defaults[row.id] = fallbackPricing
+                built.append(row)
             }
         }
 
@@ -411,7 +411,7 @@ final class PricingEditorModel: ObservableObject {
         return Double(trimmed.replacingOccurrences(of: ",", with: ""))
     }
 
-    private static func text(_ value: Double?) -> String {
+    static func text(_ value: Double?) -> String {
         guard let value else { return "" }
         // Rates go to four decimals: cache reads run as low as $0.005 per million.
         return value == value.rounded()

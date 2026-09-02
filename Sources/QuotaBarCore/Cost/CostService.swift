@@ -68,12 +68,7 @@ public actor CostService {
 
     /// Models seen in local logs with their cumulative token totals, most-used first.
     public func knownModelUsage(provider: Provider) -> [ModelUsageTotal] {
-        guard let cache = try? self.openCache(),
-              let models = try? cache.distinctModelUsage(provider: provider) else { return [] }
-        return models.compactMap { entry in
-            guard entry.model != CostPricing.unknownModel else { return nil }
-            return ModelUsageTotal(model: entry.model, tokens: entry.tokens)
-        }
+        CostUsageReader.knownModelUsage(provider: provider, databaseURL: self.databaseURL)
     }
 
     public func currentOpenCodeScanStatus() -> OpenCodeScanStatus {

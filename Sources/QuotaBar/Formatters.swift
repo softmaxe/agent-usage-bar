@@ -1,3 +1,4 @@
+import QuotaBarCore
 import Foundation
 
 enum Formatters {
@@ -76,11 +77,7 @@ enum Formatters {
 
     /// "2026-08-24" — the key a `CostDay` is filed under.
     static func dayKey(for date: Date, calendar: Calendar = .current) -> String {
-        let components = calendar.dateComponents([.year, .month, .day], from: date)
-        guard let year = components.year, let month = components.month, let day = components.day else {
-            return ""
-        }
-        return String(format: "%04d-%02d-%02d", year, month, day)
+        DayKey.make(from: date, calendar: calendar)
     }
 
     /// "2026-08-24" -> "Aug 24".

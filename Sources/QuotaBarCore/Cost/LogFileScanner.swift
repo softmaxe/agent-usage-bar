@@ -34,21 +34,22 @@ enum LogFileScanner {
         // Hashing the newly appended bytes would make every append look like an in-place rewrite.
         let priorPrefixBytes = min(Int64(Self.prefixDigestBytes), previous.size)
         let priorPrefixDigest = try self.prefixDigest(of: url, byteCount: priorPrefixBytes)
+        let currentPrefixBytes = min(Int64(Self.prefixDigestBytes), size)
+        let currentPrefixDigest = currentPrefixBytes == priorPrefixBytes
+            ? priorPrefixDigest
+            : try self.prefixDigest(of: url, byteCount: currentPrefixBytes)
         guard previous.inode == inode,
               previous.prefixDigest == priorPrefixDigest,
               size >= previous.size else {
-            let digest = try self.prefixDigest(of: url, byteCount: min(Int64(Self.prefixDigestBytes), size))
             return ScanPlan(
-                cursor: FileCursor(inode: inode, size: size, offset: 0, prefixDigest: digest),
+                cursor: FileCursor(inode: inode, size: size, offset: 0, prefixDigest: currentPrefixDigest),
                 requiresFullReparse: true
             )
         }
 
         // Refresh the stored digest when a small file grows, especially when it crosses 64KB.
-        let digest = try self.prefixDigest(of: url, byteCount: min(Int64(Self.prefixDigestBytes), size))
-
         return ScanPlan(
-            cursor: FileCursor(inode: inode, size: size, offset: previous.offset, prefixDigest: digest),
+            cursor: FileCursor(inode: inode, size: size, offset: previous.offset, prefixDigest: currentPrefixDigest),
             requiresFullReparse: false
         )
     }

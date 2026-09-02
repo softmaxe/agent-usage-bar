@@ -38,18 +38,6 @@ enum OpenCodeLogScanner {
         }
     }
 
-    private struct CodexAuthFile: Decodable {
-        let tokens: Tokens?
-
-        struct Tokens: Decodable {
-            let accountId: String?
-
-            enum CodingKeys: String, CodingKey {
-                case accountId = "account_id"
-            }
-        }
-    }
-
     private struct Row {
         let key: String
         let day: String
@@ -160,13 +148,12 @@ enum OpenCodeLogScanner {
     private static func eligibility(dataDirectory: URL, env: [String: String]) -> Eligibility {
         do {
             let openCodeData = try Data(contentsOf: dataDirectory.appendingPathComponent("auth.json"))
-            let codexData = try Data(contentsOf: CodexHome.url(env: env).appendingPathComponent("auth.json"))
             let openCode = try JSONDecoder().decode(AuthFile.self, from: openCodeData).openai
-            let codex = try JSONDecoder().decode(CodexAuthFile.self, from: codexData).tokens
+            let codexAccountId = try CodexCredentialsStore.accountId(env: env)
             guard let openCode else { return .indeterminate }
             guard openCode.type?.lowercased() == "oauth" else { return .ineligible(.nonOAuth) }
             guard let left = openCode.accountId?.trimmingCharacters(in: .whitespacesAndNewlines), !left.isEmpty,
-                  let right = codex?.accountId?.trimmingCharacters(in: .whitespacesAndNewlines), !right.isEmpty else {
+                  let right = codexAccountId, !right.isEmpty else {
                 return .indeterminate
             }
             return left == right ? .eligible : .ineligible(.accountMismatch)

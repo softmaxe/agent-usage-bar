@@ -233,7 +233,7 @@ final class UsageStore: ObservableObject {
             display.canAttemptCredentialRecovery = false
             // Every reading of this provider, not just the ones the card is looking at: a window
             // that runs dry has to be noticed even when the menu has not been opened in hours.
-            self.recovery.observe(provider: provider, snapshot: snapshot)
+            self.recovery.observe(snapshot: snapshot)
         }
         self.displays[provider] = display
     }
