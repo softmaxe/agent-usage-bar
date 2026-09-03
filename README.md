@@ -11,9 +11,11 @@
 
 A macOS menu bar app for checking Codex and Claude quota, reset times, local token usage, and estimated cost.
 
-<img src="docs/images/hero.png" width="620" alt="Claude and Codex quota cards">
+<p align="center">
+  <img src="docs/images/hero.png" width="620" alt="Claude and Codex quota cards">
+</p>
 
-QuotaBar is a focused rebuild of [CodexBar](https://github.com/steipete/CodexBar). It supports Codex and Claude in one menu bar item.
+QuotaBar supports Codex and Claude in one menu bar item. It is a rebuild of [CodexBar](https://github.com/steipete/CodexBar).
 
 ## Features
 
@@ -25,11 +27,15 @@ QuotaBar is a focused rebuild of [CodexBar](https://github.com/steipete/CodexBar
 - Keeps the last good quota reading when a refresh fails.
 - Disables motion when macOS Reduce Motion is enabled.
 
-<img src="docs/images/menu-bar-icons.png" width="440" alt="Menu bar icon states from full quota to stale data">
+<p align="center">
+  <img src="docs/images/menu-bar-icons.png" width="440" alt="Menu bar icon states from full quota to stale data">
+</p>
 
 ## Install
 
-QuotaBar requires macOS 14 or later. You need Codex CLI, Claude Code, or both, signed in on the same Mac. Prebuilt releases do not require Xcode or Swift.
+QuotaBar requires macOS 14 or later. The Homebrew cask and release ZIP currently support Apple Silicon only. Prebuilt releases do not require Xcode or Swift.
+
+Quota tracking uses OAuth credentials created by Codex CLI, Claude Code, or both on the same Mac. API-key-only sessions are not supported.
 
 ### Homebrew
 
@@ -52,17 +58,12 @@ brew uninstall --zap --cask quota-bar
 
 ### Manual download
 
-Download the ZIP for your Mac from [GitHub Releases](https://github.com/softmaxe/quota-bar/releases), unzip it, and move `QuotaBar.app` to `/Applications`.
-
-| Mac | Download |
-| --- | --- |
-| Apple Silicon, M1 or later | `arm64` ZIP |
-| Intel | `x86_64` ZIP |
+Download the `arm64` ZIP from [GitHub Releases](https://github.com/softmaxe/quota-bar/releases), unzip it, and move `QuotaBar.app` to `/Applications`.
 
 Each ZIP has a matching `.sha256` file. Verify it before unzipping:
 
 ```bash
-shasum -a 256 -c QuotaBar-1.2.3-macos-arm64.zip.sha256
+shasum -a 256 -c QuotaBar-*-macos-arm64.zip.sha256
 ```
 
 Releases are ad hoc signed, not notarized with an Apple Developer ID. If macOS blocks the first launch, try opening the app once, then go to **System Settings → Privacy & Security** and choose **Open Anyway**. As a fallback, after confirming the app is in `/Applications`, remove quarantine from this app only:
@@ -73,7 +74,7 @@ xattr -dr com.apple.quarantine /Applications/QuotaBar.app
 
 ## First launch
 
-QuotaBar reuses credentials created by the official CLIs. It has no separate login flow.
+QuotaBar reuses OAuth credentials created by the official CLIs. It has no separate login flow. Sign in through each CLI you want to track:
 
 ```bash
 codex login
@@ -98,7 +99,9 @@ Background refresh can be manual or every 1, 2, 5, 15, or 30 minutes. The defaul
 
 When a session or weekly window resets, the next open plays a short reset animation. The last reading and pending animation survive an app restart.
 
-<img src="docs/images/quota-reset.gif" width="560" alt="A quota bar animating from its previous reading to a reset quota">
+<p align="center">
+  <img src="docs/images/quota-reset.gif" width="560" alt="A quota bar animating from its previous reading to a reset quota">
+</p>
 
 ## How cost tracking works
 
@@ -108,7 +111,7 @@ Hover a day in the chart to see its model breakdown. Click the highlighted day t
 
 | Source | Local data |
 | --- | --- |
-| Codex | `~/.codex/sessions`, `~/.codex/archived_sessions` |
+| Codex | `$CODEX_HOME/sessions` and `$CODEX_HOME/archived_sessions`, or the same paths under `~/.codex` |
 | Claude | `$CLAUDE_CONFIG_DIR/projects`, or `~/.claude/projects` and `~/.config/claude/projects` |
 | OpenCode | `$OPENCODE_DATA_HOME/opencode.db`, `$XDG_DATA_HOME/opencode/opencode.db`, or `~/.local/share/opencode/opencode.db` |
 | Pi Agent | `$PI_CODING_AGENT_SESSION_DIR`, `$PI_CODING_AGENT_DIR/sessions`, or `~/.pi/agent/sessions` |
@@ -119,13 +122,15 @@ Pi Agent data follows the same rule. Only `openai-codex` assistant usage from a 
 
 The first scan of a large history may take time. Scanned rows are cached in SQLite; Codex and Claude resume from the last byte read, while OpenCode and Pi Agent deduplicate records by stable IDs. The pricing catalog is cached for 24 hours. Manual rate changes apply to new usage only, so past totals keep the prices used when they were scanned.
 
-<img src="docs/images/settings-pricing.png" width="620" alt="Pricing settings with editable model rates">
+<p align="center">
+  <img src="docs/images/settings-pricing.png" width="620" alt="Pricing settings with editable model rates">
+</p>
 
 Cost totals are estimates. Provider billing rules, cache accounting, and price changes can make them differ from an invoice.
 
 ## Privacy and network access
 
-QuotaBar reads CLI credentials and usage logs but does not write to CLI credential stores. It reads token, model, time, and usage metadata. It does not read prompt, response, or reasoning text.
+QuotaBar reads CLI credentials and parses local session records, but it does not write to CLI credential stores. It uses timestamps, model names, token counts, stable record IDs, and the account IDs needed to match OAuth sessions. Prompt, response, and reasoning fields are discarded rather than stored in QuotaBar's cache or uploaded.
 
 The app stores its own data here:
 
@@ -134,9 +139,10 @@ The app stores its own data here:
 ~/Library/Application Support/QuotaBar/pricing-overrides.json
 ~/Library/Caches/QuotaBar/cost-usage/cost-usage.sqlite
 ~/Library/Caches/QuotaBar/model-pricing/
+~/Library/Preferences/com.quotabar.app.plist
 ```
 
-It contacts the OpenAI Codex usage and token-refresh endpoints, the Anthropic OAuth usage endpoint, and `models.dev` for model pricing.
+Codex quota requests use the `chatgpt_base_url` in `$CODEX_HOME/config.toml`, if set, or the default ChatGPT endpoint. QuotaBar also contacts `auth.openai.com` to refresh Codex tokens, `api.anthropic.com` for Claude quota, and `models.dev` for model pricing. It does not send local session records to these services.
 
 ## Build and develop
 
@@ -156,7 +162,7 @@ make build          # Build the debug binary
 make run            # Build and run in the foreground
 make test           # Run assertions and animation verifiers
 make probe          # Check both provider integrations
-make probe-cost     # Rescan local logs without credentials or network
+make probe-cost     # Rescan local logs; may refresh model prices
 make logs           # Stream logs for com.quotabar.app
 make readme-assets  # Rebuild README images; requires ffmpeg
 make clean
@@ -164,7 +170,7 @@ make clean
 
 `make probe` prints account and usage metadata. Review its output before sharing it.
 
-To create a test package, run **Build and Release** from the repository's **Actions** tab. To publish a release, push a tag matching `vMAJOR.MINOR.PATCH`. The workflow tests and packages separate `arm64` and `x86_64` ZIPs, then creates the GitHub Release.
+To create a test package, run **Build and Release** from the repository's **Actions** tab. To publish a release, push a tag matching `vMAJOR.MINOR.PATCH`. The workflow tests and packages an `arm64` ZIP, then creates the GitHub Release.
 
 ## Troubleshooting
 
@@ -178,7 +184,7 @@ To create a test package, run **Build and Release** from the repository's **Acti
 
 ## Limitations
 
-- Release ZIPs are architecture-specific, ad hoc signed, and not notarized.
+- Prebuilt releases and the Homebrew cask support Apple Silicon only. Release ZIPs are ad hoc signed and not notarized.
 - Claude credential recovery runs only after a manual `Refresh` and may still require opening Claude Code for interactive sign-in.
 - Cost figures come from local logs and are not billing statements.
 - OpenCode does not save the authentication method for each historical request. QuotaBar cannot reconstruct an OAuth to API key to OAuth switch that happened while it was not running.

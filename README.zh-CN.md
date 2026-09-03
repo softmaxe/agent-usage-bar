@@ -11,9 +11,11 @@
 
 一个 macOS 菜单栏应用，用来查看 Codex 和 Claude 的剩余额度、重置时间、本地 token 用量与预估成本。
 
-<img src="docs/images/hero.png" width="620" alt="Claude 和 Codex 额度卡片">
+<p align="center">
+  <img src="docs/images/hero.png" width="620" alt="Claude 和 Codex 额度卡片">
+</p>
 
-QuotaBar 是 [CodexBar](https://github.com/steipete/CodexBar) 的精简重写版，只支持 Codex 和 Claude，并将两者放在同一个菜单栏图标中。
+QuotaBar 将 Codex 和 Claude 放在同一个菜单栏图标中。项目基于 [CodexBar](https://github.com/steipete/CodexBar) 重写。
 
 ## 功能
 
@@ -25,11 +27,15 @@ QuotaBar 是 [CodexBar](https://github.com/steipete/CodexBar) 的精简重写版
 - 刷新失败时保留最后一次有效的额度数据。
 - 跟随 macOS 的 **减弱动态效果** 设置。
 
-<img src="docs/images/menu-bar-icons.png" width="440" alt="从额度充足到数据过期的菜单栏图标状态">
+<p align="center">
+  <img src="docs/images/menu-bar-icons.png" width="440" alt="从额度充足到数据过期的菜单栏图标状态">
+</p>
 
 ## 安装
 
-QuotaBar 要求 macOS 14 或更高版本。同一台 Mac 上需要登录 Codex CLI、Claude Code，或其中一个。安装预编译版本不需要 Xcode 或 Swift。
+QuotaBar 要求 macOS 14 或更高版本。目前 Homebrew cask 和 Release ZIP 仅支持 Apple Silicon。安装预编译版本不需要 Xcode 或 Swift。
+
+额度统计使用同一台 Mac 上由 Codex CLI、Claude Code 或两者创建的 OAuth 凭据，不支持仅使用 API key 的会话。
 
 ### Homebrew
 
@@ -52,17 +58,12 @@ brew uninstall --zap --cask quota-bar
 
 ### 手动下载
 
-从 [GitHub Releases](https://github.com/softmaxe/quota-bar/releases) 下载对应的 ZIP，解压后将 `QuotaBar.app` 移到 `/Applications`。
-
-| Mac | 下载文件 |
-| --- | --- |
-| Apple Silicon，M1 或更新型号 | `arm64` ZIP |
-| Intel | `x86_64` ZIP |
+从 [GitHub Releases](https://github.com/softmaxe/quota-bar/releases) 下载 `arm64` ZIP，解压后将 `QuotaBar.app` 移到 `/Applications`。
 
 每个 ZIP 都有对应的 `.sha256` 文件。解压前可以校验：
 
 ```bash
-shasum -a 256 -c QuotaBar-1.2.3-macos-arm64.zip.sha256
+shasum -a 256 -c QuotaBar-*-macos-arm64.zip.sha256
 ```
 
 发布包使用 ad hoc 签名，没有 Apple Developer ID 公证。若 macOS 首次启动时阻止打开，请先尝试打开一次，再前往 **系统设置 → 隐私与安全性**，选择 **仍要打开**。也可以在确认应用位于 `/Applications` 后，只移除这个应用的 quarantine attribute：
@@ -73,7 +74,7 @@ xattr -dr com.apple.quarantine /Applications/QuotaBar.app
 
 ## 首次使用
 
-QuotaBar 复用官方 CLI 创建的凭据，没有单独的登录流程。
+QuotaBar 复用官方 CLI 创建的 OAuth 凭据，没有单独的登录流程。请通过需要统计的 CLI 登录：
 
 ```bash
 codex login
@@ -98,7 +99,9 @@ QuotaBar 会比较用量与已过时间。记录满三个可比较的每周窗�
 
 会话或每周窗口重置后，下次打开卡片时会播放一段短动画。最后读数和尚未播放的动画会在重启后保留。
 
-<img src="docs/images/quota-reset.gif" width="560" alt="额度条从上次读数变化到重置后额度">
+<p align="center">
+  <img src="docs/images/quota-reset.gif" width="560" alt="额度条从上次读数变化到重置后额度">
+</p>
 
 ## 成本统计方式
 
@@ -108,7 +111,7 @@ QuotaBar 从本地会话数据计算 token 和成本，不使用计费 API。
 
 | 来源 | 本地数据 |
 | --- | --- |
-| Codex | `~/.codex/sessions`、`~/.codex/archived_sessions` |
+| Codex | `$CODEX_HOME/sessions` 和 `$CODEX_HOME/archived_sessions`；未设置时使用 `~/.codex` 下的同名目录 |
 | Claude | `$CLAUDE_CONFIG_DIR/projects`，或 `~/.claude/projects` 和 `~/.config/claude/projects` |
 | OpenCode | `$OPENCODE_DATA_HOME/opencode.db`、`$XDG_DATA_HOME/opencode/opencode.db`，或 `~/.local/share/opencode/opencode.db` |
 | Pi Agent | `$PI_CODING_AGENT_SESSION_DIR`、`$PI_CODING_AGENT_DIR/sessions`，或 `~/.pi/agent/sessions` |
@@ -119,13 +122,15 @@ Pi Agent 遵循同样的规则。只有匹配 OAuth 账号的 `openai-codex` ass
 
 大量历史数据的首次扫描可能较慢。扫描结果会缓存在 SQLite 中：Codex 和 Claude 从上次读取的位置继续，OpenCode 和 Pi Agent 通过稳定 ID 去重。价格目录缓存 24 小时。手动费率只影响新用量，历史数据保留扫描时的价格。
 
-<img src="docs/images/settings-pricing.png" width="620" alt="可编辑模型费率的价格设置">
+<p align="center">
+  <img src="docs/images/settings-pricing.png" width="620" alt="可编辑模型费率的价格设置">
+</p>
 
 成本是估算值。供应商计费规则、缓存计算方式和价格变化，都可能让结果与账单不同。
 
 ## 隐私与网络
 
-QuotaBar 会读取 CLI 凭据和用量日志，但不会写入 CLI 的凭据存储。它只读取 token、模型、时间和用量元数据，不读取 prompt、回复或 reasoning 正文。
+QuotaBar 会读取 CLI 凭据并解析本地会话记录，但不会写入 CLI 的凭据存储。统计会使用时间、模型、token 数量、稳定记录 ID，以及匹配 OAuth 会话所需的账号 ID。prompt、回复和 reasoning 字段会被丢弃，不会写入 QuotaBar 缓存或上传。
 
 应用自己的数据保存在：
 
@@ -134,9 +139,10 @@ QuotaBar 会读取 CLI 凭据和用量日志，但不会写入 CLI 的凭据存�
 ~/Library/Application Support/QuotaBar/pricing-overrides.json
 ~/Library/Caches/QuotaBar/cost-usage/cost-usage.sqlite
 ~/Library/Caches/QuotaBar/model-pricing/
+~/Library/Preferences/com.quotabar.app.plist
 ```
 
-应用会请求 OpenAI Codex 用量和 token refresh 接口、Anthropic OAuth 用量接口，以及用于模型价格的 `models.dev`。
+Codex 额度请求会使用 `$CODEX_HOME/config.toml` 中的 `chatgpt_base_url`；未设置时使用 ChatGPT 默认接口。QuotaBar 还会请求 `auth.openai.com` 刷新 Codex token、请求 `api.anthropic.com` 获取 Claude 额度，并从 `models.dev` 获取模型价格。本地会话记录不会发送到这些服务。
 
 ## 构建与开发
 
@@ -156,7 +162,7 @@ make build          # Build the debug binary
 make run            # Build and run in the foreground
 make test           # Run assertions and animation verifiers
 make probe          # Check both provider integrations
-make probe-cost     # Rescan local logs without credentials or network
+make probe-cost     # Rescan local logs; may refresh model prices
 make logs           # Stream logs for com.quotabar.app
 make readme-assets  # Rebuild README images; requires ffmpeg
 make clean
@@ -164,7 +170,7 @@ make clean
 
 `make probe` 会输出账号和用量元数据，分享前请先检查内容。
 
-如需生成测试包，在仓库的 **Actions** 页面手动运行 **Build and Release**。发布正式版本时，推送符合 `vMAJOR.MINOR.PATCH` 格式的 tag。workflow 会测试并分别打包 `arm64` 和 `x86_64` ZIP，然后创建 GitHub Release。
+如需生成测试包，在仓库的 **Actions** 页面手动运行 **Build and Release**。发布正式版本时，推送符合 `vMAJOR.MINOR.PATCH` 格式的 tag。workflow 会完成测试、打包 `arm64` ZIP，然后创建 GitHub Release。
 
 ## 排查
 
@@ -178,7 +184,7 @@ make clean
 
 ## 已知限制
 
-- 发布包按架构区分，使用 ad hoc 签名，且未经过公证。
+- 预编译 Release 和 Homebrew cask 仅支持 Apple Silicon。Release ZIP 使用 ad hoc 签名，且未经过公证。
 - Claude 凭据恢复只会在手动 `Refresh` 后运行，交互式登录仍需自行打开 Claude Code。
 - 成本来自本地日志，不是账单。
 - OpenCode 不记录每条历史请求的认证方式。QuotaBar 无法还原它未运行期间发生的 OAuth → API key → OAuth 切换。
