@@ -1,6 +1,7 @@
 import QuotaBarCore
 import AppKit
 import Combine
+import QuartzCore
 import SwiftUI
 
 /// A single `NSStatusItem` showing one provider at a time. A left-click opens that provider's
@@ -35,6 +36,25 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private var refreshRowClock: Timer?
     /// Owned by its menu item; held weakly so the row can be relabelled between rebuilt menus.
     private weak var refreshRow: MenuActionRowView?
+    /// Whether the cost breakdown is showing a day's full model list. Opening it makes the card
+    /// taller, so it lives next to the code that resizes the hosting view. It belongs to one
+    /// viewing of the card rather than to the user's settings: every open starts collapsed.
+    private var isCostBreakdownExpanded = false
+    /// Steps the card's height while the breakdown opens or closes, one display refresh at a
+    /// time. Held so a second click can take the sweep over rather than race it.
+    private var breakdownLink: CADisplayLink?
+    private var breakdownSweep: Sweep?
+    /// How far open the list is drawn right now: 0 or 1 at rest, stepped in between by the sweep.
+    private var breakdownOpenness: Double = 0
+
+    /// One reveal, from where the card was to where the click is taking it.
+    private struct Sweep {
+        let fromHeight: CGFloat
+        let toHeight: CGFloat
+        let fromOpenness: Double
+        let toOpenness: Double
+        let began: Date
+    }
     /// One autosave name for the one item, so switching providers leaves it where the user
     /// dragged it instead of moving the icon around.
     private static let autosaveName = "quotabar"
@@ -210,6 +230,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             isRefreshing: false
         ))
         hosting.frame = NSRect(x: 0, y: 0, width: Self.cardWidth, height: 200)
+        // The card hangs from the top of this view, so while the breakdown is opening the part
+        // that has not been uncovered yet has to be cut off rather than drawn over the rows below.
+        hosting.clipsToBounds = true
         cardItem.view = hosting
         self.hostingView = hosting
         menu.addItem(cardItem)
@@ -302,6 +325,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             onCostChartLabelModeChanged: { [weak self] mode in
                 self?.settings.costChartLabelMode = mode
             },
+            isCostBreakdownExpanded: self.isCostBreakdownExpanded,
+            costBreakdownOpenness: self.breakdownOpenness,
+            onCostBreakdownExpandedChanged: { [weak self] expanded in
+                self?.setCostBreakdownExpanded(expanded)
+            },
             quotaResetDisplayMode: self.settings.quotaResetDisplayMode,
             onQuotaResetDisplayModeChanged: { [weak self] mode in
                 // Both windows read the label the same way, so the click has to redraw the whole
@@ -309,6 +337,108 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                 self?.settings.quotaResetDisplayMode = mode
                 self?.refreshOpenCard()
             }
+        )
+    }
+
+    /// A menu has no animation of its own: an item view is resized and AppKit re-lays the menu
+    /// out around it, at once. So the card grows and shrinks by hand here, stepped along the same
+    /// curve the rows inside it fade on, and the two changes read as one. Without it the only
+    /// thing the reader would see of a click is the menu jumping to its new height.
+    ///
+    /// The height the sweep is heading for is measured on a card of its own rather than read off
+    /// the one on screen: letting the live card take the finished height first, even for the one
+    /// frame it takes to hand it back, is a frame of the opened card -- which is the jump this
+    /// exists to avoid.
+    private func setCostBreakdownExpanded(_ expanded: Bool) {
+        self.isCostBreakdownExpanded = expanded
+        self.endBreakdownSweep()
+        guard let hosting = self.hostingView else { return }
+
+        let provider = self.settings.menuBarProvider
+        let display = self.store.displays[provider] ?? ProviderDisplay()
+        let fromHeight = hosting.frame.height
+        let fromOpenness = self.breakdownOpenness
+        let toOpenness: Double = expanded ? 1 : 0
+
+        // Measured with the card already open the whole way, on a card of its own so the one on
+        // screen is not resized to find out.
+        self.breakdownOpenness = toOpenness
+        let toHeight = self.fittingCardHeight(provider: provider, display: display)
+
+        // Reduce Motion asks for the change, not the sweep that gets there.
+        guard !CostChartHoverMotion.systemReduceMotion, abs(toHeight - fromHeight) >= 1 else {
+            self.refreshOpenCard()
+            self.setCardHeight(toHeight)
+            return
+        }
+
+        self.breakdownSweep = Sweep(
+            fromHeight: fromHeight,
+            toHeight: toHeight,
+            fromOpenness: fromOpenness,
+            toOpenness: toOpenness,
+            began: Date()
+        )
+        self.breakdownOpenness = fromOpenness
+        self.refreshOpenCard()
+        self.setCardHeight(fromHeight)
+        // One step per display refresh, rather than a timer that can land twice in a frame or
+        // miss one: the menu re-lays itself out on every step, and an uneven step reads as the
+        // card stuttering rather than opening.
+        let link = hosting.displayLink(target: self, selector: #selector(self.stepBreakdownSweep))
+        link.add(to: .main, forMode: .common)
+        self.breakdownLink = link
+    }
+
+    /// What the card would be if it were laid out right now, measured on a card of its own so the
+    /// one on screen is not resized to find out.
+    private func fittingCardHeight(provider: Provider, display: ProviderDisplay) -> CGFloat {
+        let probe = NSHostingView(rootView: self.makeCard(provider: provider, display: display))
+        probe.frame = NSRect(x: 0, y: 0, width: Self.cardWidth, height: 0)
+        return probe.fittingSize.height
+    }
+
+    @objc private func stepBreakdownSweep() {
+        guard let sweep = self.breakdownSweep else {
+            self.endBreakdownSweep()
+            return
+        }
+        let elapsed = Date().timeIntervalSince(sweep.began)
+        let progress = min(1, elapsed / CostChartHoverMotion.breakdownDuration)
+        let eased = CostChartHoverMotion.breakdownEase(progress)
+        // Height and rows off the same reading, so the card's edge and the lines inside it cannot
+        // drift apart -- and both land on whole points, where text does not shimmer.
+        self.breakdownOpenness = sweep.fromOpenness + (sweep.toOpenness - sweep.fromOpenness) * eased
+        self.refreshOpenCard()
+        self.setCardHeight(CostChartHoverMotion.breakdownHeight(
+            start: sweep.fromHeight,
+            target: sweep.toHeight,
+            progress: progress
+        ))
+        guard progress >= 1 else { return }
+        self.breakdownOpenness = sweep.toOpenness
+        self.endBreakdownSweep()
+        self.refreshOpenCard()
+        // The measured target and what the finished card actually wants agree to a rounding, but
+        // the landing is taken from the card itself so the two cannot drift apart.
+        if let height = self.hostingView?.fittingSize.height { self.setCardHeight(height) }
+    }
+
+    private func endBreakdownSweep() {
+        self.breakdownLink?.invalidate()
+        self.breakdownLink = nil
+        self.breakdownSweep = nil
+    }
+
+    /// Whole points, always: the card is laid out from the top edge of this view, so a height with
+    /// a fraction in it puts every line on the card on a fraction of a pixel. Rounded up rather
+    /// than to nearest, so the last line is never half a point short of its own descenders.
+    private func setCardHeight(_ height: CGFloat) {
+        self.hostingView?.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: Self.cardWidth,
+            height: height.rounded(.up)
         )
     }
 
@@ -320,8 +450,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         let before = Self.openMenuGeometry(hosting)
         hosting.rootView = self.makeCard(provider: provider, display: display)
         // The card's height depends on how many windows the provider reported, so resize to fit.
-        let height = hosting.fittingSize.height
-        hosting.frame = NSRect(x: 0, y: 0, width: Self.cardWidth, height: height)
+        // A card mid-open owns its own height until the sweep lands on it; a refresh arriving in
+        // those few frames would snap the menu to the finished height and cut the animation short.
+        guard self.breakdownSweep == nil else { return }
+        self.setCardHeight(hosting.fittingSize.height)
         Self.movePointerWithRows(from: before, hosting: hosting)
     }
 
@@ -414,6 +546,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         self.isMenuOpen = true
         // A celebration belongs to one viewing of the card. Whatever the last one played is over.
         self.recoveries = [:]
+        // So does an opened breakdown: the card comes back at the height it was designed for.
+        self.isCostBreakdownExpanded = false
+        self.breakdownOpenness = 0
         self.refreshOpenCard()
         self.startOpenMenuClock()
         self.startRefreshRowClock()
@@ -421,6 +556,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     func menuDidClose(_: NSMenu) {
         self.isMenuOpen = false
+        self.endBreakdownSweep()
         self.stopOpenMenuClock()
         self.stopRefreshRowClock()
     }

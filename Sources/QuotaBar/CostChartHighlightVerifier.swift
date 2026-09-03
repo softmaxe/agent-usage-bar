@@ -281,6 +281,33 @@ enum CostChartHighlightVerifier {
             failures.append("Reduce Motion expected no animation on either move")
         }
 
+        // Opening the list is the slowest change on the card: the rows fade rather than cut, and
+        // they take longer over it than the highlight takes to cross the chart.
+        if CostChartHoverMotion.breakdownDuration <= CostChartHoverMotion.returnResponse {
+            failures.append(
+                "opening the breakdown expected to outlast the highlight's trip home, got "
+                    + "\(CostChartHoverMotion.breakdownDuration) vs \(CostChartHoverMotion.returnResponse)"
+            )
+        }
+        // Its curve is stepped by hand rather than handed to an animator, so the shape itself is
+        // what gets checked: it starts at rest, ends at rest, and only ever moves forward.
+        let ease = stride(from: 0.0, through: 1.0, by: 0.05).map(CostChartHoverMotion.breakdownEase)
+        if ease.first != 0 || ease.last != 1 {
+            failures.append("the reveal's curve expected to run from 0 to 1, got \(ease)")
+        }
+        if zip(ease, ease.dropFirst()).contains(where: { $0 >= $1 }) {
+            failures.append("the reveal's curve expected to rise at every step, got \(ease)")
+        }
+        if CostChartHoverMotion.breakdownEase(0.5) != 0.5 {
+            failures.append(
+                "the reveal's curve expected to ease in and out alike, got "
+                    + "\(CostChartHoverMotion.breakdownEase(0.5)) at halfway"
+            )
+        }
+        if CostChartHoverMotion.breakdownEase(-1) != 0 || CostChartHoverMotion.breakdownEase(2) != 1 {
+            failures.append("the reveal's curve expected to clamp outside its own beat")
+        }
+
         // The unit swap: the label resolves rather than cuts, it stays in place while it does,
         // and Reduce Motion drops the resolve rather than shortening it.
         if CostChartHoverMotion.swapDuration <= 0 {
@@ -302,11 +329,87 @@ enum CostChartHighlightVerifier {
             failures.append("Reduce Motion expected no animation on the unit swap")
         }
 
+        // The breakdown block: what it reserves, where the row that opens it sits, and what the
+        // pointer is over. Round numbers rather than the card's own, so the checks read the
+        // arithmetic instead of restating the constants.
+        let layout = CostBreakdownLayout(summaryHeight: 10, rowHeight: 10, toggleHeight: 10, spacing: 2)
+        if layout.height(rows: 0, hasToggle: false) != 10 {
+            failures.append("a breakdown with no models expected its summary line alone")
+        }
+        if layout.height(rows: 2, hasToggle: false) != 34 || layout.height(rows: 2, hasToggle: true) != 46 {
+            failures.append(
+                "breakdown height expected 34 without the toggle row and 46 with it, got "
+                    + "\(layout.height(rows: 2, hasToggle: false)) and \(layout.height(rows: 2, hasToggle: true))"
+            )
+        }
+        if layout.rowsHeight(rows: 3) != 36 || layout.rowsHeight(rows: 0) != 0 {
+            failures.append(
+                "the rows strip expected each row to carry its own gap, got \(layout.rowsHeight(rows: 3))"
+            )
+        }
+        // The reveal lands on whole points at every step, however far open it is: the lines under
+        // the strip are laid out from its edge, and a fraction there is where text shimmers.
+        let openSteps = stride(from: 0.0, through: 1.0, by: 0.05).map {
+            layout.rowsHeight(rows: 2, openness: $0)
+        }
+        if openSteps.contains(where: { $0 != $0.rounded() }) {
+            failures.append("the reveal expected whole points at every step, got \(openSteps)")
+        }
+        if openSteps.first != 0 || openSteps.last != layout.rowsHeight(rows: 2) {
+            failures.append("the reveal expected to run from nothing to the rows' full height")
+        }
+        if zip(openSteps, openSteps.dropFirst()).contains(where: { $0 > $1 }) {
+            failures.append("the reveal expected to open without going backwards")
+        }
+        if layout.toggleBand(rows: 2, hasToggle: false) != nil {
+            failures.append("a day that fits expected no toggle row")
+        }
+        let collapsedBand = layout.toggleBand(rows: 2, hasToggle: true)
+        let expandedBand = layout.toggleBand(rows: 5, hasToggle: true)
+        if collapsedBand != 36...46 {
+            failures.append("collapsed toggle row expected 36...46, got \(String(describing: collapsedBand))")
+        }
+        if let collapsedBand, let expandedBand, expandedBand.lowerBound <= collapsedBand.upperBound {
+            failures.append("opening the list expected the toggle row to move below the rows it added")
+        }
+
+        // One tracking area covers the chart and the breakdown, so the hit test has to say which
+        // of them a point is in: a click under the chart must not swap the chart's unit, and the
+        // walk down to the toggle row must not read as a bar.
+        let chartBand: Double = 75
+        let detailTop: Double = 85
+        func region(_ x: Double, _ y: Double) -> CostChartHighlightPolicy.Region {
+            CostChartHighlightPolicy.region(
+                at: CGPoint(x: x, y: y),
+                width: 100,
+                chartHeight: chartBand,
+                barCount: 2,
+                spacing: 4,
+                detailTop: detailTop,
+                toggleBand: collapsedBand
+            )
+        }
+        if region(47, 30) != .bar(0) || region(53, 30) != .bar(1) {
+            failures.append("a point on a bar expected that bar, got \(region(47, 30)) and \(region(53, 30))")
+        }
+        if region(49, 30) != .elsewhere {
+            failures.append("the gap between two bars expected no region, got \(region(49, 30))")
+        }
+        if region(47, detailTop + 40) != .breakdownToggle {
+            failures.append("a point on the toggle row expected it, got \(region(47, detailTop + 40))")
+        }
+        if region(47, detailTop + 5) != .elsewhere || region(47, detailTop + 60) != .elsewhere {
+            failures.append("a point on a model row, or past the block, expected no region")
+        }
+        if region(47, chartBand + 5) == .bar(0) {
+            failures.append("a point under the chart expected not to count as a bar")
+        }
+
         VerifierReport.finish(
             failures,
             label: "cost chart highlight verification",
-            passed: "cost chart selection, click label toggle, hit testing, opacity, hover motion, and "
-                + "unit swap motion checks passed"
+            passed: "cost chart selection, click label toggle, hit testing, opacity, hover motion, "
+                + "unit swap motion, and expandable breakdown layout checks passed"
         )
     }
 }

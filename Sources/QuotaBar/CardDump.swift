@@ -91,6 +91,84 @@ enum CardDump {
         overlay: PricingOverlay()
     )
 
+    /// `sampleCost` mixes three models into a day, which is the normal day and fits the block
+    /// under the chart. This is the other kind: enough models on the day being read that the list
+    /// has to be opened before all of it can be seen.
+    static func busyCost(_ provider: Provider) -> CostSnapshot {
+        let sample = Self.sampleCost(provider)
+        guard let last = sample.days.last else { return sample }
+        let models: [(CostUsageSource, String)] = provider == .codex
+            ? [
+                (.piAgent, "gpt-5.6-sol"),
+                (.codex, "gpt-5.6-sol"),
+                (.codex, "gpt-5.6-luna"),
+                (.piAgent, "gpt-5.6-luna"),
+                (.openCode, "gpt-5.6-terra"),
+                (.codex, "gpt-5.6-terra"),
+            ]
+            : [
+                (.claude, "claude-opus-5"),
+                (.claude, "claude-sonnet-5"),
+                (.claude, "claude-fable-5"),
+                (.claude, "claude-haiku-4-5"),
+                (.claude, "claude-opus-4-1"),
+                (.claude, "claude-sonnet-4-5"),
+            ]
+        let shares = [0.47, 0.24, 0.13, 0.08, 0.05, 0.03]
+        let total = last.costUSD ?? 0
+        let busy = CostDay(
+            dayKey: last.dayKey,
+            byModel: Dictionary(uniqueKeysWithValues: zip(models, shares).map { entry, share in
+                (ModelUsageKey(source: entry.0, model: entry.1), ModelDayUsage(
+                    tokens: TokenTotals(input: Int(total * share * 1_000_000)),
+                    costUSD: total * share
+                ))
+            }),
+            costUSD: total,
+            unpricedTokens: 0
+        )
+        return CostSnapshot(
+            provider: sample.provider,
+            days: sample.days.dropLast() + [busy],
+            todayCostUSD: sample.todayCostUSD,
+            windowCostUSD: sample.windowCostUSD,
+            latestTokens: sample.latestTokens,
+            windowTokens: sample.windowTokens,
+            topModel: sample.topModel,
+            hasUnpricedTokens: sample.hasUnpricedTokens,
+            scannedAt: sample.scannedAt
+        )
+    }
+
+    /// `--dump-breakdown-toggle <dir> <provider>` holds the three faces of the line that closes a
+    /// busy day's model list: at rest, under the pointer, and opened. Off screen there is no
+    /// pointer, so the hover is seeded rather than performed.
+    static func dumpBreakdownToggle(directory: String, provider: Provider) {
+        let root = OffscreenCapture.directory(directory)
+        let cost = Self.busyCost(provider)
+        guard let today = cost.days.last else { return }
+
+        let states: [(name: String, expanded: Bool, toggleHovered: Bool)] = [
+            ("collapsed", false, false),
+            ("hovered", false, true),
+            ("expanded", true, true),
+        ]
+        for state in states {
+            let hosting = NSHostingView(rootView: CostSectionView(
+                snapshot: cost,
+                previewHoveredDayKey: today.dayKey,
+                previewTodayDayKey: today.dayKey,
+                isBreakdownExpanded: state.expanded,
+                previewToggleHovered: state.toggleHovered
+            ).padding(14).frame(width: 280))
+            hosting.frame = NSRect(origin: .zero, size: hosting.fittingSize)
+            Self.report(
+                OffscreenCapture.writePNG(hosting, named: state.name, into: root),
+                size: hosting.frame
+            )
+        }
+    }
+
     /// `--dump-chart-hover <dir> <provider>` walks the highlight across every bar of the cost
     /// chart, one PNG per day. The frames carry the breakdown each bar opens, not the spring that
     /// carries the highlight between them — a still cannot hold a spring.
@@ -163,7 +241,7 @@ enum CardDump {
 
     /// The loaded card each provider is drawn from, shared with the reset toggle dump so both
     /// carry the same account.
-    private static func loadedSnapshot(_ provider: Provider) -> UsageSnapshot {
+    static func loadedSnapshot(_ provider: Provider) -> UsageSnapshot {
         let now = Date().addingTimeInterval(-5 * 60)
         switch provider {
         case .codex:
