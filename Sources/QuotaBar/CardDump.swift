@@ -333,11 +333,11 @@ enum CardDump {
         ]
         let errors = ["claude-rate-limited": "Claude usage API rate-limited. Try again after 4:24 PM."]
 
-        // Capture both the default-today and hovered states, since the dump has no pointer.
+        // Capture both the idle and hovered states, since the dump has no pointer.
         for (provider, cost) in costs {
             guard let today = cost.days.last,
                   let hovered = cost.days.max(by: { ($0.costUSD ?? 0) < ($1.costUSD ?? 0) }) else { continue }
-            for (name, hoveredDayKey) in [("today", nil), ("hover", hovered.dayKey)] {
+            for (name, hoveredDayKey) in [("idle", nil), ("hover", hovered.dayKey)] {
                 let hosting = NSHostingView(rootView: CostSectionView(
                     snapshot: cost,
                     previewHoveredDayKey: hoveredDayKey,

@@ -42,20 +42,27 @@ enum CostChartHighlightPolicy {
 
     static func selectedDayKey(
         hoveredDayKey: String?,
-        todayDayKey: String,
         availableDayKeys: Set<String>
     ) -> String? {
-        if let hoveredDayKey, availableDayKeys.contains(hoveredDayKey) {
-            return hoveredDayKey
-        }
-        return availableDayKeys.contains(todayDayKey) ? todayDayKey : nil
+        guard let hoveredDayKey, availableDayKeys.contains(hoveredDayKey) else { return nil }
+        return hoveredDayKey
     }
 
-    /// Moving between two bars crosses the spacing between them, where hit testing finds no bar.
-    /// Holding the current selection there keeps the label on the bar being left instead of
-    /// flashing today's label for the frames the pointer spends in the gap.
-    static func hoveredDayKey(afterMovingTo dayKey: String?, currentDayKey: String?) -> String? {
-        dayKey ?? currentDayKey
+    /// Every pointer move replaces the current hover with the bar or label under the pointer. A
+    /// gap or a point below the chart has no day key, so it clears the hover.
+    static func hoveredDayKey(afterMovingTo dayKey: String?) -> String? {
+        dayKey
+    }
+
+    /// Detail follows the last bar while the pointer stays in the shared tracking area, then
+    /// clears when the pointer leaves that area.
+    static func detailDayKey(
+        afterMovingTo dayKey: String?,
+        currentDayKey: String?,
+        isInsideTrackingArea: Bool
+    ) -> String? {
+        guard isInsideTrackingArea else { return nil }
+        return dayKey ?? currentDayKey
     }
 
     /// The one quiet tone every unselected day shares.
@@ -98,7 +105,7 @@ enum CostChartHighlightPolicy {
         selectedDayKey: String?,
         currentMode: CostChartLabelMode
     ) -> CostChartLabelMode {
-        guard dayKey == selectedDayKey else { return currentMode }
+        guard let dayKey, dayKey == selectedDayKey else { return currentMode }
         return currentMode == .tokens ? .cost : .tokens
     }
 
@@ -116,35 +123,56 @@ enum CostChartHighlightPolicy {
         return offset <= barWidth ? index : nil
     }
 
-    /// What the pointer is over inside the chart-plus-breakdown block. The two are read against
-    /// one tracking area: stepping off a bar towards the row that opens its breakdown must not
-    /// count as leaving the chart, or the day being read would snap back to today before the
-    /// click arrived.
-    ///
-    /// `elsewhere` covers the gaps -- between two bars, under the chart, beside a model row --
-    /// and holds whatever is already selected rather than clearing it.
+    /// What the pointer is over inside the chart-plus-breakdown block. Any point outside a bar or
+    /// its selected label clears the chart hover.
     enum Region: Equatable {
         case bar(Int)
+        case label(Int)
         case breakdownToggle
         case elsewhere
     }
 
-    /// `chartHeight` is the full band the bars occupy, top padding included, and `detailTop` the
-    /// distance from the same origin down to the first line of the breakdown; `toggleBand` is
-    /// measured from `detailTop`, which is what `CostBreakdownLayout` returns.
+    /// `chartBottom` is the bottom of every bar, measured from the tracking area's origin.
+    /// `barHeights` are the rendered heights in horizontal order. A non-nil `labelSize` keeps the
+    /// text's exact horizontal span and bridges its vertical hit rect down to the selected bar.
+    /// `toggleBand` is measured from `detailTop`, which is what `CostBreakdownLayout` returns.
     static func region(
         at point: CGPoint,
         width: Double,
-        chartHeight: Double,
-        barCount: Int,
+        chartBottom: Double,
+        barHeights: [Double],
+        labelSizes: [CGSize?],
+        labelOffsetY: Double,
         spacing: Double,
         detailTop: Double,
         toggleBand: ClosedRange<Double>?
     ) -> Region {
         guard point.y >= 0, point.x >= 0, point.x <= width else { return .elsewhere }
-        if point.y <= chartHeight {
-            return Self.barIndex(atX: point.x, width: width, barCount: barCount, spacing: spacing)
-                .map(Region.bar) ?? .elsewhere
+        let totalSpacing = spacing * Double(max(0, barHeights.count - 1))
+        let barWidth = (width - totalSpacing) / Double(max(1, barHeights.count))
+        if barWidth > 0 {
+            let slotWidth = barWidth + spacing
+            for index in barHeights.indices {
+                guard labelSizes.indices.contains(index), let size = labelSizes[index] else { continue }
+                let labelLeft = Double(index) * slotWidth + (barWidth - size.width) / 2
+                let barTop = chartBottom - max(0, barHeights[index])
+                let labelTop = barTop + labelOffsetY
+                let labelBottom = max(labelTop + size.height, barTop)
+                if point.x >= labelLeft, point.x <= labelLeft + size.width,
+                   point.y >= labelTop, point.y <= labelBottom {
+                    return .label(index)
+                }
+            }
+        }
+        if point.y <= chartBottom,
+           let index = Self.barIndex(
+               atX: point.x,
+               width: width,
+               barCount: barHeights.count,
+               spacing: spacing
+           ),
+           point.y >= chartBottom - max(0, barHeights[index]) {
+            return .bar(index)
         }
         guard let toggleBand, toggleBand.contains(point.y - detailTop) else { return .elsewhere }
         return .breakdownToggle

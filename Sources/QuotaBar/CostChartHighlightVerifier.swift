@@ -25,20 +25,19 @@ enum CostChartHighlightVerifier {
             || visibleWithoutToday.last?.costUSD != 0 {
             failures.append("a missing today expected a zero-cost today bar")
         }
-        let emptyTodaySelection = CostChartHighlightPolicy.selectedDayKey(
+        let idleSelection = CostChartHighlightPolicy.selectedDayKey(
             hoveredDayKey: nil,
-            todayDayKey: today,
             availableDayKeys: Set(visibleWithoutToday.map(\.dayKey))
         )
-        let emptyTodayLabel = CostChartHighlightPolicy.labelText(
+        let idleLabel = CostChartHighlightPolicy.labelText(
             dayKey: today,
-            selectedDayKey: emptyTodaySelection,
+            selectedDayKey: idleSelection,
             selectedMode: .tokens,
             tokens: visibleWithoutToday.last?.tokens.total ?? -1,
             costUSD: visibleWithoutToday.last?.costUSD
         )
-        if emptyTodayLabel != "0" {
-            failures.append("an empty today bar expected its default 0 token label")
+        if idleSelection != nil || idleLabel != nil {
+            failures.append("an idle chart expected no selected bar or value label")
         }
 
         let todayDay = CostDay(
@@ -122,36 +121,30 @@ enum CostChartHighlightVerifier {
             failures.append("adding today expected to keep the ten-bar cap and evict the oldest day")
         }
 
-        let defaultSelection = CostChartHighlightPolicy.selectedDayKey(
+        let idleSelectionWithActivity = CostChartHighlightPolicy.selectedDayKey(
             hoveredDayKey: nil,
-            todayDayKey: today,
             availableDayKeys: available
         )
-        if defaultSelection != today {
-            failures.append("default selection expected today, got \(defaultSelection ?? "nil")")
+        if idleSelectionWithActivity != nil {
+            failures.append(
+                "an idle chart expected no selection, got \(idleSelectionWithActivity ?? "nil")"
+            )
         }
 
         let hoverSelection = CostChartHighlightPolicy.selectedDayKey(
             hoveredDayKey: yesterday,
-            todayDayKey: today,
             availableDayKeys: available
         )
         if hoverSelection != yesterday {
             failures.append("hover selection expected yesterday, got \(hoverSelection ?? "nil")")
         }
 
-        let acrossGap = CostChartHighlightPolicy.hoveredDayKey(
-            afterMovingTo: nil,
-            currentDayKey: yesterday
-        )
-        if acrossGap != yesterday {
-            failures.append("gap between bars expected hover to hold, got \(acrossGap ?? "nil")")
+        let acrossGap = CostChartHighlightPolicy.hoveredDayKey(afterMovingTo: nil)
+        if acrossGap != nil {
+            failures.append("gap between bars expected hover to clear, got \(acrossGap ?? "nil")")
         }
 
-        let ontoNextBar = CostChartHighlightPolicy.hoveredDayKey(
-            afterMovingTo: today,
-            currentDayKey: yesterday
-        )
+        let ontoNextBar = CostChartHighlightPolicy.hoveredDayKey(afterMovingTo: today)
         if ontoNextBar != today {
             failures.append("moving onto a bar expected it to take hover, got \(ontoNextBar ?? "nil")")
         }
@@ -166,19 +159,27 @@ enum CostChartHighlightVerifier {
             selectedDayKey: today,
             valueRatio: 1.0
         )
-        if shortInactive != tallInactive {
-            failures.append("inactive opacity varied by bar height: \(shortInactive) vs \(tallInactive)")
+        let idleOpacity = CostChartHighlightPolicy.opacity(
+            dayKey: yesterday,
+            selectedDayKey: nil,
+            valueRatio: 1.0
+        )
+        if shortInactive != tallInactive || idleOpacity != CostChartHighlightPolicy.restingOpacity {
+            failures.append(
+                "inactive bars expected one resting opacity, got "
+                    + "\(shortInactive)/\(tallInactive)/\(idleOpacity)"
+            )
         }
 
-        let defaultLabel = CostChartHighlightPolicy.labelText(
+        let idleTodayLabel = CostChartHighlightPolicy.labelText(
             dayKey: today,
-            selectedDayKey: defaultSelection,
+            selectedDayKey: idleSelectionWithActivity,
             selectedMode: .tokens,
             tokens: 231_000_000,
             costUSD: 231
         )
-        if defaultLabel != "231M" {
-            failures.append("default today bar expected its 231M token label, got \(String(describing: defaultLabel))")
+        if idleTodayLabel != nil {
+            failures.append("an idle today bar displayed a label: \(String(describing: idleTodayLabel))")
         }
 
         let clickedMode = CostChartHighlightPolicy.labelMode(
@@ -259,34 +260,34 @@ enum CostChartHighlightVerifier {
             )
         }
 
-        // The highlight's motion: a move between bars keeps up with the pointer, the trip back to
-        // today takes longer, and Reduce Motion drops both rather than shortening them.
-        if CostChartHoverMotion.returnResponse <= CostChartHoverMotion.hoverResponse {
+        // The highlight's motion: a move between bars keeps up with the pointer, clearing it takes
+        // longer, and Reduce Motion drops both rather than shortening them.
+        if CostChartHoverMotion.clearResponse <= CostChartHoverMotion.hoverResponse {
             failures.append(
-                "returning to today expected a longer response than moving between bars, got "
-                    + "\(CostChartHoverMotion.returnResponse) vs \(CostChartHoverMotion.hoverResponse)"
+                "clearing hover expected a longer response than moving between bars, got "
+                    + "\(CostChartHoverMotion.clearResponse) vs \(CostChartHoverMotion.hoverResponse)"
             )
         }
         if CostChartHoverMotion.lift <= 0 {
             failures.append("the selected bar expected a lift, got \(CostChartHoverMotion.lift)")
         }
-        let hoverMotion = CostChartHoverMotion.animation(returningToToday: false, reduceMotion: false)
-        let returnMotion = CostChartHoverMotion.animation(returningToToday: true, reduceMotion: false)
-        if hoverMotion == nil || returnMotion == nil || hoverMotion == returnMotion {
-            failures.append("hover and return expected two distinct animations")
+        let hoverMotion = CostChartHoverMotion.animation(clearingHover: false, reduceMotion: false)
+        let clearMotion = CostChartHoverMotion.animation(clearingHover: true, reduceMotion: false)
+        if hoverMotion == nil || clearMotion == nil || hoverMotion == clearMotion {
+            failures.append("hover and clear expected two distinct animations")
         }
-        let reducedHover = CostChartHoverMotion.animation(returningToToday: false, reduceMotion: true)
-        let reducedReturn = CostChartHoverMotion.animation(returningToToday: true, reduceMotion: true)
-        if reducedHover != nil || reducedReturn != nil {
+        let reducedHover = CostChartHoverMotion.animation(clearingHover: false, reduceMotion: true)
+        let reducedClear = CostChartHoverMotion.animation(clearingHover: true, reduceMotion: true)
+        if reducedHover != nil || reducedClear != nil {
             failures.append("Reduce Motion expected no animation on either move")
         }
 
         // Opening the list is the slowest change on the card: the rows fade rather than cut, and
         // they take longer over it than the highlight takes to cross the chart.
-        if CostChartHoverMotion.breakdownDuration <= CostChartHoverMotion.returnResponse {
+        if CostChartHoverMotion.breakdownDuration <= CostChartHoverMotion.clearResponse {
             failures.append(
                 "opening the breakdown expected to outlast the highlight's trip home, got "
-                    + "\(CostChartHoverMotion.breakdownDuration) vs \(CostChartHoverMotion.returnResponse)"
+                    + "\(CostChartHoverMotion.breakdownDuration) vs \(CostChartHoverMotion.clearResponse)"
             )
         }
         // Its curve is stepped by hand rather than handed to an animator, so the shape itself is
@@ -378,19 +379,30 @@ enum CostChartHighlightVerifier {
         // walk down to the toggle row must not read as a bar.
         let chartBand: Double = 75
         let detailTop: Double = 85
-        func region(_ x: Double, _ y: Double) -> CostChartHighlightPolicy.Region {
+        func region(
+            _ x: Double,
+            _ y: Double,
+            barHeights: [Double] = [10, 56],
+            labelSizes: [CGSize?] = [nil, nil],
+            toggleBand: ClosedRange<Double>? = collapsedBand
+        ) -> CostChartHighlightPolicy.Region {
             CostChartHighlightPolicy.region(
                 at: CGPoint(x: x, y: y),
                 width: 100,
-                chartHeight: chartBand,
-                barCount: 2,
+                chartBottom: chartBand,
+                barHeights: barHeights,
+                labelSizes: labelSizes,
+                labelOffsetY: -14,
                 spacing: 4,
                 detailTop: detailTop,
-                toggleBand: collapsedBand
+                toggleBand: toggleBand
             )
         }
-        if region(47, 30) != .bar(0) || region(53, 30) != .bar(1) {
-            failures.append("a point on a bar expected that bar, got \(region(47, 30)) and \(region(53, 30))")
+        if region(47, 70) != .bar(0) || region(53, 30) != .bar(1) {
+            failures.append("a point on a bar expected that bar, got \(region(47, 70)) and \(region(53, 30))")
+        }
+        if region(47, 30) != .elsewhere {
+            failures.append("a point above a short bar expected no region, got \(region(47, 30))")
         }
         if region(49, 30) != .elsewhere {
             failures.append("the gap between two bars expected no region, got \(region(49, 30))")
@@ -401,8 +413,130 @@ enum CostChartHighlightVerifier {
         if region(47, detailTop + 5) != .elsewhere || region(47, detailTop + 60) != .elsewhere {
             failures.append("a point on a model row, or past the block, expected no region")
         }
-        if region(47, chartBand + 5) == .bar(0) {
-            failures.append("a point under the chart expected not to count as a bar")
+        let detailRegion = region(47, detailTop + 5)
+        if detailRegion == .bar(0) {
+            failures.append("a point in the detail area expected not to count as a bar")
+        }
+        let keyInDetail: String?
+        if case let .bar(index) = detailRegion {
+            keyInDetail = [yesterday, today][index]
+        } else {
+            keyInDetail = nil
+        }
+        let afterMovingIntoDetail = CostChartHighlightPolicy.hoveredDayKey(afterMovingTo: keyInDetail)
+        if afterMovingIntoDetail != nil {
+            failures.append(
+                "moving into the detail area expected hover to clear, got "
+                    + "\(afterMovingIntoDetail ?? "nil")"
+            )
+        }
+
+        // Drive one interaction through repeated hit tests. The bar label is transient, while
+        // the detail keeps the last bar alive until the pointer leaves the whole tracking area.
+        // Keeping those states separate is what leaves the toggle in the next render and lets the
+        // click land on it.
+        func dayKey(for region: CostChartHighlightPolicy.Region) -> String? {
+            switch region {
+            case let .bar(index), let .label(index):
+                return [yesterday, today][index]
+            case .breakdownToggle, .elsewhere:
+                return nil
+            }
+        }
+        var labelSequenceHoveredDayKey = CostChartHighlightPolicy.hoveredDayKey(
+            afterMovingTo: dayKey(for: region(24, 70))
+        )
+        let selectedLabelSizes: [CGSize?] = [CGSize(width: 24, height: 12), nil]
+        let bridgeRegion = region(
+            24,
+            59,
+            barHeights: [15, 56],
+            labelSizes: selectedLabelSizes
+        )
+        labelSequenceHoveredDayKey = CostChartHighlightPolicy.hoveredDayKey(
+            afterMovingTo: dayKey(for: bridgeRegion)
+        )
+        let labelSizesAfterBridge = labelSequenceHoveredDayKey == nil
+            ? [CGSize?](repeating: nil, count: 2)
+            : selectedLabelSizes
+        let labelRegion = region(
+            24,
+            52,
+            barHeights: [15, 56],
+            labelSizes: labelSizesAfterBridge
+        )
+        let aboveVisibleLabel = region(
+            24,
+            30,
+            barHeights: [15, 56],
+            labelSizes: selectedLabelSizes
+        )
+        let labelDayKey = dayKey(for: labelRegion)
+        labelSequenceHoveredDayKey = CostChartHighlightPolicy.hoveredDayKey(
+            afterMovingTo: labelDayKey
+        )
+        let labelClickMode = labelDayKey.map {
+            CostChartHighlightPolicy.labelMode(
+                afterClicking: $0,
+                selectedDayKey: labelSequenceHoveredDayKey,
+                currentMode: .tokens
+            )
+        } ?? .tokens
+        if bridgeRegion != .label(0) || labelRegion != .label(0)
+            || aboveVisibleLabel != .elsewhere
+            || labelSequenceHoveredDayKey != yesterday
+            || labelClickMode != .cost {
+            failures.append(
+                "bar-to-label sequence expected a bridged gap, label(0), empty space above it, "
+                    + "retained hover, and a cost click; got \(bridgeRegion)/\(labelRegion)/"
+                    + "\(aboveVisibleLabel)/"
+                    + "\(labelSequenceHoveredDayKey ?? "nil")/\(labelClickMode)"
+            )
+        }
+        let initialDayKey = dayKey(for: region(47, 70))
+        var sequenceHoveredDayKey = CostChartHighlightPolicy.hoveredDayKey(
+            afterMovingTo: initialDayKey
+        )
+        var sequenceDetailDayKey = CostChartHighlightPolicy.detailDayKey(
+            afterMovingTo: initialDayKey,
+            currentDayKey: nil,
+            isInsideTrackingArea: true
+        )
+        let aboveShortBarDayKey = dayKey(for: region(47, 30))
+        sequenceHoveredDayKey = CostChartHighlightPolicy.hoveredDayKey(
+            afterMovingTo: aboveShortBarDayKey
+        )
+        sequenceDetailDayKey = CostChartHighlightPolicy.detailDayKey(
+            afterMovingTo: aboveShortBarDayKey,
+            currentDayKey: sequenceDetailDayKey,
+            isInsideTrackingArea: true
+        )
+        let modelRowDayKey = dayKey(for: region(47, detailTop + 5))
+        sequenceHoveredDayKey = CostChartHighlightPolicy.hoveredDayKey(
+            afterMovingTo: modelRowDayKey
+        )
+        sequenceDetailDayKey = CostChartHighlightPolicy.detailDayKey(
+            afterMovingTo: modelRowDayKey,
+            currentDayKey: sequenceDetailDayKey,
+            isInsideTrackingArea: true
+        )
+        let sequenceToggleBand = sequenceDetailDayKey == nil ? nil : collapsedBand
+        let sequenceToggle = region(47, detailTop + 40, toggleBand: sequenceToggleBand)
+        var sequenceExpanded = false
+        if sequenceToggle == .breakdownToggle { sequenceExpanded.toggle() }
+        let detailAfterExit = CostChartHighlightPolicy.detailDayKey(
+            afterMovingTo: nil,
+            currentDayKey: sequenceDetailDayKey,
+            isInsideTrackingArea: false
+        )
+        if sequenceHoveredDayKey != nil || sequenceDetailDayKey != yesterday
+            || sequenceToggle != .breakdownToggle || !sequenceExpanded || detailAfterExit != nil {
+            failures.append(
+                "bar-to-detail sequence expected nil hover, retained detail, a clickable toggle, "
+                    + "and cleared exit; got "
+                    + "\(sequenceHoveredDayKey ?? "nil")/\(sequenceDetailDayKey ?? "nil")/"
+                    + "\(sequenceToggle)/\(sequenceExpanded)/\(detailAfterExit ?? "nil")"
+            )
         }
 
         VerifierReport.finish(
