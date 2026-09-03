@@ -3,7 +3,7 @@ import CoreGraphics
 import SwiftUI
 
 /// How the cost chart changes which bar is highlighted. A hover is the pointer's own motion and
-/// has to keep up with it; the return to today is not a move the reader aimed at anything, so it
+/// has to keep up with it; clearing hover is not a move the reader aimed at anything, so it
 /// is allowed to take longer and to arrive with zero velocity — the shape `QuotaCelebrationReplay`
 /// already uses to come back from the landing.
 ///
@@ -22,10 +22,10 @@ enum CostChartHoverMotion {
     static let hoverResponse: TimeInterval = 0.27
     /// Internal rather than private so the README film strip can sample the same spring.
     static let hoverDamping: Double = 0.9
-    /// The trip home: longer, and critically damped, so the highlight settles onto today instead
-    /// of springing onto it.
-    static let returnResponse: TimeInterval = 0.33
-    static let returnDamping: Double = 1
+    /// The return to rest is longer and critically damped, so the highlight disappears without
+    /// springing away from the pointer.
+    static let clearResponse: TimeInterval = 0.33
+    static let clearDamping: Double = 1
 
     static var systemReduceMotion: Bool {
         NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
@@ -34,13 +34,13 @@ enum CostChartHoverMotion {
     /// Nil means change the selection without animating it at all, which is what Reduce Motion is
     /// asking for.
     static func animation(
-        returningToToday: Bool,
+        clearingHover: Bool,
         reduceMotion: Bool,
         timeScale: Double = 1
     ) -> Animation? {
         guard !reduceMotion else { return nil }
-        let response = returningToToday ? Self.returnResponse : Self.hoverResponse
-        let damping = returningToToday ? Self.returnDamping : Self.hoverDamping
+        let response = clearingHover ? Self.clearResponse : Self.hoverResponse
+        let damping = clearingHover ? Self.clearDamping : Self.hoverDamping
         return .spring(
             response: Self.scaled(response, timeScale: timeScale),
             dampingFraction: damping

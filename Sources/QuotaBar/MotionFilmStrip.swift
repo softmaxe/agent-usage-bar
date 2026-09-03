@@ -56,7 +56,7 @@ enum MotionFilmStrip {
             let envelope = exp(-zeta * omega * time)
             return 1 - envelope * (cos(damped * time) + (zeta * omega / damped) * sin(damped * time))
         }
-        // Critically damped, which is what the chart's trip home to today uses.
+        // Critically damped, which is what the chart uses when clearing hover.
         return 1 - exp(-omega * time) * (1 + omega * time)
     }
 
@@ -127,26 +127,25 @@ enum MotionFilmStrip {
 
     // MARK: - Cost chart highlight
 
-    /// `--dump-chart-motion <dir>`: the highlight moving between bars on the hover spring, then
-    /// home to today on the critically damped one. Both carry the 5pt lift with the tone.
+    /// `--dump-chart-motion <dir>`: the highlight moving between bars. The last move samples the
+    /// critically damped timing used when the app clears hover.
     static func dumpChartMotion(directory: String) {
         let root = OffscreenCapture.directory(directory)
-        // Where the pointer goes, and whether that move is a hover or the trip home. The last
-        // entry returns to today, which is the only one that is not chasing a pointer.
-        let moves: [(from: Int, to: Int, returning: Bool)] = [
+        // The last move uses the clear-hover timing so the film strip includes both curves.
+        let moves: [(from: Int, to: Int?, usesClearTiming: Bool)] = [
             (7, 1, false),
             (1, 2, false),
             (2, 5, false),
-            (5, 7, true),
+            (5, nil, true),
         ]
 
         var index = 0
         for move in moves {
-            let response = move.returning
-                ? CostChartHoverMotion.returnResponse
+            let response = move.usesClearTiming
+                ? CostChartHoverMotion.clearResponse
                 : CostChartHoverMotion.hoverResponse
-            let damping = move.returning
-                ? CostChartHoverMotion.returnDamping
+            let damping = move.usesClearTiming
+                ? CostChartHoverMotion.clearDamping
                 : CostChartHoverMotion.hoverDamping
             // Long enough for the envelope to be invisible: e^(-ζω₀t) under a thousandth.
             let settle = response * 1.6
@@ -156,7 +155,7 @@ enum MotionFilmStrip {
                 Self.write(
                     ChartHighlightFrame(
                         from: Double(move.from),
-                        to: Double(move.to),
+                        to: move.to.map(Double.init),
                         progress: progress
                     ),
                     frame: index,
@@ -358,7 +357,7 @@ private struct DisclosureFrame: View {
 /// brightening.
 private struct ChartHighlightFrame: View {
     let from: Double
-    let to: Double
+    let to: Double?
     let progress: Double
 
     private static let values: [Double] = [62, 90, 48, 71, 9, 88, 41, 37]
@@ -366,11 +365,21 @@ private struct ChartHighlightFrame: View {
     private static let barWidth: CGFloat = 30
     private static let maxHeight: CGFloat = 84
 
-    private var position: Double { self.from + (self.to - self.from) * self.progress }
+    private var position: Double {
+        guard let to = self.to else { return self.from }
+        return self.from + (to - self.from) * self.progress
+    }
+
+    private var clearShare: Double {
+        min(1, max(0, 1 - self.progress))
+    }
 
     /// How highlighted one bar is: 1 when the moving position is on it, 0 a whole bar away.
     private func share(_ index: Int) -> Double {
-        max(0, 1 - abs(self.position - Double(index)))
+        if self.to == nil {
+            return index == Int(self.from.rounded()) ? self.clearShare : 0
+        }
+        return max(0, 1 - abs(self.position - Double(index)))
     }
 
     /// The label belongs to whichever bar the highlight is closest to, so it never reads out a
@@ -387,7 +396,10 @@ private struct ChartHighlightFrame: View {
                 ForEach(Array(Self.values.enumerated()), id: \.offset) { index, value in
                     let share = self.share(index)
                     RoundedRectangle(cornerRadius: 3, style: .continuous)
-                        .fill(tint.opacity(0.45 + 0.55 * share))
+                        .fill(tint.opacity(
+                            CostChartHighlightPolicy.restingOpacity
+                                + (1 - CostChartHighlightPolicy.restingOpacity) * share
+                        ))
                         .frame(
                             width: Self.barWidth,
                             height: Self.maxHeight * value / 90 + CostChartHoverMotion.lift * share
@@ -397,7 +409,7 @@ private struct ChartHighlightFrame: View {
             Text(self.label)
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
-                .opacity(0.9)
+                .opacity(0.9 * (self.to == nil ? self.clearShare : 1))
         }
         .padding(18)
         .frame(width: 340, height: 160, alignment: .bottomLeading)
