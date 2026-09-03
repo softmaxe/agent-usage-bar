@@ -9,6 +9,7 @@ LOG_SUBSYSTEM := com.quotabar.app
 ## own, so `test` builds that app and then runs it once per flag.
 VERIFIERS := \
 	cost-chart-highlighting \
+	breakdown-sweep \
 	usage-bar-fill \
 	icon-rendering \
 	menu-pointer-follow \

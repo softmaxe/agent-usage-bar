@@ -48,6 +48,7 @@ enum QuotaBarApp {
         // flags are checked in.
         let verifiers: [(flag: String, run: @MainActor () -> Never)] = [
             ("--verify-cost-chart-highlighting", CostChartHighlightVerifier.run),
+            ("--verify-breakdown-sweep", BreakdownSweepVerifier.run),
             ("--verify-usage-bar-fill", UsageBarFillVerifier.run),
             ("--verify-icon-rendering", IconRenderingVerifier.run),
             ("--verify-menu-pointer-follow", MenuPointerFollowVerifier.run),
@@ -86,6 +87,7 @@ enum QuotaBarApp {
             ("--dump-card-celebration", { CelebrationDump.dumpCardFrames(directory: $0, provider: $1) }),
             ("--dump-chart-hover", { CardDump.dumpChartHover(directory: $0, provider: $1) }),
             ("--dump-reset-toggle", { CardDump.dumpResetToggle(directory: $0, provider: $1) }),
+            ("--dump-breakdown-toggle", { CardDump.dumpBreakdownToggle(directory: $0, provider: $1) }),
         ]
         for dump in providerDumps {
             if let pair = values(after: dump.flag, count: 2) {

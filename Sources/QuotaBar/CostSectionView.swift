@@ -13,19 +13,42 @@ struct CostSectionView: View {
     /// Room for the selected bar's lift plus its label, so neither the card nor the KPI row above
     /// it moves when the highlight changes bars.
     private static let chartTopPadding: CGFloat = 14 + CostChartHoverMotion.lift
-    /// Four covers a normal day for either provider; the rest collapse into a "+N more" line.
+    /// Four covers a normal day for either provider; the rest collapse behind a "+N more" line
+    /// the reader can open.
     private static let maxBreakdownRows = 4
-    private static let summaryLineHeight: CGFloat = 14
-    private static let breakdownRowHeight: CGFloat = 13
-    private static let overflowLineHeight: CGFloat = 12
-    private static let detailSpacing: CGFloat = 3
+    private static let breakdownLayout = CostBreakdownLayout(
+        summaryHeight: 14,
+        rowHeight: 13,
+        toggleHeight: 12,
+        spacing: 3
+    )
+    /// The gap between the chart and the breakdown under it, and the one the card's own stack
+    /// puts between every section. Both are the same 10 pt, and the pointer is read against the
+    /// first of them.
+    private static let sectionSpacing: CGFloat = 10
+    /// The rank bar and the gap after it. Together they are the column every breakdown line
+    /// starts its text at, the toggle row's chevron included.
+    private static let breakdownBarWidth: CGFloat = 2
+    private static let breakdownMarkerGap: CGFloat = 6
+    private static let breakdownMarkerWidth = Self.breakdownBarWidth + Self.breakdownMarkerGap
 
     /// Which day the pointer is over. Nil falls back to today's bar.
     @State private var hoveredDayKey: String?
     /// Updated immediately on click, then seeded from SettingsStore whenever the card is rebuilt.
     @State private var selectedLabelMode: CostChartLabelMode
+    /// Whether the "+N more" line is pointed at, which is the whole of what says it is a switch.
+    @State private var isToggleHovered = false
     private let todayDayKey: String
     private let onLabelModeChanged: (CostChartLabelMode) -> Void
+    /// Opening the day's full model list makes the card taller, and the card's height belongs to
+    /// the menu hosting it -- so unlike the label unit, this one is owned by the caller and comes
+    /// back down as a new value rather than living in `@State` here.
+    private let isBreakdownExpanded: Bool
+    /// How far open the list is drawn right now, 0 to 1. The caller steps it: the card's height is
+    /// an AppKit frame and the rows are SwiftUI, and the two only stay together if one clock moves
+    /// both. Nothing here animates on its own.
+    private let breakdownOpenness: Double
+    private let onBreakdownExpandedChanged: (Bool) -> Void
 
     /// Activity days plus an empty today bar, so today's cost remains visible before the first
     /// completed turn. Older activity falls off the left once the chart reaches its cap. The
@@ -40,14 +63,22 @@ struct CostSectionView: View {
         previewHoveredDayKey: String? = nil,
         previewTodayDayKey: String? = nil,
         labelMode: CostChartLabelMode = .tokens,
-        onLabelModeChanged: @escaping (CostChartLabelMode) -> Void = { _ in }
+        onLabelModeChanged: @escaping (CostChartLabelMode) -> Void = { _ in },
+        isBreakdownExpanded: Bool = false,
+        breakdownOpenness: Double? = nil,
+        previewToggleHovered: Bool = false,
+        onBreakdownExpandedChanged: @escaping (Bool) -> Void = { _ in }
     ) {
         self.snapshot = snapshot
         self._hoveredDayKey = State(initialValue: previewHoveredDayKey)
         self._selectedLabelMode = State(initialValue: labelMode)
+        self._isToggleHovered = State(initialValue: previewToggleHovered)
         let todayDayKey = previewTodayDayKey ?? Formatters.dayKey(for: Date())
         self.todayDayKey = todayDayKey
         self.onLabelModeChanged = onLabelModeChanged
+        self.isBreakdownExpanded = isBreakdownExpanded
+        self.breakdownOpenness = breakdownOpenness ?? (isBreakdownExpanded ? 1 : 0)
+        self.onBreakdownExpandedChanged = onBreakdownExpandedChanged
 
         let bars = CostChartHighlightPolicy.visibleDays(
             from: snapshot.days,
@@ -59,12 +90,17 @@ struct CostSectionView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: Self.sectionSpacing) {
             self.kpiGrid
-            if !self.bars.isEmpty {
-                self.chart
+            // Chart and breakdown share one tracking area, so moving down from a bar to the row
+            // that opens its models is not read as leaving the chart.
+            VStack(alignment: .leading, spacing: Self.sectionSpacing) {
+                if !self.bars.isEmpty {
+                    self.chart
+                }
+                self.hoverDetail
             }
-            self.hoverDetail
+            .mouseLocation(onMoved: self.updateHover, onClicked: self.handleClick)
 
             if let topModel = self.snapshot.topModel {
                 Text("Top model: \(topModel)")
@@ -123,7 +159,6 @@ struct CostSectionView: View {
         }
         .frame(height: Self.chartHeight)
         .padding(.top, Self.chartTopPadding)
-        .mouseLocation(onMoved: self.updateHover, onClicked: self.toggleLabel)
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
 
@@ -190,29 +225,27 @@ struct CostSectionView: View {
     /// Codex day mixes sol, terra and luna; a Claude day mixes opus, sonnet and haiku.
     /// The block is a fixed height so the card does not resize under the pointer.
     private var hoverDetail: some View {
-        VStack(alignment: .leading, spacing: Self.detailSpacing) {
+        // Each line carries the gap above it rather than leaving it to the stack: the rows that
+        // open and close have to take their gap with them, or closing one would leave its seam.
+        VStack(alignment: .leading, spacing: 0) {
             Text(self.hoverLine)
                 .font(.system(size: 11))
                 .foregroundStyle(self.hoveredDay == nil ? .secondary : .primary)
                 .lineLimit(1)
                 .truncationMode(.tail)
+                // Every line in this block is pinned to the height the layout reserves for it, so
+                // the row the pointer is hit-tested against is the row it is pointing at.
+                .frame(height: CGFloat(Self.breakdownLayout.summaryHeight))
 
             if let day = self.hoveredDay {
                 let ranked = day.rankedModels(by: self.selectedLabelMode)
                 ForEach(Array(ranked.prefix(Self.maxBreakdownRows).enumerated()), id: \.element.key) {
                     index, entry in
-                    self.breakdownRow(
-                        source: entry.key.source,
-                        model: entry.model,
-                        usage: entry.usage,
-                        index: index
-                    )
+                    self.breakdownLine(entry: entry, index: index)
                 }
-                if ranked.count > Self.maxBreakdownRows {
-                    Text("+\(ranked.count - Self.maxBreakdownRows) more")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.tertiary)
-                        .padding(.leading, 6)
+                self.breakdownOverflow(ranked: ranked)
+                if self.hasBreakdownToggle {
+                    self.breakdownToggleRow(hiddenCount: max(0, ranked.count - Self.maxBreakdownRows))
                 }
             }
         }
@@ -220,15 +253,123 @@ struct CostSectionView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    /// The models that did not fit, in a strip whose height is the reveal: zero closed, their full
+    /// height open, and whole points in between. They are always built, so opening and closing are
+    /// the same two values moving -- the strip's height and the rows' opacity.
+    private func breakdownOverflow(
+        ranked: [(key: ModelUsageKey, model: String, usage: ModelDayUsage)]
+    ) -> some View {
+        let overflow = Array(ranked.dropFirst(Self.maxBreakdownRows).enumerated())
+        return VStack(alignment: .leading, spacing: 0) {
+            ForEach(overflow, id: \.element.key) { index, entry in
+                self.breakdownLine(entry: entry, index: index + Self.maxBreakdownRows)
+            }
+        }
+        .frame(height: self.overflowStripHeight(rows: overflow.count), alignment: .top)
+        .clipped()
+        .opacity(self.breakdownOpenness)
+    }
+
+    private func overflowStripHeight(rows: Int) -> CGFloat {
+        CGFloat(Self.breakdownLayout.rowsHeight(rows: rows, openness: self.breakdownOpenness))
+    }
+
+    private func breakdownLine(
+        entry: (key: ModelUsageKey, model: String, usage: ModelDayUsage),
+        index: Int
+    ) -> some View {
+        self.breakdownRow(
+            source: entry.key.source,
+            model: entry.model,
+            usage: entry.usage,
+            index: index
+        )
+        .padding(.top, CGFloat(Self.breakdownLayout.spacing))
+    }
+
     /// Sized for the busiest day on the chart rather than the day under the pointer, so the
-    /// block neither jumps between bars nor reserves space no day needs.
+    /// block neither jumps between bars nor reserves space no day needs. Opening the list sizes it
+    /// for that day's full model count, which is the one time the card does change height -- the
+    /// reader asked for it, and the menu resizes around it.
     private var hoverDetailHeight: CGFloat {
         let busiest = self.bars.map(\.byModel.count).max() ?? 0
-        let rows = min(busiest, Self.maxBreakdownRows)
-        var height = Self.summaryLineHeight + CGFloat(rows) * Self.breakdownRowHeight
-        if busiest > Self.maxBreakdownRows { height += Self.overflowLineHeight }
-        let lines = 1 + rows + (busiest > Self.maxBreakdownRows ? 1 : 0)
-        return height + CGFloat(max(0, lines - 1)) * Self.detailSpacing
+        let hasToggle = busiest > Self.maxBreakdownRows
+        let closed = Self.breakdownLayout.height(
+            rows: min(busiest, Self.maxBreakdownRows),
+            hasToggle: hasToggle
+        )
+        // The block grows by exactly the strip the busiest day opens, so the lines below it move
+        // in the same whole points the strip does.
+        return CGFloat(closed) + self.overflowStripHeight(rows: max(0, busiest - Self.maxBreakdownRows))
+    }
+
+    /// How many model rows are above the toggle row, and how much strip is open under them --
+    /// both read off what is on screen, so a click lands on the row the pointer is over even
+    /// mid-sweep.
+    private var visibleBreakdownRows: Int {
+        min(self.hoveredDay?.byModel.count ?? 0, Self.maxBreakdownRows)
+    }
+
+    /// The toggle row appears on a day with more models than fit, and stays for as long as the
+    /// list is open -- including on a day that would have fit -- so the way back is never missing.
+    /// The height reserved above already counts it: only a chart holding such a day can open one.
+    /// The toggle row sits under the four rows that always show plus however much of the strip is
+    /// open.
+    private var breakdownToggleBand: ClosedRange<Double>? {
+        guard let band = Self.breakdownLayout.toggleBand(
+            rows: self.visibleBreakdownRows,
+            hasToggle: self.hasBreakdownToggle
+        ) else { return nil }
+        let strip = Double(self.overflowStripHeight(
+            rows: max(0, (self.hoveredDay?.byModel.count ?? 0) - Self.maxBreakdownRows)
+        ))
+        return (band.lowerBound + strip)...(band.upperBound + strip)
+    }
+
+    private var hasBreakdownToggle: Bool {
+        guard let models = self.hoveredDay?.byModel.count else { return false }
+        return models > Self.maxBreakdownRows || self.isBreakdownExpanded
+    }
+
+    /// The band the bars occupy, and the top of the breakdown under them, both measured from the
+    /// top of the tracked block.
+    private var chartBandHeight: CGFloat {
+        self.bars.isEmpty ? 0 : Self.chartTopPadding + Self.chartHeight
+    }
+
+    private var breakdownTop: CGFloat {
+        self.bars.isEmpty ? 0 : self.chartBandHeight + Self.sectionSpacing
+    }
+
+    /// The overflow line doubles as the switch that opens the rest of the day. It cannot be a
+    /// `Button` or an `.onTapGesture` -- an NSMenu popup is never the key window, so SwiftUI's
+    /// gestures never fire inside the card -- so its click arrives through the same tracking view
+    /// the chart reads, and its own height is pinned to what the hit test assumes.
+    private func breakdownToggleRow(hiddenCount: Int) -> some View {
+        HStack(spacing: 0) {
+            // The chevron takes the column the rank bars are in, so the label starts on the same
+            // left edge as the model names above it.
+            Image(systemName: "chevron.right")
+                .font(.system(size: 7, weight: .semibold))
+                // A quarter turn spread over the reveal, so the glyph and the rows it stands for
+                // are the same movement rather than two animations that happen to overlap.
+                .rotationEffect(.degrees(90 * self.breakdownOpenness))
+                .frame(width: Self.breakdownMarkerWidth, alignment: .leading)
+            // Both labels are always there, so the wording crosses over on the same beat the rows
+            // do instead of cutting under a list that is still moving.
+            ZStack(alignment: .leading) {
+                Text("+\(hiddenCount) more")
+                    .opacity(1 - self.breakdownOpenness)
+                Text("Show less")
+                    .opacity(self.breakdownOpenness)
+            }
+            Spacer(minLength: 0)
+        }
+        .font(.system(size: 10))
+        .foregroundStyle(self.isToggleHovered ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tertiary))
+        .animation(.easeOut(duration: 0.12), value: self.isToggleHovered)
+        .frame(height: CGFloat(Self.breakdownLayout.toggleHeight))
+        .padding(.top, CGFloat(Self.breakdownLayout.spacing))
     }
 
     private func breakdownRow(
@@ -237,11 +378,11 @@ struct CostSectionView: View {
         usage: ModelDayUsage,
         index: Int
     ) -> some View {
-        HStack(spacing: 6) {
+        HStack(spacing: Self.breakdownMarkerGap) {
             // Each row fades a step further, so rank reads without numbering.
             Rectangle()
                 .fill(Theme.accent(for: self.snapshot.provider).opacity(max(0.3, 0.75 - Double(index) * 0.12)))
-                .frame(width: 2, height: 10)
+                .frame(width: Self.breakdownBarWidth, height: 10)
             Text(self.snapshot.provider == .codex ? "\(source.displayName) · \(model)" : model)
                 .font(.system(size: 10))
                 .lineLimit(1)
@@ -252,6 +393,7 @@ struct CostSectionView: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
         }
+        .frame(height: CGFloat(Self.breakdownLayout.rowHeight))
     }
 
     private static func breakdownValue(_ usage: ModelDayUsage) -> String {
@@ -272,24 +414,38 @@ struct CostSectionView: View {
     }
 
     private func updateHover(at location: CGPoint?, width: CGFloat) {
-        // Leaving the chart clears hover selection, which restores today's default highlight.
-        // Inside the chart the policy decides, so a gap between bars holds the current day.
-        guard let location, !self.bars.isEmpty, width > 0 else {
+        // Leaving the chart and its breakdown together clears the hover selection, which restores
+        // today's default highlight. Inside them the policy decides, so a gap between bars -- or
+        // the trip down to the breakdown -- holds the current day.
+        guard let location, width > 0 else {
             if self.hoveredDayKey != nil { self.select(nil) }
+            if self.isToggleHovered { self.isToggleHovered = false }
             return
         }
-        let index = CostChartHighlightPolicy.barIndex(
-            atX: location.x,
-            width: width,
-            barCount: self.bars.count,
-            spacing: Self.barSpacing
-        )
-        let key = index.map { self.bars[$0].dayKey }
+        let region = self.region(at: location, width: width)
+        if self.isToggleHovered != (region == .breakdownToggle) {
+            self.isToggleHovered = region == .breakdownToggle
+        }
+        guard !self.bars.isEmpty else { return }
+        var key: String?
+        if case let .bar(index) = region { key = self.bars[index].dayKey }
         let nextKey = CostChartHighlightPolicy.hoveredDayKey(
             afterMovingTo: key,
             currentDayKey: self.hoveredDayKey
         )
         if self.hoveredDayKey != nextKey { self.select(nextKey) }
+    }
+
+    private func region(at location: CGPoint, width: CGFloat) -> CostChartHighlightPolicy.Region {
+        CostChartHighlightPolicy.region(
+            at: location,
+            width: width,
+            chartHeight: self.chartBandHeight,
+            barCount: self.bars.count,
+            spacing: Self.barSpacing,
+            detailTop: self.breakdownTop,
+            toggleBand: self.breakdownToggleBand
+        )
     }
 
     /// Clearing the hover is the one move the reader did not aim at a bar, so it is the one that
@@ -310,14 +466,18 @@ struct CostSectionView: View {
         )
     }
 
-    private func toggleLabel(at location: CGPoint, width: CGFloat) {
-        let index = CostChartHighlightPolicy.barIndex(
-            atX: location.x,
-            width: width,
-            barCount: self.bars.count,
-            spacing: Self.barSpacing
-        )
-        let clickedDayKey = index.map { self.bars[$0].dayKey }
+    private func handleClick(at location: CGPoint, width: CGFloat) {
+        switch self.region(at: location, width: width) {
+        case let .bar(index):
+            self.toggleLabel(dayKey: self.bars[index].dayKey)
+        case .breakdownToggle:
+            self.onBreakdownExpandedChanged(!self.isBreakdownExpanded)
+        case .elsewhere:
+            break
+        }
+    }
+
+    private func toggleLabel(dayKey clickedDayKey: String) {
         let nextMode = CostChartHighlightPolicy.labelMode(
             afterClicking: clickedDayKey,
             selectedDayKey: self.selectedDayKey,

@@ -51,6 +51,35 @@ enum CostChartHoverMotion {
     /// fades in, rather than blinking on above a bar that is still moving.
     static let labelTransition: AnyTransition = .opacity.combined(with: .offset(y: 4))
 
+    // MARK: - Breakdown
+
+    /// A day's model list is the one thing on this card the reader opens rather than points at, so
+    /// it is the one change allowed to take its time. The extra rows unroll out of the row above
+    /// and fade in, and leave the same way, on a curve that eases out of rest and back into it --
+    /// still the longest move on the card, but only just: past this the click stops feeling like
+    /// it landed.
+    static let breakdownDuration: TimeInterval = 0.34
+
+    /// The shape the reveal takes, sampled by hand. Both halves of it are stepped rather than
+    /// handed to an animator: the card's height is an AppKit frame -- an open menu re-lays itself
+    /// out whenever its item view resizes -- and the rows inside it follow the same reading, which
+    /// is the only way the two stay together. Smoothstep rather than SwiftUI's cubic bezier: over
+    /// a third of a second the two agree to well within a frame.
+    static func breakdownEase(_ progress: Double) -> Double {
+        let progress = min(1, max(0, progress))
+        return progress * progress * (3 - 2 * progress)
+    }
+
+    /// One step of the sweep. The distance is what gets rounded, not the height: the card grows by
+    /// exactly the strip the rows open, and the strip rounds the same product -- so the card's edge
+    /// and the rows inside it move by the same whole points rather than by two roundings of one
+    /// curve. Whole points because the card is laid out from the top edge of a view whose height is
+    /// what moves, and a fraction there puts every line on a fraction of a pixel, where text
+    /// shimmers instead of sliding.
+    static func breakdownHeight(start: CGFloat, target: CGFloat, progress: Double) -> CGFloat {
+        start + ((target - start) * Self.breakdownEase(progress)).rounded()
+    }
+
     // MARK: - Unit swap
 
     /// Clicking the selected bar swaps its label between tokens and cost. The click lands on a

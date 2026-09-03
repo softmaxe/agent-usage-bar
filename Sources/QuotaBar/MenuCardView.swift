@@ -18,6 +18,14 @@ struct MenuCardView: View {
     var now = Date()
     var costChartLabelMode = CostChartLabelMode.tokens
     var onCostChartLabelModeChanged: (CostChartLabelMode) -> Void = { _ in }
+    /// Whether the cost breakdown is showing every model of the selected day. It is held by the
+    /// menu rather than by the card, because opening the list is the one click that changes the
+    /// card's height and the hosting view has to be resized around it.
+    var isCostBreakdownExpanded = false
+    /// How far open the list is drawn right now. Nil follows the flag above, which is every card
+    /// that is not mid-sweep.
+    var costBreakdownOpenness: Double?
+    var onCostBreakdownExpandedChanged: (Bool) -> Void = { _ in }
     var quotaResetDisplayMode = QuotaResetDisplayMode.countdown
     var onQuotaResetDisplayModeChanged: (QuotaResetDisplayMode) -> Void = { _ in }
     /// Draws one window's reset label as though the pointer were on it. Only the frame dump sets
@@ -35,6 +43,17 @@ struct MenuCardView: View {
         .padding(.top, 10)
         .padding(.bottom, 4)
         .frame(width: 280, alignment: .leading)
+        // The card is laid out at the height its own contents want, and hangs from the top of
+        // whatever the hosting view is currently sized to. Opening the breakdown sweeps that size
+        // over a third of a second, and without this every step of the sweep would re-propose a
+        // height to the whole card -- the chart and the lines above it would shuffle their way
+        // through an animation that is happening underneath them.
+        .fixedSize(horizontal: false, vertical: true)
+        // `minHeight` is what makes this frame take the height it is offered rather than the one
+        // the card wants: without it the frame reports the card's own height, the hosting view
+        // finds a root taller than its bounds, and centres it -- so a sweep slides the whole card
+        // up and back down through the animation.
+        .frame(minHeight: 0, maxHeight: .infinity, alignment: .top)
     }
 
     // MARK: - Header
@@ -104,7 +123,10 @@ struct MenuCardView: View {
                     CostSectionView(
                         snapshot: cost,
                         labelMode: self.costChartLabelMode,
-                        onLabelModeChanged: self.onCostChartLabelModeChanged
+                        onLabelModeChanged: self.onCostChartLabelModeChanged,
+                        isBreakdownExpanded: self.isCostBreakdownExpanded,
+                        breakdownOpenness: self.costBreakdownOpenness,
+                        onBreakdownExpandedChanged: self.onCostBreakdownExpandedChanged
                     )
                 }
 

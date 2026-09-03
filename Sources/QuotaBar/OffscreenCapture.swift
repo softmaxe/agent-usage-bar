@@ -29,6 +29,24 @@ enum OffscreenCapture {
         titled: Bool = false,
         settle: TimeInterval = 0
     ) -> Outcome {
+        guard let rep = Self.render(hosting, titled: titled, settle: settle) else {
+            return .failed("failed to render \(name)")
+        }
+        guard let data = rep.representation(using: .png, properties: [:]) else {
+            return .failed("failed to encode \(name)")
+        }
+        let url = root.appendingPathComponent("\(name).png")
+        try? data.write(to: url)
+        return .written(url)
+    }
+
+    /// The same render, handed back as pixels. A verifier compares two of these rather than
+    /// writing them out.
+    static func render(
+        _ hosting: NSView,
+        titled: Bool = false,
+        settle: TimeInterval = 0
+    ) -> NSBitmapImageRep? {
         let window = NSWindow(
             contentRect: hosting.frame,
             styleMask: titled ? [.titled, .closable] : [.borderless],
@@ -57,15 +75,10 @@ enum OffscreenCapture {
         }
 
         guard let rep = ground.bitmapImageRepForCachingDisplay(in: ground.bounds) else {
-            return .failed("failed to allocate bitmap for \(name)")
+            return nil
         }
         ground.cacheDisplay(in: ground.bounds, to: rep)
-        guard let data = rep.representation(using: .png, properties: [:]) else {
-            return .failed("failed to encode \(name)")
-        }
-        let url = root.appendingPathComponent("\(name).png")
-        try? data.write(to: url)
-        return .written(url)
+        return rep
     }
 
     /// Renders `view` at 2x and writes it to `<root>/<name>.png`. Frame dumps use this rather
