@@ -54,15 +54,17 @@ enum CostChartHighlightPolicy {
         dayKey
     }
 
-    /// Detail follows the last bar while the pointer stays in the shared tracking area, then
-    /// clears when the pointer leaves that area.
+    /// Detail keeps a valid pinned bar, takes a new hover, or falls back to the newest current bar.
     static func detailDayKey(
         afterMovingTo dayKey: String?,
         currentDayKey: String?,
-        isInsideTrackingArea: Bool
+        availableDayKeys: Set<String>,
+        defaultDayKey: String?
     ) -> String? {
-        guard isInsideTrackingArea else { return nil }
-        return dayKey ?? currentDayKey
+        if let dayKey, availableDayKeys.contains(dayKey) { return dayKey }
+        if let currentDayKey, availableDayKeys.contains(currentDayKey) { return currentDayKey }
+        guard let defaultDayKey, availableDayKeys.contains(defaultDayKey) else { return nil }
+        return defaultDayKey
     }
 
     /// The one quiet tone every unselected day shares.

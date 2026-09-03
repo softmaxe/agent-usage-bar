@@ -25,6 +25,36 @@ enum CostChartHighlightVerifier {
             || visibleWithoutToday.last?.costUSD != 0 {
             failures.append("a missing today expected a zero-cost today bar")
         }
+        let defaultDetailDayKey = CostChartHighlightPolicy.detailDayKey(
+            afterMovingTo: nil,
+            currentDayKey: nil,
+            availableDayKeys: Set(visibleWithoutToday.map(\.dayKey)),
+            defaultDayKey: visibleWithoutToday.last?.dayKey
+        )
+        if defaultDetailDayKey != today {
+            failures.append(
+                "an idle chart expected detail for its newest bar, got \(defaultDetailDayKey ?? "nil")"
+            )
+        }
+        let nextDay = "2026-08-27"
+        let pinnedBeforeRefresh = CostChartHighlightPolicy.detailDayKey(
+            afterMovingTo: nil,
+            currentDayKey: yesterday,
+            availableDayKeys: available,
+            defaultDayKey: today
+        )
+        let fallbackAfterRefresh = CostChartHighlightPolicy.detailDayKey(
+            afterMovingTo: nil,
+            currentDayKey: yesterday,
+            availableDayKeys: Set([today, nextDay]),
+            defaultDayKey: nextDay
+        )
+        if pinnedBeforeRefresh != yesterday || fallbackAfterRefresh != nextDay {
+            failures.append(
+                "detail refresh expected a valid pin to stay and an evicted pin to use the newest "
+                    + "bar, got \(pinnedBeforeRefresh ?? "nil")/\(fallbackAfterRefresh ?? "nil")"
+            )
+        }
         let idleSelection = CostChartHighlightPolicy.selectedDayKey(
             hoveredDayKey: nil,
             availableDayKeys: Set(visibleWithoutToday.map(\.dayKey))
@@ -432,9 +462,8 @@ enum CostChartHighlightVerifier {
         }
 
         // Drive one interaction through repeated hit tests. The bar label is transient, while
-        // the detail keeps the last bar alive until the pointer leaves the whole tracking area.
-        // Keeping those states separate is what leaves the toggle in the next render and lets the
-        // click land on it.
+        // detail starts on the newest bar and only another bar hover can replace it. Keeping those
+        // states separate leaves the toggle in the next render and lets the click land on it.
         func dayKey(for region: CostChartHighlightPolicy.Region) -> String? {
             switch region {
             case let .bar(index), let .label(index):
@@ -497,10 +526,12 @@ enum CostChartHighlightVerifier {
         var sequenceHoveredDayKey = CostChartHighlightPolicy.hoveredDayKey(
             afterMovingTo: initialDayKey
         )
-        var sequenceDetailDayKey = CostChartHighlightPolicy.detailDayKey(
+        var sequenceDetailDayKey = defaultDetailDayKey
+        sequenceDetailDayKey = CostChartHighlightPolicy.detailDayKey(
             afterMovingTo: initialDayKey,
-            currentDayKey: nil,
-            isInsideTrackingArea: true
+            currentDayKey: sequenceDetailDayKey,
+            availableDayKeys: available,
+            defaultDayKey: today
         )
         let aboveShortBarDayKey = dayKey(for: region(47, 30))
         sequenceHoveredDayKey = CostChartHighlightPolicy.hoveredDayKey(
@@ -509,7 +540,8 @@ enum CostChartHighlightVerifier {
         sequenceDetailDayKey = CostChartHighlightPolicy.detailDayKey(
             afterMovingTo: aboveShortBarDayKey,
             currentDayKey: sequenceDetailDayKey,
-            isInsideTrackingArea: true
+            availableDayKeys: available,
+            defaultDayKey: today
         )
         let modelRowDayKey = dayKey(for: region(47, detailTop + 5))
         sequenceHoveredDayKey = CostChartHighlightPolicy.hoveredDayKey(
@@ -518,7 +550,8 @@ enum CostChartHighlightVerifier {
         sequenceDetailDayKey = CostChartHighlightPolicy.detailDayKey(
             afterMovingTo: modelRowDayKey,
             currentDayKey: sequenceDetailDayKey,
-            isInsideTrackingArea: true
+            availableDayKeys: available,
+            defaultDayKey: today
         )
         let sequenceToggleBand = sequenceDetailDayKey == nil ? nil : collapsedBand
         let sequenceToggle = region(47, detailTop + 40, toggleBand: sequenceToggleBand)
@@ -527,23 +560,32 @@ enum CostChartHighlightVerifier {
         let detailAfterExit = CostChartHighlightPolicy.detailDayKey(
             afterMovingTo: nil,
             currentDayKey: sequenceDetailDayKey,
-            isInsideTrackingArea: false
+            availableDayKeys: available,
+            defaultDayKey: today
+        )
+        let detailAfterNextBar = CostChartHighlightPolicy.detailDayKey(
+            afterMovingTo: today,
+            currentDayKey: detailAfterExit,
+            availableDayKeys: available,
+            defaultDayKey: today
         )
         if sequenceHoveredDayKey != nil || sequenceDetailDayKey != yesterday
-            || sequenceToggle != .breakdownToggle || !sequenceExpanded || detailAfterExit != nil {
+            || sequenceToggle != .breakdownToggle || !sequenceExpanded
+            || detailAfterExit != yesterday || detailAfterNextBar != today {
             failures.append(
                 "bar-to-detail sequence expected nil hover, retained detail, a clickable toggle, "
-                    + "and cleared exit; got "
+                    + "retained exit, and replacement by the next bar; got "
                     + "\(sequenceHoveredDayKey ?? "nil")/\(sequenceDetailDayKey ?? "nil")/"
-                    + "\(sequenceToggle)/\(sequenceExpanded)/\(detailAfterExit ?? "nil")"
+                    + "\(sequenceToggle)/\(sequenceExpanded)/\(detailAfterExit ?? "nil")/"
+                    + "\(detailAfterNextBar ?? "nil")"
             )
         }
 
         VerifierReport.finish(
             failures,
             label: "cost chart highlight verification",
-            passed: "cost chart selection, click label toggle, hit testing, opacity, hover motion, "
-                + "unit swap motion, and expandable breakdown layout checks passed"
+            passed: "cost chart selection, persistent detail, click label toggle, hit testing, "
+                + "opacity, hover motion, unit swap motion, and expandable breakdown layout checks passed"
         )
     }
 }

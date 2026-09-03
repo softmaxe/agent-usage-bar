@@ -36,7 +36,7 @@ struct CostSectionView: View {
 
     /// Which day the pointer is over. Nil leaves every bar unselected.
     @State private var hoveredDayKey: String?
-    /// The last hovered day remains available while the pointer reads or opens its detail rows.
+    /// The newest day starts here; a later bar hover replaces it until another does or it expires.
     @State private var detailDayKey: String?
     /// Updated immediately on click, then seeded from SettingsStore whenever the card is rebuilt.
     @State private var selectedLabelMode: CostChartLabelMode
@@ -72,22 +72,29 @@ struct CostSectionView: View {
         previewToggleHovered: Bool = false,
         onBreakdownExpandedChanged: @escaping (Bool) -> Void = { _ in }
     ) {
-        self.snapshot = snapshot
-        self._hoveredDayKey = State(initialValue: previewHoveredDayKey)
-        self._detailDayKey = State(initialValue: previewHoveredDayKey)
-        self._selectedLabelMode = State(initialValue: labelMode)
-        self._isToggleHovered = State(initialValue: previewToggleHovered)
         let todayDayKey = previewTodayDayKey ?? Formatters.dayKey(for: Date())
-        self.onLabelModeChanged = onLabelModeChanged
-        self.isBreakdownExpanded = isBreakdownExpanded
-        self.breakdownOpenness = breakdownOpenness ?? (isBreakdownExpanded ? 1 : 0)
-        self.onBreakdownExpandedChanged = onBreakdownExpandedChanged
-
         let bars = CostChartHighlightPolicy.visibleDays(
             from: snapshot.days,
             todayDayKey: todayDayKey,
             maxBars: Self.maxBars
         )
+        let detailDayKey = CostChartHighlightPolicy.detailDayKey(
+            afterMovingTo: previewHoveredDayKey,
+            currentDayKey: nil,
+            availableDayKeys: Set(bars.map(\.dayKey)),
+            defaultDayKey: bars.last?.dayKey
+        )
+
+        self.snapshot = snapshot
+        self._hoveredDayKey = State(initialValue: previewHoveredDayKey)
+        self._detailDayKey = State(initialValue: detailDayKey)
+        self._selectedLabelMode = State(initialValue: labelMode)
+        self._isToggleHovered = State(initialValue: previewToggleHovered)
+        self.onLabelModeChanged = onLabelModeChanged
+        self.isBreakdownExpanded = isBreakdownExpanded
+        self.breakdownOpenness = breakdownOpenness ?? (isBreakdownExpanded ? 1 : 0)
+        self.onBreakdownExpandedChanged = onBreakdownExpandedChanged
+
         self.bars = bars
         self.barDayKeys = Set(bars.map(\.dayKey))
     }
@@ -235,7 +242,13 @@ struct CostSectionView: View {
     // MARK: - Hover
 
     private var detailDay: CostDay? {
-        guard let key = self.detailDayKey else { return nil }
+        let key = CostChartHighlightPolicy.detailDayKey(
+            afterMovingTo: nil,
+            currentDayKey: self.detailDayKey,
+            availableDayKeys: self.barDayKeys,
+            defaultDayKey: self.bars.last?.dayKey
+        )
+        guard let key else { return nil }
         return self.bars.first { $0.dayKey == key }
     }
 
@@ -439,7 +452,8 @@ struct CostSectionView: View {
             let nextDetailKey = CostChartHighlightPolicy.detailDayKey(
                 afterMovingTo: nil,
                 currentDayKey: self.detailDayKey,
-                isInsideTrackingArea: false
+                availableDayKeys: self.barDayKeys,
+                defaultDayKey: self.bars.last?.dayKey
             )
             if self.detailDayKey != nextDetailKey { self.detailDayKey = nextDetailKey }
             if self.isToggleHovered { self.isToggleHovered = false }
@@ -455,7 +469,8 @@ struct CostSectionView: View {
         let nextDetailKey = CostChartHighlightPolicy.detailDayKey(
             afterMovingTo: key,
             currentDayKey: self.detailDayKey,
-            isInsideTrackingArea: true
+            availableDayKeys: self.barDayKeys,
+            defaultDayKey: self.bars.last?.dayKey
         )
         if self.hoveredDayKey != nextKey { self.select(nextKey) }
         if self.detailDayKey != nextDetailKey { self.detailDayKey = nextDetailKey }
