@@ -41,14 +41,14 @@ final class CostCache {
         }
         try self.exec("PRAGMA journal_mode=WAL")
         try self.exec("PRAGMA synchronous=NORMAL")
-        try self.createSchema()
         try self.rebuildIfScanSemanticsChanged()
+        try self.createSchema()
     }
 
     /// Bumped whenever a scan would write different numbers for the same bytes — a parser change,
     /// a different token split, a change in what a stored cost means. The rows are a derivative of
     /// the scanner, and costs are frozen at scan time, so neither can be corrected in place.
-    private static let scanSemanticsVersion = 6
+    private static let scanSemanticsVersion = 7
 
     deinit {
         if let db = self.db { sqlite3_close(db) }
@@ -73,11 +73,12 @@ final class CostCache {
             day TEXT NOT NULL,
             model TEXT NOT NULL,
             long_context INTEGER NOT NULL,
+            is_fast INTEGER NOT NULL,
             input INTEGER NOT NULL,
             output INTEGER NOT NULL,
             cache_write INTEGER NOT NULL,
             cache_read INTEGER NOT NULL,
-            PRIMARY KEY (path, day, model, long_context)
+            PRIMARY KEY (path, day, model, long_context, is_fast)
         )
         """)
         // Claude replays the same assistant message into several transcripts, so rows are keyed
@@ -106,6 +107,7 @@ final class CostCache {
             day TEXT NOT NULL,
             model TEXT NOT NULL,
             long_context INTEGER NOT NULL,
+            is_fast INTEGER NOT NULL,
             input INTEGER NOT NULL,
             output INTEGER NOT NULL,
             cache_write INTEGER NOT NULL,
@@ -159,12 +161,16 @@ final class CostCache {
     /// truth; this cache only ever holds a re-derivable view of them.
     private func rebuildIfScanSemanticsChanged() throws {
         guard try self.userVersion() != Self.scanSemanticsVersion else { return }
-        try self.exec("DELETE FROM claude_message")
-        try self.exec("DELETE FROM codex_day")
-        try self.exec("DELETE FROM opencode_part")
-        try self.exec("DELETE FROM pi_message")
-        try self.exec("DELETE FROM opencode_state")
-        try self.exec("DELETE FROM file_cursor")
+        for table in [
+            "claude_message",
+            "codex_day",
+            "opencode_part",
+            "pi_message",
+            "opencode_state",
+            "file_cursor",
+        ] {
+            try self.exec("DROP TABLE IF EXISTS \(table)")
+        }
         try self.exec("PRAGMA user_version = \(Self.scanSemanticsVersion)")
         Log.ui.info("cost cache rebuilt for scan semantics v\(Self.scanSemanticsVersion, privacy: .public)")
     }
@@ -277,6 +283,7 @@ final class CostCache {
         day: String,
         model: String,
         longContext: Bool,
+        isFast: Bool,
         totals: TokenTotals,
         costUSD: Double?
     ) throws {
@@ -286,10 +293,10 @@ final class CostCache {
             self.db,
             """
             INSERT INTO codex_day
-                (path, day, model, long_context, input, output, cache_write, cache_write_1h,
-                 cache_read, cost_usd, unpriced_tokens)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(path, day, model, long_context) DO UPDATE SET
+                (path, day, model, long_context, is_fast, input, output, cache_write,
+                 cache_write_1h, cache_read, cost_usd, unpriced_tokens)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(path, day, model, long_context, is_fast) DO UPDATE SET
                 input = input + excluded.input,
                 output = output + excluded.output,
                 cache_write = cache_write + excluded.cache_write,
@@ -306,13 +313,14 @@ final class CostCache {
         sqlite3_bind_text(stmt, 2, day, -1, sqliteTransient)
         sqlite3_bind_text(stmt, 3, model, -1, sqliteTransient)
         sqlite3_bind_int64(stmt, 4, longContext ? 1 : 0)
-        sqlite3_bind_int64(stmt, 5, Int64(totals.input))
-        sqlite3_bind_int64(stmt, 6, Int64(totals.output))
-        sqlite3_bind_int64(stmt, 7, Int64(totals.cacheWrite))
-        sqlite3_bind_int64(stmt, 8, Int64(totals.cacheWrite1h))
-        sqlite3_bind_int64(stmt, 9, Int64(totals.cacheRead))
-        sqlite3_bind_double(stmt, 10, costUSD ?? 0)
-        sqlite3_bind_int64(stmt, 11, Int64(costUSD == nil ? totals.total : 0))
+        sqlite3_bind_int64(stmt, 5, isFast ? 1 : 0)
+        sqlite3_bind_int64(stmt, 6, Int64(totals.input))
+        sqlite3_bind_int64(stmt, 7, Int64(totals.output))
+        sqlite3_bind_int64(stmt, 8, Int64(totals.cacheWrite))
+        sqlite3_bind_int64(stmt, 9, Int64(totals.cacheWrite1h))
+        sqlite3_bind_int64(stmt, 10, Int64(totals.cacheRead))
+        sqlite3_bind_double(stmt, 11, costUSD ?? 0)
+        sqlite3_bind_int64(stmt, 12, Int64(costUSD == nil ? totals.total : 0))
         guard sqlite3_step(stmt) == SQLITE_DONE else {
             throw CostCacheError.statementFailed(self.lastErrorMessage)
         }
@@ -394,6 +402,7 @@ final class CostCache {
         day: String,
         model: String,
         longContext: Bool,
+        isFast: Bool,
         totals: TokenTotals,
         costUSD: Double?
     ) throws {
@@ -401,13 +410,14 @@ final class CostCache {
         defer { sqlite3_finalize(stmt) }
         guard sqlite3_prepare_v2(self.db, """
             INSERT INTO opencode_part
-                (key, included, legacy_inferred, day, model, long_context, input, output,
-                 cache_write, cache_write_1h, cache_read, cost_usd, unpriced_tokens)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (key, included, legacy_inferred, day, model, long_context, is_fast, input,
+                 output, cache_write, cache_write_1h, cache_read, cost_usd, unpriced_tokens)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(key) DO UPDATE SET
                 day = excluded.day,
                 model = excluded.model,
                 long_context = excluded.long_context,
+                is_fast = excluded.is_fast,
                 input = excluded.input,
                 output = excluded.output,
                 cache_write = excluded.cache_write,
@@ -417,6 +427,7 @@ final class CostCache {
                 unpriced_tokens = excluded.unpriced_tokens
             WHERE excluded.day IS NOT opencode_part.day
                OR excluded.model IS NOT opencode_part.model
+               OR excluded.is_fast IS NOT opencode_part.is_fast
                OR excluded.input IS NOT opencode_part.input
                OR excluded.output IS NOT opencode_part.output
                OR excluded.cache_write IS NOT opencode_part.cache_write
@@ -431,13 +442,14 @@ final class CostCache {
         sqlite3_bind_text(stmt, 4, day, -1, sqliteTransient)
         sqlite3_bind_text(stmt, 5, model, -1, sqliteTransient)
         sqlite3_bind_int64(stmt, 6, longContext ? 1 : 0)
-        sqlite3_bind_int64(stmt, 7, Int64(totals.input))
-        sqlite3_bind_int64(stmt, 8, Int64(totals.output))
-        sqlite3_bind_int64(stmt, 9, Int64(totals.cacheWrite))
-        sqlite3_bind_int64(stmt, 10, Int64(totals.cacheWrite1h))
-        sqlite3_bind_int64(stmt, 11, Int64(totals.cacheRead))
-        sqlite3_bind_double(stmt, 12, costUSD ?? 0)
-        sqlite3_bind_int64(stmt, 13, Int64(costUSD == nil ? totals.total : 0))
+        sqlite3_bind_int64(stmt, 7, isFast ? 1 : 0)
+        sqlite3_bind_int64(stmt, 8, Int64(totals.input))
+        sqlite3_bind_int64(stmt, 9, Int64(totals.output))
+        sqlite3_bind_int64(stmt, 10, Int64(totals.cacheWrite))
+        sqlite3_bind_int64(stmt, 11, Int64(totals.cacheWrite1h))
+        sqlite3_bind_int64(stmt, 12, Int64(totals.cacheRead))
+        sqlite3_bind_double(stmt, 13, costUSD ?? 0)
+        sqlite3_bind_int64(stmt, 14, Int64(costUSD == nil ? totals.total : 0))
         guard sqlite3_step(stmt) == SQLITE_DONE else {
             throw CostCacheError.statementFailed(self.lastErrorMessage)
         }
@@ -536,6 +548,7 @@ final class CostCache {
         let source: CostUsageSource
         let model: String
         let longContext: Bool
+        let isFast: Bool
     }
 
     struct StoredUsage {
@@ -616,17 +629,18 @@ final class CostCache {
     /// Day -> (model, tier) -> frozen usage, for days at or after `fromDay`.
     func aggregate(provider: Provider, fromDay: String) throws -> [String: [ModelTier: StoredUsage]] {
         let table = Self.table(for: provider)
+        let fastExpression = provider == .codex ? "is_fast" : "FALSE"
         var stmt: OpaquePointer?
         defer { sqlite3_finalize(stmt) }
         guard sqlite3_prepare_v2(
             self.db,
             """
-            SELECT day, model, long_context,
+            SELECT day, model, long_context, \(fastExpression),
                    SUM(input), SUM(output), SUM(cache_write), SUM(cache_write_1h), SUM(cache_read),
                    SUM(COALESCE(cost_usd, 0)), SUM(COALESCE(unpriced_tokens, 0))
             FROM \(table)
             WHERE day >= ?
-            GROUP BY day, model, long_context
+            GROUP BY day, model, long_context, \(fastExpression)
             """,
             -1,
             &stmt,
@@ -640,31 +654,34 @@ final class CostCache {
             let key = ModelTier(
                 source: provider == .codex ? .codex : .claude,
                 model: String(cString: sqlite3_column_text(stmt, 1)),
-                longContext: sqlite3_column_int64(stmt, 2) != 0
+                longContext: sqlite3_column_int64(stmt, 2) != 0,
+                isFast: sqlite3_column_int64(stmt, 3) != 0
             )
             let totals = TokenTotals(
-                input: Int(sqlite3_column_int64(stmt, 3)),
-                output: Int(sqlite3_column_int64(stmt, 4)),
-                cacheWrite: Int(sqlite3_column_int64(stmt, 5)),
-                cacheWrite1h: Int(sqlite3_column_int64(stmt, 6)),
-                cacheRead: Int(sqlite3_column_int64(stmt, 7))
+                input: Int(sqlite3_column_int64(stmt, 4)),
+                output: Int(sqlite3_column_int64(stmt, 5)),
+                cacheWrite: Int(sqlite3_column_int64(stmt, 6)),
+                cacheWrite1h: Int(sqlite3_column_int64(stmt, 7)),
+                cacheRead: Int(sqlite3_column_int64(stmt, 8))
             )
             result[day, default: [:]][key] = StoredUsage(
                 tokens: totals,
-                costUSD: sqlite3_column_double(stmt, 8),
-                unpricedTokens: Int(sqlite3_column_int64(stmt, 9))
+                costUSD: sqlite3_column_double(stmt, 9),
+                unpricedTokens: Int(sqlite3_column_int64(stmt, 10))
             )
         }
         if provider == .codex {
             try self.mergeIncludedUsage(
                 table: "opencode_part",
                 source: .openCode,
+                supportsFast: true,
                 fromDay: fromDay,
                 into: &result
             )
             try self.mergeIncludedUsage(
                 table: "pi_message",
                 source: .piAgent,
+                supportsFast: false,
                 fromDay: fromDay,
                 into: &result
             )
@@ -675,17 +692,20 @@ final class CostCache {
     private func mergeIncludedUsage(
         table: String,
         source: CostUsageSource,
+        supportsFast: Bool,
         fromDay: String,
         into result: inout [String: [ModelTier: StoredUsage]]
     ) throws {
         guard try self.tableExists(table) else { return }
         var stmt: OpaquePointer?
         defer { sqlite3_finalize(stmt) }
+        let fastExpression = supportsFast ? "is_fast" : "FALSE"
         let sql = """
-            SELECT day, model, long_context,
+            SELECT day, model, long_context, \(fastExpression),
                    SUM(input), SUM(output), SUM(cache_write), SUM(cache_write_1h), SUM(cache_read),
                    SUM(cost_usd), SUM(unpriced_tokens)
-            FROM \(table) WHERE included = 1 AND day >= ? GROUP BY day, model, long_context
+            FROM \(table) WHERE included = 1 AND day >= ?
+            GROUP BY day, model, long_context, \(fastExpression)
             """
         guard sqlite3_prepare_v2(self.db, sql, -1, &stmt, nil) == SQLITE_OK else {
             throw CostCacheError.statementFailed(self.lastErrorMessage)
@@ -696,18 +716,19 @@ final class CostCache {
             let tier = ModelTier(
                 source: source,
                 model: String(cString: sqlite3_column_text(stmt, 1)),
-                longContext: sqlite3_column_int64(stmt, 2) != 0
+                longContext: sqlite3_column_int64(stmt, 2) != 0,
+                isFast: sqlite3_column_int64(stmt, 3) != 0
             )
             let usage = StoredUsage(
                 tokens: TokenTotals(
-                    input: Int(sqlite3_column_int64(stmt, 3)),
-                    output: Int(sqlite3_column_int64(stmt, 4)),
-                    cacheWrite: Int(sqlite3_column_int64(stmt, 5)),
-                    cacheWrite1h: Int(sqlite3_column_int64(stmt, 6)),
-                    cacheRead: Int(sqlite3_column_int64(stmt, 7))
+                    input: Int(sqlite3_column_int64(stmt, 4)),
+                    output: Int(sqlite3_column_int64(stmt, 5)),
+                    cacheWrite: Int(sqlite3_column_int64(stmt, 6)),
+                    cacheWrite1h: Int(sqlite3_column_int64(stmt, 7)),
+                    cacheRead: Int(sqlite3_column_int64(stmt, 8))
                 ),
-                costUSD: sqlite3_column_double(stmt, 8),
-                unpricedTokens: Int(sqlite3_column_int64(stmt, 9))
+                costUSD: sqlite3_column_double(stmt, 9),
+                unpricedTokens: Int(sqlite3_column_int64(stmt, 10))
             )
             if let existing = result[day]?[tier] {
                 result[day]?[tier] = StoredUsage(

@@ -42,7 +42,13 @@ enum OpenCodeLogScanner {
         let key: String
         let day: String
         let model: String
+        let isFast: Bool
         let totals: TokenTotals
+    }
+
+    private struct FastToggle {
+        let created: Double
+        let isFast: Bool
     }
 
     static func scan(cache: CostCache, overlay: PricingOverlay?, env: [String: String]) -> Result {
@@ -107,18 +113,21 @@ enum OpenCodeLogScanner {
             do {
                 for row in rows {
                     let model = CostPricing.normalizeCodexModel(row.model)
+                    let serviceTier: CostPricing.CodexServiceTier = row.isFast ? .fast : .standard
                     let longContext = CostPricing.isLongContext(
                         totals: row.totals,
                         model: model,
                         provider: .codex,
-                        overlay: overlay
+                        overlay: overlay,
+                        codexServiceTier: serviceTier
                     )
                     let cost = CostPricing.cost(
                         totals: row.totals,
                         model: model,
                         provider: .codex,
                         longContext: longContext,
-                        overlay: overlay
+                        overlay: overlay,
+                        codexServiceTier: serviceTier
                     )
                     try cache.addOpenCodePart(
                         key: row.key,
@@ -127,6 +136,7 @@ enum OpenCodeLogScanner {
                         day: row.day,
                         model: model,
                         longContext: longContext,
+                        isFast: row.isFast,
                         totals: row.totals,
                         costUSD: cost
                     )
@@ -197,6 +207,10 @@ enum OpenCodeLogScanner {
     }
 
     private static func readRows(_ db: OpaquePointer) throws -> [Row] {
+        // Native OpenAI responses can leave the effective tier in part metadata. The
+        // opencodex-fast plugin injects the request after that metadata is built, so its ignored
+        // ON/OFF messages are the only durable state signal and act as a fallback.
+        let fastToggles = try self.readFastToggles(db)
         let sql = """
         SELECT p.id,
                json_extract(m.data, '$.time.created'),
@@ -205,7 +219,25 @@ enum OpenCodeLogScanner {
                json_extract(p.data, '$.tokens.output'),
                json_extract(p.data, '$.tokens.reasoning'),
                json_extract(p.data, '$.tokens.cache.read'),
-               json_extract(p.data, '$.tokens.cache.write')
+               json_extract(p.data, '$.tokens.cache.write'),
+               COALESCE(
+                   json_extract(m.data, '$.serviceTier'),
+                   json_extract(m.data, '$.service_tier'),
+                   (
+                       SELECT COALESCE(
+                           json_extract(mp.data, '$.metadata.openai.serviceTier'),
+                           json_extract(mp.data, '$.metadata.openai.service_tier')
+                       )
+                       FROM part mp
+                       WHERE mp.message_id = m.id
+                         AND COALESCE(
+                             json_extract(mp.data, '$.metadata.openai.serviceTier'),
+                             json_extract(mp.data, '$.metadata.openai.service_tier')
+                         ) IS NOT NULL
+                       ORDER BY mp.id DESC
+                       LIMIT 1
+                   )
+               )
         FROM part p
         JOIN message m ON m.id = p.message_id
         WHERE json_extract(p.data, '$.type') = 'step-finish'
@@ -228,15 +260,58 @@ enum OpenCodeLogScanner {
             let rawTime = sqlite3_column_double(stmt, 1)
             let seconds = rawTime > 10_000_000_000 ? rawTime / 1000 : rawTime
             guard seconds > 0 else { continue }
+            let explicitTier = sqlite3_column_text(stmt, 8).map { String(cString: $0) }
             rows.append(Row(
                 key: String(cString: keyText),
                 day: DayKey.make(from: Date(timeIntervalSince1970: seconds)),
                 model: String(cString: modelText),
+                isFast: explicitTier.map { CostPricing.CodexServiceTier.parse($0).isFast }
+                    ?? self.fastMode(at: rawTime, toggles: fastToggles),
                 totals: totals
             ))
         }
         guard sqlite3_errcode(db) == SQLITE_OK || sqlite3_errcode(db) == SQLITE_DONE else { throw ScanError.read }
         return rows
+    }
+
+    private static func readFastToggles(_ db: OpaquePointer) throws -> [FastToggle] {
+        let sql = """
+        SELECT json_extract(m.data, '$.time.created'), json_extract(p.data, '$.text')
+        FROM message m
+        JOIN part p ON p.message_id = m.id
+        WHERE json_extract(m.data, '$.role') = 'user'
+          AND json_extract(p.data, '$.type') = 'text'
+          AND json_extract(p.data, '$.ignored') = 1
+          AND json_extract(p.data, '$.text') IN ('Fast mode is now ON.', 'Fast mode is now OFF.')
+        ORDER BY 1
+        """
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { throw ScanError.schema }
+        var toggles: [FastToggle] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            guard let text = sqlite3_column_text(stmt, 1) else { continue }
+            toggles.append(FastToggle(
+                created: sqlite3_column_double(stmt, 0),
+                isFast: String(cString: text) == "Fast mode is now ON."
+            ))
+        }
+        guard sqlite3_errcode(db) == SQLITE_OK || sqlite3_errcode(db) == SQLITE_DONE else { throw ScanError.read }
+        return toggles
+    }
+
+    private static func fastMode(at created: Double, toggles: [FastToggle]) -> Bool {
+        var lower = 0
+        var upper = toggles.count
+        while lower < upper {
+            let middle = lower + (upper - lower) / 2
+            if toggles[middle].created <= created {
+                lower = middle + 1
+            } else {
+                upper = middle
+            }
+        }
+        return lower > 0 && toggles[lower - 1].isFast
     }
 
     private static func exec(_ db: OpaquePointer, _ sql: String) throws {

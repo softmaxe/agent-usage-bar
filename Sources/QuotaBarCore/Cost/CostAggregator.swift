@@ -29,7 +29,7 @@ enum CostAggregator {
 
             for (key, stored) in buckets {
                 let totals = stored.tokens
-                let usageKey = ModelUsageKey(source: key.source, model: key.model)
+                let usageKey = ModelUsageKey(source: key.source, model: key.model, isFast: key.isFast)
                 dayTokens[usageKey, default: TokenTotals()] += totals
                 modelTokens[key.model, default: 0] += totals.total
 

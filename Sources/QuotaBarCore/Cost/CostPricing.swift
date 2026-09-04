@@ -89,9 +89,18 @@ public enum CostPricing {
     /// Model name recorded for tokens whose model could not be determined. Never priced.
     public static let unknownModel = "unknown"
 
-    public enum CodexServiceTier: Sendable {
+    public enum CodexServiceTier: Sendable, Equatable {
         case standard
         case fast
+
+        static func parse(_ raw: String?) -> Self {
+            switch raw?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "priority", "fast": .fast
+            default: .standard
+            }
+        }
+
+        var isFast: Bool { self == .fast }
     }
 
     // MARK: - Built-in table
