@@ -35,6 +35,76 @@ enum BreakdownSweepVerifier {
             failures.append("opening the breakdown expected a taller card, got \(open) from \(collapsed)")
         }
 
+        // A selected day with one hidden model must only open one row, even when another chart
+        // day contains many more models. This is the layout reached after the chart label switches
+        // between tokens and cost; reserving the other day's rows leaves a blank block below
+        // "Show less".
+        let unevenDisplay = ProviderDisplay(
+            snapshot: CardDump.loadedSnapshot(provider),
+            cost: Self.unevenCost(provider)
+        )
+        let layout = CostBreakdownLayout(
+            summaryHeight: 14,
+            rowHeight: 13,
+            toggleHeight: 12,
+            spacing: 3
+        )
+        let rowStripHeight = layout.rowsHeight(rows: 1)
+        let selectedDayKey = unevenDisplay.cost?.days.first?.dayKey
+        if let cost = unevenDisplay.cost, let selectedDayKey {
+            let expandedSection = CostSectionView(
+                snapshot: cost,
+                previewTodayDayKey: cost.days.last?.dayKey,
+                isBreakdownExpanded: true,
+                breakdownOpenness: 1,
+                expandedBreakdownDayKey: selectedDayKey,
+                previewToggleHovered: true
+            )
+            if let highlightedDayKey = expandedSection.debugSelectedDayKey {
+                failures.append(
+                    "opening the breakdown off-bar expected no chart selection, got \(highlightedDayKey)"
+                )
+            }
+        }
+        for mode in [CostChartLabelMode.tokens, .cost] {
+            let closedHeight = Self.height(of: Self.card(
+                provider: provider,
+                display: unevenDisplay,
+                openness: 0,
+                labelMode: mode
+            ))
+            let openHeight = Self.height(of: Self.card(
+                provider: provider,
+                display: unevenDisplay,
+                openness: 1,
+                labelMode: mode,
+                expandedDayKey: selectedDayKey
+            ))
+            let growth = openHeight - closedHeight
+            if abs(growth - rowStripHeight) > 0.5 {
+                failures.append(
+                    "opening a five-model day in \(mode.rawValue) mode expected \(rowStripHeight)pt of growth, got \(growth)pt"
+                )
+            }
+
+            // A provider switch can invalidate the held day key while the menu stays open. The
+            // expanded card must fall back to a visible day so the detail and "Show less" remain.
+            let fallbackHeight = Self.height(of: Self.card(
+                provider: provider,
+                display: unevenDisplay,
+                openness: 1,
+                labelMode: mode,
+                expandedDayKey: "missing-day"
+            ))
+            let fallbackGrowth = fallbackHeight - closedHeight
+            let expectedFallbackGrowth = layout.rowsHeight(rows: 8)
+            if abs(fallbackGrowth - expectedFallbackGrowth) > 0.5 {
+                failures.append(
+                    "an unavailable expanded day in \(mode.rawValue) mode expected a visible-day fallback with \(expectedFallbackGrowth)pt of growth, got \(fallbackGrowth)pt"
+                )
+            }
+        }
+
         var reference: Data?
         for progress in [0.0, 0.2, 0.4, 0.6, 0.8, 1.0] {
             // Exactly what one step of the sweep hands the card: the height it is drawn in and how
@@ -77,15 +147,61 @@ enum BreakdownSweepVerifier {
     private static func card(
         provider: Provider,
         display: ProviderDisplay,
-        openness: Double
+        openness: Double,
+        labelMode: CostChartLabelMode = .tokens,
+        expandedDayKey: String? = nil
     ) -> MenuCardView {
         MenuCardView(
             provider: provider,
             display: display,
             isRefreshing: false,
             animatesFill: false,
+            costChartLabelMode: labelMode,
             isCostBreakdownExpanded: openness > 0,
-            costBreakdownOpenness: openness
+            costBreakdownOpenness: openness,
+            expandedCostBreakdownDayKey: expandedDayKey
+        )
+    }
+
+    /// The selected first day has five models, while the latest visible day has twelve. Closed
+    /// cards may reserve a stable four-row block across hover changes; opened cards must fit the
+    /// selected day's full list rather than the busiest day's list.
+    private static func unevenCost(_ provider: Provider) -> CostSnapshot {
+        let sample = CardDump.busyCost(provider)
+        guard let first = sample.days.first, let last = sample.days.last else { return sample }
+
+        func day(from source: CostDay, modelCount: Int) -> CostDay {
+            let byModel = Dictionary(uniqueKeysWithValues: (0..<modelCount).map { index in
+                let key = ModelUsageKey(
+                    source: provider == .codex ? .codex : .claude,
+                    model: "fixture-model-\(index)"
+                )
+                return (key, ModelDayUsage(
+                    tokens: TokenTotals(input: (modelCount - index) * 1_000_000),
+                    costUSD: Double(index + 1)
+                ))
+            })
+            return CostDay(
+                dayKey: source.dayKey,
+                byModel: byModel,
+                costUSD: source.costUSD,
+                unpricedTokens: 0
+            )
+        }
+
+        var days = sample.days
+        days[days.startIndex] = day(from: first, modelCount: 5)
+        days[days.index(before: days.endIndex)] = day(from: last, modelCount: 12)
+        return CostSnapshot(
+            provider: sample.provider,
+            days: days,
+            todayCostUSD: sample.todayCostUSD,
+            windowCostUSD: sample.windowCostUSD,
+            latestTokens: sample.latestTokens,
+            windowTokens: sample.windowTokens,
+            topModel: sample.topModel,
+            hasUnpricedTokens: sample.hasUnpricedTokens,
+            scannedAt: sample.scannedAt
         )
     }
 

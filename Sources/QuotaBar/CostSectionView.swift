@@ -51,7 +51,10 @@ struct CostSectionView: View {
     /// an AppKit frame and the rows are SwiftUI, and the two only stay together if one clock moves
     /// both. Nothing here animates on its own.
     private let breakdownOpenness: Double
-    private let onBreakdownExpandedChanged: (Bool) -> Void
+    /// The day whose full list is open. The menu owns this key so its off-screen height probe
+    /// measures the same day as the live card instead of falling back to the latest bar.
+    private let expandedBreakdownDayKey: String?
+    private let onBreakdownExpandedChanged: (Bool, String?) -> Void
 
     /// Activity days plus an empty today bar, so today's cost remains visible before the first
     /// completed turn. Older activity falls off the left once the chart reaches its cap. The
@@ -69,8 +72,9 @@ struct CostSectionView: View {
         onLabelModeChanged: @escaping (CostChartLabelMode) -> Void = { _ in },
         isBreakdownExpanded: Bool = false,
         breakdownOpenness: Double? = nil,
+        expandedBreakdownDayKey: String? = nil,
         previewToggleHovered: Bool = false,
-        onBreakdownExpandedChanged: @escaping (Bool) -> Void = { _ in }
+        onBreakdownExpandedChanged: @escaping (Bool, String?) -> Void = { _, _ in }
     ) {
         let todayDayKey = previewTodayDayKey ?? Formatters.dayKey(for: Date())
         let bars = CostChartHighlightPolicy.visibleDays(
@@ -93,6 +97,7 @@ struct CostSectionView: View {
         self.onLabelModeChanged = onLabelModeChanged
         self.isBreakdownExpanded = isBreakdownExpanded
         self.breakdownOpenness = breakdownOpenness ?? (isBreakdownExpanded ? 1 : 0)
+        self.expandedBreakdownDayKey = expandedBreakdownDayKey
         self.onBreakdownExpandedChanged = onBreakdownExpandedChanged
 
         self.bars = bars
@@ -242,7 +247,7 @@ struct CostSectionView: View {
     // MARK: - Hover
 
     private var detailDay: CostDay? {
-        let key = CostChartHighlightPolicy.detailDayKey(
+        let key = self.validExpandedBreakdownDayKey ?? CostChartHighlightPolicy.detailDayKey(
             afterMovingTo: nil,
             currentDayKey: self.detailDayKey,
             availableDayKeys: self.barDayKeys,
@@ -250,6 +255,13 @@ struct CostSectionView: View {
         )
         guard let key else { return nil }
         return self.bars.first { $0.dayKey == key }
+    }
+
+    /// A provider switch or refresh can replace the visible dates while the menu remains open.
+    /// Falling back keeps the detail and its close control available instead of holding a stale key.
+    private var validExpandedBreakdownDayKey: String? {
+        guard let key = self.expandedBreakdownDayKey, self.barDayKeys.contains(key) else { return nil }
+        return key
     }
 
     /// Summary line plus the per-model split, because a day is usually several models -- a
@@ -319,10 +331,9 @@ struct CostSectionView: View {
         .padding(.top, CGFloat(Self.breakdownLayout.spacing))
     }
 
-    /// Sized for the busiest day on the chart rather than the day under the pointer, so the
-    /// block neither jumps between bars nor reserves space no day needs. Opening the list sizes it
-    /// for that day's full model count, which is the one time the card does change height -- the
-    /// reader asked for it, and the menu resizes around it.
+    /// Closed cards reserve the busiest day's compact block so hovering never resizes the menu.
+    /// Once opened, only the selected day's hidden rows belong in that block; using the busiest
+    /// day's overflow leaves blank space between "Show less" and the next section.
     private var hoverDetailHeight: CGFloat {
         let busiest = self.bars.map(\.byModel.count).max() ?? 0
         let hasToggle = busiest > Self.maxBreakdownRows
@@ -330,9 +341,10 @@ struct CostSectionView: View {
             rows: min(busiest, Self.maxBreakdownRows),
             hasToggle: hasToggle
         )
-        // The block grows by exactly the strip the busiest day opens, so the lines below it move
-        // in the same whole points the strip does.
-        return CGFloat(closed) + self.overflowStripHeight(rows: max(0, busiest - Self.maxBreakdownRows))
+        let selectedCount = self.detailDay?.byModel.count ?? 0
+        return CGFloat(closed) + self.overflowStripHeight(
+            rows: max(0, selectedCount - Self.maxBreakdownRows)
+        )
     }
 
     /// How many model rows are above the toggle row, and how much strip is open under them --
@@ -536,12 +548,16 @@ struct CostSectionView: View {
         )
     }
 
+#if DEBUG
+    var debugSelectedDayKey: String? { self.selectedDayKey }
+#endif
+
     private func handleClick(at location: CGPoint, width: CGFloat) {
         switch self.region(at: location, width: width) {
         case let .bar(index), let .label(index):
             self.toggleLabel(dayKey: self.bars[index].dayKey)
         case .breakdownToggle:
-            self.onBreakdownExpandedChanged(!self.isBreakdownExpanded)
+            self.onBreakdownExpandedChanged(!self.isBreakdownExpanded, self.detailDay?.dayKey)
         case .elsewhere:
             break
         }

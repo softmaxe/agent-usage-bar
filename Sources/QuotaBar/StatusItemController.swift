@@ -46,6 +46,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private var breakdownSweep: Sweep?
     /// How far open the list is drawn right now: 0 or 1 at rest, stepped in between by the sweep.
     private var breakdownOpenness: Double = 0
+    /// The day whose rows the open card and its off-screen height probe must both measure.
+    private var expandedBreakdownDayKey: String?
 
     /// One reveal, from where the card was to where the click is taking it.
     private struct Sweep {
@@ -327,8 +329,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             },
             isCostBreakdownExpanded: self.isCostBreakdownExpanded,
             costBreakdownOpenness: self.breakdownOpenness,
-            onCostBreakdownExpandedChanged: { [weak self] expanded in
-                self?.setCostBreakdownExpanded(expanded)
+            expandedCostBreakdownDayKey: self.expandedBreakdownDayKey,
+            onCostBreakdownExpandedChanged: { [weak self] expanded, dayKey in
+                self?.setCostBreakdownExpanded(expanded, dayKey: dayKey)
             },
             quotaResetDisplayMode: self.settings.quotaResetDisplayMode,
             onQuotaResetDisplayModeChanged: { [weak self] mode in
@@ -349,8 +352,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     /// the one on screen: letting the live card take the finished height first, even for the one
     /// frame it takes to hand it back, is a frame of the opened card -- which is the jump this
     /// exists to avoid.
-    private func setCostBreakdownExpanded(_ expanded: Bool) {
+    private func setCostBreakdownExpanded(_ expanded: Bool, dayKey: String?) {
         self.isCostBreakdownExpanded = expanded
+        if expanded { self.expandedBreakdownDayKey = dayKey }
         self.endBreakdownSweep()
         guard let hosting = self.hostingView else { return }
 
@@ -367,6 +371,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
         // Reduce Motion asks for the change, not the sweep that gets there.
         guard !CostChartHoverMotion.systemReduceMotion, abs(toHeight - fromHeight) >= 1 else {
+            if !expanded { self.expandedBreakdownDayKey = nil }
             self.refreshOpenCard()
             self.setCardHeight(toHeight)
             return
@@ -418,6 +423,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         guard progress >= 1 else { return }
         self.breakdownOpenness = sweep.toOpenness
         self.endBreakdownSweep()
+        if sweep.toOpenness == 0 { self.expandedBreakdownDayKey = nil }
         self.refreshOpenCard()
         // The measured target and what the finished card actually wants agree to a rounding, but
         // the landing is taken from the card itself so the two cannot drift apart.
@@ -549,6 +555,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         // So does an opened breakdown: the card comes back at the height it was designed for.
         self.isCostBreakdownExpanded = false
         self.breakdownOpenness = 0
+        self.expandedBreakdownDayKey = nil
         self.refreshOpenCard()
         self.startOpenMenuClock()
         self.startRefreshRowClock()

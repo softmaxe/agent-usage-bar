@@ -25,7 +25,9 @@ struct MenuCardView: View {
     /// How far open the list is drawn right now. Nil follows the flag above, which is every card
     /// that is not mid-sweep.
     var costBreakdownOpenness: Double?
-    var onCostBreakdownExpandedChanged: (Bool) -> Void = { _ in }
+    /// The day being held open, shared with the controller's off-screen height probe.
+    var expandedCostBreakdownDayKey: String?
+    var onCostBreakdownExpandedChanged: (Bool, String?) -> Void = { _, _ in }
     var quotaResetDisplayMode = QuotaResetDisplayMode.countdown
     var onQuotaResetDisplayModeChanged: (QuotaResetDisplayMode) -> Void = { _ in }
     /// Draws one window's reset label as though the pointer were on it. Only the frame dump sets
@@ -126,6 +128,7 @@ struct MenuCardView: View {
                         onLabelModeChanged: self.onCostChartLabelModeChanged,
                         isBreakdownExpanded: self.isCostBreakdownExpanded,
                         breakdownOpenness: self.costBreakdownOpenness,
+                        expandedBreakdownDayKey: self.expandedCostBreakdownDayKey,
                         onBreakdownExpandedChanged: self.onCostBreakdownExpandedChanged
                     )
                 }
