@@ -312,6 +312,7 @@ struct CostSectionView: View {
         self.breakdownRow(
             source: entry.key.source,
             model: entry.model,
+            isFast: entry.key.isFast,
             usage: entry.usage,
             index: index
         )
@@ -406,6 +407,7 @@ struct CostSectionView: View {
     private func breakdownRow(
         source: CostUsageSource,
         model: String,
+        isFast: Bool,
         usage: ModelDayUsage,
         index: Int
     ) -> some View {
@@ -414,7 +416,7 @@ struct CostSectionView: View {
             Rectangle()
                 .fill(Theme.accent(for: self.snapshot.provider).opacity(max(0.3, 0.75 - Double(index) * 0.12)))
                 .frame(width: Self.breakdownBarWidth, height: 10)
-            Text(self.snapshot.provider == .codex ? "\(source.displayName) · \(model)" : model)
+            Text(self.breakdownLabel(source: source, model: model, isFast: isFast))
                 .font(.system(size: 10))
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -425,6 +427,11 @@ struct CostSectionView: View {
                 .lineLimit(1)
         }
         .frame(height: CGFloat(Self.breakdownLayout.rowHeight))
+    }
+
+    private func breakdownLabel(source: CostUsageSource, model: String, isFast: Bool) -> String {
+        let base = self.snapshot.provider == .codex ? "\(source.displayName) · \(model)" : model
+        return isFast ? "\(base) · Fast" : base
     }
 
     private static func breakdownValue(_ usage: ModelDayUsage) -> String {

@@ -64,10 +64,12 @@ public enum CostUsageSource: String, Sendable, Hashable {
 public struct ModelUsageKey: Sendable, Hashable {
     public let source: CostUsageSource
     public let model: String
+    public let isFast: Bool
 
-    public init(source: CostUsageSource, model: String) {
+    public init(source: CostUsageSource, model: String, isFast: Bool = false) {
         self.source = source
         self.model = model
+        self.isFast = isFast
     }
 }
 
@@ -108,8 +110,8 @@ public struct CostDay: Sendable, Equatable {
         self.byModel.values.reduce(into: TokenTotals()) { $0 += $1.tokens }
     }
 
-    /// Source/model rows that ran that day, most expensive first; unpriced rows sort by token
-    /// count behind every priced one.
+    /// Source/model/tier rows that ran that day. Unpriced rows sort by token count behind every
+    /// priced one.
     public var rankedModels: [(key: ModelUsageKey, model: String, usage: ModelDayUsage)] {
         self.rankedModels(by: .cost)
     }
@@ -134,7 +136,10 @@ public struct CostDay: Sendable, Equatable {
                     if lhsTokens != rhsTokens { return lhsTokens > rhsTokens }
                 }
                 if lhs.model != rhs.model { return lhs.model < rhs.model }
-                return lhs.key.source.rawValue < rhs.key.source.rawValue
+                if lhs.key.source != rhs.key.source {
+                    return lhs.key.source.rawValue < rhs.key.source.rawValue
+                }
+                return !lhs.key.isFast && rhs.key.isFast
             }
     }
 }

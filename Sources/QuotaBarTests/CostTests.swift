@@ -10,12 +10,14 @@ enum CostTests {
         Self.pricingLookup()
         Self.normalization()
         Self.modelBreakdownRanking()
+        Self.fastBreakdownSeparation()
         Self.longContextTiering()
         Self.overlayParsing()
         Self.catalogRefreshBackoff()
         Self.legacyReadOnlyCache()
         await Self.scanning()
         await Self.openCodeScanning()
+        await Self.openCodeFastUsageIsSeparate()
         await Self.piAgentScanning()
         await Self.pricingEditsApplyForward()
     }
@@ -208,6 +210,36 @@ enum CostTests {
             ["cost-heavy", "token-heavy", "unpriced"],
             "cost labels rank the daily breakdown by cost"
         )
+    }
+
+    private static func fastBreakdownSeparation() {
+        let day = CostDay(
+            dayKey: "2026-09-04",
+            byModel: [
+                ModelUsageKey(source: .codex, model: "gpt-5.6-sol", isFast: true): ModelDayUsage(
+                    tokens: TokenTotals(input: 100),
+                    costUSD: 1
+                ),
+                ModelUsageKey(source: .openCode, model: "gpt-5.6-luna", isFast: true): ModelDayUsage(
+                    tokens: TokenTotals(input: 200),
+                    costUSD: 2
+                ),
+                ModelUsageKey(source: .piAgent, model: "gpt-5.6-terra"): ModelDayUsage(
+                    tokens: TokenTotals(input: 50),
+                    costUSD: 0.5
+                ),
+            ],
+            costUSD: 3.5,
+            unpricedTokens: 0
+        )
+
+        let ranked = day.rankedModels(by: .tokens)
+        Harness.expectEqual(ranked.count, 3, "Fast usage stays split by source and model")
+        Harness.expectEqual(ranked[0].key.source, .openCode, "OpenCode Fast keeps its source")
+        Harness.expectEqual(ranked[0].model, "gpt-5.6-luna", "OpenCode Fast keeps its model")
+        Harness.expectEqual(ranked[1].key.source, .codex, "Codex Fast keeps its source")
+        Harness.expectEqual(ranked[1].model, "gpt-5.6-sol", "Codex Fast keeps its model")
+        Harness.expectEqual(ranked[2].key.source, .piAgent, "Pi remains a Standard source/model row")
     }
 
     private static func longContextTiering() {
@@ -549,7 +581,7 @@ enum CostTests {
             cacheWrite: Int = 30,
             cacheRead: Int = 40
         ) -> String {
-            #"{"type":"message","id":"\#(id)","message":{"role":"assistant","provider":"openai-codex","model":"\#(model)","timestamp":\#(now),"usage":{"input":\#(input),"output":\#(output),"reasoning":999,"cacheWrite":\#(cacheWrite),"cacheRead":\#(cacheRead),"cost":999}}}"#
+            #"{"type":"message","id":"\#(id)","message":{"role":"assistant","provider":"openai-codex","model":"\#(model)","service_tier":"priority","timestamp":\#(now),"usage":{"input":\#(input),"output":\#(output),"reasoning":999,"cacheWrite":\#(cacheWrite),"cacheRead":\#(cacheRead),"cost":999}}}"#
         }
         func write(_ lines: [String]) {
             try? (lines.joined(separator: "\n") + "\n").write(to: transcript, atomically: true, encoding: .utf8)
@@ -582,6 +614,10 @@ enum CostTests {
         Harness.expect(
             first?.days.first?.rankedModels.first?.key.source == .piAgent,
             "Pi usage keeps its source in the day breakdown"
+        )
+        Harness.expect(
+            first?.days.first?.rankedModels.allSatisfy { !$0.key.isFast } == true,
+            "Pi service-tier metadata is intentionally ignored"
         )
         Harness.expectClose(first?.windowCostUSD, 0.00016, "Pi usage uses local model pricing")
         Harness.expectEqual(await service.currentPiAgentScanStatus(), .idle, "matching Pi OAuth is quiet")
@@ -845,6 +881,11 @@ enum CostTests {
             0.8,
             "priority maps to the Fast short-context rate"
         )
+        Harness.expectEqual(
+            snapshot?.days.first?.rankedModels.first?.key.isFast,
+            true,
+            "priority usage is exposed as Fast in the breakdown"
+        )
 
         let appended = priorityLines.last! + "\n"
         if let handle = try? FileHandle(forWritingTo: file) {
@@ -855,6 +896,24 @@ enum CostTests {
         let resumed = await service.refresh(.codex)
         Harness.expectEqual(resumed?.windowTokens, 200_000, "incremental Fast scanning adds only the new turn")
         Harness.expectClose(resumed?.windowCostUSD, 1.6, "incremental scanning restores the Fast tier")
+
+        let standardTurn = [
+            #"{"type":"event_msg","timestamp":"\#(timestamp)","payload":{"type":"thread_settings_applied","thread_settings":{"service_tier":"default"}}}"#,
+            priorityLines.last!,
+        ].joined(separator: "\n") + "\n"
+        if let handle = try? FileHandle(forWritingTo: file) {
+            _ = try? handle.seekToEnd()
+            try? handle.write(contentsOf: Data(standardTurn.utf8))
+            try? handle.close()
+        }
+        let mixed = await service.refresh(.codex)
+        let fastKey = ModelUsageKey(source: .codex, model: "gpt-5.6-sol", isFast: true)
+        let standardKey = ModelUsageKey(source: .codex, model: "gpt-5.6-sol")
+        Harness.expectEqual(mixed?.windowTokens, 300_000, "Standard and Fast turns both count")
+        Harness.expectClose(mixed?.windowCostUSD, 2.0, "Standard and Fast turns keep their own rates")
+        Harness.expectEqual(mixed?.days.first?.byModel.count, 2, "Standard and Fast use separate rows")
+        Harness.expectEqual(mixed?.days.first?.byModel[fastKey]?.tokens.total, 200_000, "Fast tokens stay separate")
+        Harness.expectEqual(mixed?.days.first?.byModel[standardKey]?.tokens.total, 100_000, "Standard tokens stay separate")
 
         func scanTier(_ rawTier: String?, name: String) async -> CostSnapshot? {
             let tierHome = root.appendingPathComponent("\(name)-codex")
@@ -890,6 +949,118 @@ enum CostTests {
 
         let missing = await scanTier(nil, name: "missing")
         Harness.expectClose(missing?.windowCostUSD, 0.4, "a missing service tier stays Standard")
+    }
+
+    private static func openCodeFastUsageIsSeparate() async {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("quotabar-opencode-fast-tests-\(ProcessInfo.processInfo.processIdentifier)")
+        try? FileManager.default.removeItem(at: root)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let codexHome = root.appendingPathComponent("codex")
+        let openCodeHome = root.appendingPathComponent("opencode")
+        try? FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: openCodeHome, withIntermediateDirectories: true)
+        try? #"{"tokens":{"account_id":"account-a"}}"#.write(
+            to: codexHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
+        )
+        try? #"{"openai":{"type":"oauth","accountId":"account-a"}}"#.write(
+            to: openCodeHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
+        )
+
+        var db: OpaquePointer?
+        guard sqlite3_open(openCodeHome.appendingPathComponent("opencode.db").path, &db) == SQLITE_OK,
+              let db else {
+            Harness.expect(false, "OpenCode Fast fixture database opens")
+            return
+        }
+        defer { sqlite3_close(db) }
+        sqlite3_exec(db, "CREATE TABLE message (id TEXT PRIMARY KEY, data TEXT NOT NULL)", nil, nil, nil)
+        sqlite3_exec(db, "CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT NOT NULL, data TEXT NOT NULL)", nil, nil, nil)
+
+        let now = Int64(Date().timeIntervalSince1970 * 1000)
+        func insert(table: String, id: String, data: String, messageID: String? = nil) {
+            var stmt: OpaquePointer?
+            let sql = messageID == nil
+                ? "INSERT INTO \(table) (id, data) VALUES (?, ?)"
+                : "INSERT INTO \(table) (id, message_id, data) VALUES (?, ?, ?)"
+            sqlite3_prepare_v2(db, sql, -1, &stmt, nil)
+            sqlite3_bind_text(stmt, 1, id, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            if let messageID {
+                sqlite3_bind_text(stmt, 2, messageID, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+                sqlite3_bind_text(stmt, 3, data, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            } else {
+                sqlite3_bind_text(stmt, 2, data, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            }
+            sqlite3_step(stmt)
+            sqlite3_finalize(stmt)
+        }
+        func assistant(_ id: String, created: Int64, metadataTier: String? = nil) {
+            insert(
+                table: "message",
+                id: "message-\(id)",
+                data: #"{"time":{"created":\#(created)},"role":"assistant","providerID":"openai","modelID":"gpt-5.6-sol"}"#
+            )
+            insert(
+                table: "part",
+                id: "finish-\(id)",
+                data: #"{"type":"step-finish","tokens":{"input":100000,"output":0,"reasoning":0,"cache":{"read":0,"write":0}}}"#,
+                messageID: "message-\(id)"
+            )
+            if let metadataTier {
+                insert(
+                    table: "part",
+                    id: "text-\(id)",
+                    data: #"{"type":"text","text":"","metadata":{"openai":{"serviceTier":"\#(metadataTier)"}}}"#,
+                    messageID: "message-\(id)"
+                )
+            }
+        }
+
+        assistant("standard", created: now)
+        assistant("metadata-fast", created: now + 1, metadataTier: "priority")
+        insert(
+            table: "message",
+            id: "fast-toggle",
+            data: #"{"time":{"created":\#(now + 2)},"role":"user"}"#
+        )
+        insert(
+            table: "part",
+            id: "fast-toggle-text",
+            data: #"{"type":"text","text":"Fast mode is now ON.","ignored":true}"#,
+            messageID: "fast-toggle"
+        )
+        assistant("toggle-fast", created: now + 3)
+        insert(
+            table: "message",
+            id: "standard-toggle",
+            data: #"{"time":{"created":\#(now + 4)},"role":"user"}"#
+        )
+        insert(
+            table: "part",
+            id: "standard-toggle-text",
+            data: #"{"type":"text","text":"Fast mode is now OFF.","ignored":true}"#,
+            messageID: "standard-toggle"
+        )
+        assistant("toggle-standard", created: now + 5)
+
+        let service = CostService(
+            databaseURL: root.appendingPathComponent("cache.sqlite"),
+            env: [
+                "CODEX_HOME": codexHome.path,
+                "OPENCODE_DATA_HOME": openCodeHome.path,
+                "PI_CODING_AGENT_DIR": root.appendingPathComponent("missing-pi").path,
+            ],
+            pricingOverlay: PricingOverlay()
+        )
+        let snapshot = await service.refresh(.codex)
+        let standardKey = ModelUsageKey(source: .openCode, model: "gpt-5.6-sol")
+        let fastKey = ModelUsageKey(source: .openCode, model: "gpt-5.6-sol", isFast: true)
+        Harness.expectEqual(snapshot?.windowTokens, 400_000, "OpenCode Standard and Fast tokens both count")
+        Harness.expectClose(snapshot?.windowCostUSD, 2.4, "OpenCode Fast usage uses the Fast rate")
+        Harness.expectEqual(snapshot?.days.first?.byModel.count, 2, "OpenCode Fast has its own row")
+        Harness.expectEqual(snapshot?.days.first?.byModel[standardKey]?.tokens.total, 200_000, "OpenCode Standard tokens stay separate")
+        Harness.expectEqual(snapshot?.days.first?.byModel[fastKey]?.tokens.total, 200_000, "OpenCode Fast tokens stay separate")
     }
 
     /// Claude writes an assistant message several times while it streams. The prompt figures are

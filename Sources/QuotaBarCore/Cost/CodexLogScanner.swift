@@ -173,6 +173,7 @@ enum CodexLogScanner {
             day: DayKey.make(from: date),
             model: model,
             longContext: longContext,
+            isFast: state.serviceTier.isFast,
             totals: totals,
             costUSD: CostPricing.cost(
                 totals: totals,
@@ -225,10 +226,7 @@ enum CodexLogScanner {
     }
 
     private static func serviceTier(_ raw: String?) -> CostPricing.CodexServiceTier {
-        switch raw?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "priority", "fast": .fast
-        default: .standard
-        }
+        CostPricing.CodexServiceTier.parse(raw)
     }
 
     /// The integer fields of a `*_token_usage` object, which is what makes two events comparable.
