@@ -114,21 +114,14 @@ enum OpenCodeLogScanner {
                 for row in rows {
                     let model = CostPricing.normalizeCodexModel(row.model)
                     let serviceTier: CostPricing.CodexServiceTier = row.isFast ? .fast : .standard
-                    let longContext = CostPricing.isLongContext(
-                        totals: row.totals,
-                        model: model,
+                    let pricing = CostPricing.pricing(
+                        forNormalizedModel: model,
                         provider: .codex,
                         overlay: overlay,
                         codexServiceTier: serviceTier
                     )
-                    let cost = CostPricing.cost(
-                        totals: row.totals,
-                        model: model,
-                        provider: .codex,
-                        longContext: longContext,
-                        overlay: overlay,
-                        codexServiceTier: serviceTier
-                    )
+                    let longContext = CostPricing.isLongContext(totals: row.totals, pricing: pricing)
+                    let cost = pricing?.cost(for: row.totals, longContext: longContext)
                     try cache.addOpenCodePart(
                         key: row.key,
                         included: included,

@@ -1,6 +1,7 @@
 APP_NAME := QuotaBar
 BUILD_DIR := .build
 CONFIG ?= debug
+PROVIDER ?= codex
 BIN := $(BUILD_DIR)/$(CONFIG)/$(APP_NAME)
 DEBUG_BIN := $(BUILD_DIR)/debug/$(APP_NAME)
 LOG_SUBSYSTEM := com.quotabar.app
@@ -22,7 +23,7 @@ VERIFIERS := \
 	disclosure-motion \
 	tab-switch-motion
 
-.PHONY: build run probe probe-cost logs kill test app readme-assets clean
+.PHONY: build run probe probe-cost benchmark-cost logs kill test app readme-assets clean
 
 build:
 	swift build -c $(CONFIG)
@@ -40,6 +41,11 @@ probe:
 probe-cost:
 	swift build -c $(CONFIG) --product $(APP_NAME)Probe
 	$(BUILD_DIR)/$(CONFIG)/$(APP_NAME)Probe --cost-only
+
+## Benchmark empty-database and incremental scans of live logs with fixed offline pricing.
+benchmark-cost:
+	swift build -c release --product $(APP_NAME)Probe
+	$(BUILD_DIR)/release/$(APP_NAME)Probe --benchmark-cost --provider $(PROVIDER)
 
 ## Stream os.Logger output. Use this when the app was not started from a terminal.
 logs:

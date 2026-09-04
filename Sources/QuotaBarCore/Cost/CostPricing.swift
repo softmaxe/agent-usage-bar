@@ -280,10 +280,31 @@ public enum CostPricing {
         codexServiceTier: CodexServiceTier = .standard
     ) -> ModelPricing? {
         let name = self.normalize(rawModel, provider: provider)
+        return self.pricing(
+            forNormalizedModel: name,
+            provider: provider,
+            overlay: overlay,
+            codexServiceTier: codexServiceTier
+        )
+    }
+
+    /// Resolves rates for a model that the scanner has already normalized.
+    static func pricing(
+        forNormalizedModel name: String,
+        provider: Provider,
+        overlay: PricingOverlay? = nil,
+        codexServiceTier: CodexServiceTier = .standard
+    ) -> ModelPricing? {
         guard name != Self.unknownModel, !name.isEmpty else { return nil }
         if provider == .codex, codexServiceTier == .fast { return Self.fastCodex[name] }
         if let override = overlay?.pricing(for: name) { return override }
         return provider == .codex ? Self.codex[name] : Self.claude[name]
+    }
+
+    static func isLongContext(totals: TokenTotals, pricing: ModelPricing?) -> Bool {
+        guard let threshold = pricing?.thresholdTokens else { return false }
+        let measured = totals.input + totals.cacheRead + totals.cacheWrite
+        return measured > threshold
     }
 
     /// Whether one request's input and cache tokens cross the model's long-context threshold.
@@ -294,15 +315,13 @@ public enum CostPricing {
         overlay: PricingOverlay? = nil,
         codexServiceTier: CodexServiceTier = .standard
     ) -> Bool {
-        guard let threshold = self.pricing(
+        let pricing = self.pricing(
             for: model,
             provider: provider,
             overlay: overlay,
             codexServiceTier: codexServiceTier
-        )?
-            .thresholdTokens else { return false }
-        let measured = totals.input + totals.cacheRead + totals.cacheWrite
-        return measured > threshold
+        )
+        return self.isLongContext(totals: totals, pricing: pricing)
     }
 
     /// Cost in USD, or nil when the model has no price so its tokens stay uncounted.

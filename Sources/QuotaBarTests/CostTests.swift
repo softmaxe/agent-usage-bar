@@ -7,6 +7,7 @@ import SQLite3
 /// the real scanner through `CostService`, with pricing pinned so nothing touches the network.
 enum CostTests {
     static func run() async {
+        Self.iso8601Parsing()
         Self.pricingLookup()
         Self.normalization()
         Self.modelBreakdownRanking()
@@ -15,6 +16,7 @@ enum CostTests {
         Self.overlayParsing()
         Self.catalogRefreshBackoff()
         Self.legacyReadOnlyCache()
+        Self.logFileScanning()
         await Self.scanning()
         await Self.openCodeScanning()
         await Self.openCodeFastUsageIsSeparate()
@@ -23,6 +25,58 @@ enum CostTests {
     }
 
     // MARK: - Pricing
+
+    private static func iso8601Parsing() {
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let plain = ISO8601DateFormatter()
+        func reference(_ raw: String) -> Date? {
+            fractional.date(from: raw) ?? plain.date(from: raw)
+        }
+
+        let samples = [
+            "1970-01-01T00:00:00Z",
+            "2000-02-29T23:59:59.1Z",
+            "2026-09-04T12:34:56.123Z",
+            "2026-09-04T12:34:56.123456Z",
+            "2026-09-04T12:34:56.123456789Z",
+            "2026-09-04T20:34:56+08:00",
+            "2026-09-04T05:04:56-07:30",
+        ]
+        for raw in samples {
+            let expected = reference(raw)?.timeIntervalSince1970
+            let actual = ISO8601.parse(raw)?.timeIntervalSince1970
+            Harness.expectClose(actual, expected ?? .nan, "ISO8601 parser matches Foundation for \(raw)", tolerance: 1e-6)
+        }
+
+        for fractionDigits in 1...9 {
+            let fraction = String(repeating: "7", count: fractionDigits)
+            let raw = "2024-02-29T23:59:58.\(fraction)Z"
+            let expected = reference(raw)?.timeIntervalSince1970
+            let actual = ISO8601.parse(raw)?.timeIntervalSince1970
+            Harness.expectClose(actual, expected ?? .nan, "ISO8601 parser accepts \(fractionDigits) fraction digits", tolerance: 1e-6)
+        }
+        let fallbackSamples = [
+            "",
+            "1900-02-29T00:00:00Z",
+            "2026-02-29T00:00:00Z",
+            "2026-13-01T00:00:00Z",
+            "2026-01-01T24:00:00Z",
+            "2026-09-04T12:34:56z",
+            "2026-09-04T20:34:56+0800",
+            "2026-09-04 12:34:56Z",
+            "2026-09-04T12:34:56,123Z",
+            "2026-09-04T12:34:56",
+            "2026-09-04T12:34:60Z",
+            "2026-09-04T12:34:56+14:00",
+            "2026-09-04T12:34:56+24:00",
+            "２０２６-09-04T12:34:56Z",
+            "2026-09-04T12:34:56Z trailing",
+        ]
+        for raw in fallbackSamples {
+            Harness.expectEqual(ISO8601.parse(raw), reference(raw), "ISO8601 fallback parity for \(raw)")
+        }
+    }
 
     private static func pricingLookup() {
         // CodexBar's table predates these two; they are the reason the built-in table was extended.
@@ -380,6 +434,121 @@ enum CostTests {
         sqlite3_close(db)
         let usage = CostUsageReader.knownModelUsage(provider: .codex, databaseURL: url)
         Harness.expectEqual(usage, [ModelUsageTotal(model: "gpt-5.6-luna", tokens: 7)], "old read-only cache needs no OpenCode table")
+    }
+
+    private static func logFileScanning() {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("quotabar-line-reader-\(ProcessInfo.processInfo.processIdentifier)")
+        try? FileManager.default.removeItem(at: root)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        func topLevelType(_ raw: String) -> JSONLogClassifier.TopLevelType? {
+            Data(raw.utf8).withUnsafeBytes { JSONLogClassifier.topLevelType(in: $0) }
+        }
+        func payloadType(_ raw: String) -> JSONLogClassifier.PayloadType? {
+            Data(raw.utf8).withUnsafeBytes { JSONLogClassifier.payloadType(in: $0) }
+        }
+        let longPrefix = String(repeating: "x", count: 5_000)
+        Harness.expectEqual(
+            topLevelType(#"{"padding":"\#(longPrefix)","type":"assistant"}"#),
+            .assistant,
+            "JSON classifier finds a type after a long preceding value"
+        )
+        let reordered = #"{"payload":{"nested":[{"type":"decoy"}],"type":"token_count"},"type":"event_msg"}"#
+        Harness.expectEqual(topLevelType(reordered), .eventMessage, "JSON classifier tolerates top-level key reordering")
+        Harness.expectEqual(payloadType(reordered), .tokenCount, "JSON classifier reads the payload object type")
+        let fakeTopLevel = #"{"message":"escaped \"type\":\"assistant\"","type":"user"}"#
+        Harness.expectEqual(topLevelType(fakeTopLevel), .other, "a marker inside a string cannot classify a record")
+        let fakePayload = #"{"type":"event_msg","payload":{"note":"\"type\":\"token_count\"","type":"agent_message"}}"#
+        Harness.expectEqual(payloadType(fakePayload), .other, "a payload marker inside a string is ignored")
+        Harness.expectEqual(
+            topLevelType(#"{"t\u0079pe":"assistant"}"#),
+            .indeterminate,
+            "an escaped top-level key falls back to full JSON parsing"
+        )
+        Harness.expectEqual(
+            topLevelType(#"{"type":"assist\u0061nt"}"#),
+            .indeterminate,
+            "an escaped top-level value falls back to full JSON parsing"
+        )
+        Harness.expectEqual(
+            payloadType(#"{"type":"event_msg","paylo\u0061d":{"type":"token_count"}}"#),
+            .indeterminate,
+            "an escaped payload key falls back to full JSON parsing"
+        )
+        Harness.expectEqual(
+            payloadType(#"{"type":"event_msg","payload":{"type":"token_\u0063ount"}}"#),
+            .indeterminate,
+            "an escaped payload value falls back to full JSON parsing"
+        )
+
+        let bounded = root.appendingPathComponent("bounded.jsonl")
+        try? "first\nsecond\n".write(to: bounded, atomically: true, encoding: .utf8)
+        var boundedLines: [String] = []
+        let boundedOffset = try? LogFileScanner.readLines(of: bounded, from: 0, upTo: 6) { line in
+            boundedLines.append(String(decoding: line, as: UTF8.self))
+        }
+        Harness.expectEqual(boundedLines, ["first"], "line reader stops exactly at its byte limit")
+        Harness.expectEqual(boundedOffset, 6, "bounded line reader returns the last complete offset")
+
+        var midLineLines: [String] = []
+        let midLineOffset = try? LogFileScanner.readLines(of: bounded, from: 0, upTo: 8) { line in
+            midLineLines.append(String(decoding: line, as: UTF8.self))
+        }
+        Harness.expectEqual(midLineLines, ["first"], "a limit inside a line does not expose that line")
+        Harness.expectEqual(midLineOffset, 6, "a mid-line limit keeps the preceding complete offset")
+
+        var beforeStartLines: [String] = []
+        let beforeStartOffset = try? LogFileScanner.readLines(of: bounded, from: 6, upTo: 5) { line in
+            beforeStartLines.append(String(decoding: line, as: UTF8.self))
+        }
+        Harness.expectEqual(beforeStartLines, [], "a limit before the start performs no callbacks")
+        Harness.expectEqual(beforeStartOffset, 6, "a limit before the start preserves the start offset")
+
+        let emptyLines = root.appendingPathComponent("empty-lines.jsonl")
+        try? "\nvalue\n".write(to: emptyLines, atomically: true, encoding: .utf8)
+        var nonempty: [String] = []
+        let emptyLinesOffset = try? LogFileScanner.readLines(of: emptyLines, from: 0) { line in
+            nonempty.append(String(decoding: line, as: UTF8.self))
+        }
+        Harness.expectEqual(nonempty, ["value"], "empty lines advance without invoking the callback")
+        Harness.expectEqual(emptyLinesOffset, 7, "empty lines still contribute to the absolute offset")
+
+        let partial = root.appendingPathComponent("partial.jsonl")
+        try? "one\ntwo".write(to: partial, atomically: true, encoding: .utf8)
+        var firstPass: [String] = []
+        let firstOffset = try? LogFileScanner.readLines(of: partial, from: 0) { line in
+            firstPass.append(String(decoding: line, as: UTF8.self))
+        }
+        Harness.expectEqual(firstPass, ["one"], "line reader defers an incomplete trailing line")
+        Harness.expectEqual(firstOffset, 4, "partial line is excluded from the returned offset")
+
+        if let handle = try? FileHandle(forWritingTo: partial) {
+            _ = try? handle.seekToEnd()
+            try? handle.write(contentsOf: Data("\n".utf8))
+            try? handle.close()
+        }
+        var resumed: [String] = []
+        let resumedOffset = try? LogFileScanner.readLines(of: partial, from: Int64(firstOffset ?? 0)) { line in
+            resumed.append(String(decoding: line, as: UTF8.self))
+        }
+        Harness.expectEqual(resumed, ["two"], "line reader resumes at the deferred trailing line")
+        Harness.expectEqual(resumedOffset, 8, "resumed line reader advances through the appended newline")
+
+        let spanning = root.appendingPathComponent("spanning.jsonl")
+        let largeLine = String(repeating: "x", count: (1 << 20) + 17)
+        try? "\(largeLine)\ny\n".write(to: spanning, atomically: true, encoding: .utf8)
+        var lengths: [Int] = []
+        let spanningOffset = try? LogFileScanner.readLines(of: spanning, from: 0) { line in
+            lengths.append(line.count)
+        }
+        Harness.expectEqual(lengths, [largeLine.utf8.count, 1], "line reader preserves a line spanning chunks")
+        Harness.expectEqual(
+            spanningOffset,
+            Int64(largeLine.utf8.count + 3),
+            "line reader counts bytes across chunk boundaries"
+        )
     }
 
     private static func openCodeScanning() async {
@@ -838,7 +1007,10 @@ enum CostTests {
 
         await Self.claudeStreamingChunksKeepTheFinalOutput(root: root)
         await Self.claudeOneHourCacheWritesCostDouble(root: root)
+        await Self.escapedClassifierRecordsAreScanned(root: root)
         await Self.codexSkipsReEmittedTokenCounts(root: root)
+        await Self.codexResumeLimitDoesNotPeek(root: root)
+        await Self.truncatedCodexLogIsForgotten(root: root)
         await Self.codexCacheBucketsAreCarvedOutOfInput(root: root)
         await Self.codexFastServiceTierPricing(root: root)
     }
@@ -1185,6 +1357,107 @@ enum CostTests {
             0.2,
             "a resumed scan still recognises a replay of the turn it stopped on"
         )
+    }
+
+    private static func escapedClassifierRecordsAreScanned(root: URL) async {
+        let codexHome = root.appendingPathComponent("escaped-codex")
+        let claudeHome = root.appendingPathComponent("escaped-claude")
+        let codexFile = codexHome.appendingPathComponent("sessions/rollout.jsonl")
+        let claudeFile = claudeHome.appendingPathComponent("projects/demo/session.jsonl")
+        for file in [codexFile, claudeFile] {
+            try? FileManager.default.createDirectory(
+                at: file.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+        }
+        let timestamp = "2026-09-04T12:00:00.000Z"
+        let codexLines = [
+            #"{"type":"turn_context","timestamp":"\#(timestamp)","payload":{"model":"escaped-model"}}"#,
+            #"{"t\u0079pe":"event_msg","timestamp":"\#(timestamp)","payload":{"type":"token_\u0063ount","info":{"last_token_usage":{"input_tokens":100,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":0}}}}"#,
+        ]
+        try? (codexLines.joined(separator: "\n") + "\n")
+            .write(to: codexFile, atomically: true, encoding: .utf8)
+        let claudeLine = #"{"t\u0079pe":"assistant","timestamp":"\#(timestamp)","requestId":"escaped-request","message":{"id":"escaped-message","model":"claude-opus-5","usage":{"input_tokens":100,"output_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}"#
+        try? (claudeLine + "\n").write(to: claudeFile, atomically: true, encoding: .utf8)
+
+        let service = CostService(
+            databaseURL: root.appendingPathComponent("escaped-classifier-cache.sqlite"),
+            env: ["CODEX_HOME": codexHome.path, "CLAUDE_CONFIG_DIR": claudeHome.path],
+            pricingOverlay: PricingOverlay()
+        )
+        Harness.expectEqual(
+            await service.refresh(.codex)?.windowTokens,
+            100,
+            "escaped Codex type fields still reach full JSON parsing"
+        )
+        Harness.expectEqual(
+            await service.refresh(.claude)?.windowTokens,
+            100,
+            "escaped Claude type fields still reach full JSON parsing"
+        )
+    }
+
+    private static func codexResumeLimitDoesNotPeek(root: URL) async {
+        let home = root.appendingPathComponent("bounded-resume-codex")
+        let file = home.appendingPathComponent("sessions/rollout.jsonl")
+        try? FileManager.default.createDirectory(
+            at: file.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let timestamp = "2026-08-26T13:00:00.000Z"
+        let context = #"{"type":"turn_context","timestamp":"\#(timestamp)","payload":{"model":"bounded-model"}}"#
+        func event(total: Int) -> String {
+            #"{"type":"event_msg","timestamp":"\#(timestamp)","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":0},"total_token_usage":{"input_tokens":\#(total)}}}}"#
+        }
+        try? ([context, event(total: 100)].joined(separator: "\n") + "\n")
+            .write(to: file, atomically: true, encoding: .utf8)
+
+        let service = CostService(
+            databaseURL: root.appendingPathComponent("bounded-resume-cache.sqlite"),
+            env: ["CODEX_HOME": home.path],
+            pricingOverlay: PricingOverlay()
+        )
+        let first = await service.refresh(.codex)
+        Harness.expectEqual(first?.windowTokens, 100, "bounded resume fixture scans its first turn")
+
+        if let handle = try? FileHandle(forWritingTo: file) {
+            _ = try? handle.seekToEnd()
+            try? handle.write(contentsOf: Data((event(total: 200) + "\n").utf8))
+            try? handle.close()
+        }
+        let resumed = await service.refresh(.codex)
+        Harness.expectEqual(
+            resumed?.windowTokens,
+            200,
+            "resume state cannot peek past the saved cursor and suppress an appended turn"
+        )
+    }
+
+    private static func truncatedCodexLogIsForgotten(root: URL) async {
+        let home = root.appendingPathComponent("truncated-codex")
+        let file = home.appendingPathComponent("sessions/rollout.jsonl")
+        try? FileManager.default.createDirectory(
+            at: file.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let timestamp = "2026-08-26T14:00:00.000Z"
+        let lines = [
+            #"{"type":"turn_context","timestamp":"\#(timestamp)","payload":{"model":"truncated-model"}}"#,
+            #"{"type":"event_msg","timestamp":"\#(timestamp)","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":0}}}}"#,
+        ]
+        try? (lines.joined(separator: "\n") + "\n").write(to: file, atomically: true, encoding: .utf8)
+
+        let service = CostService(
+            databaseURL: root.appendingPathComponent("truncated-cache.sqlite"),
+            env: ["CODEX_HOME": home.path],
+            pricingOverlay: PricingOverlay()
+        )
+        let first = await service.refresh(.codex)
+        Harness.expectEqual(first?.windowTokens, 100, "truncation fixture starts with cached usage")
+
+        try? Data().write(to: file, options: .atomic)
+        let truncated = await service.refresh(.codex)
+        Harness.expectEqual(truncated?.windowTokens, 0, "truncating a tracked log removes its cached rows")
     }
 
     /// Codex counts cached reads and cache writes inside input_tokens, so a turn that reports all

@@ -9,10 +9,6 @@
 import Foundation
 
 enum ClaudeLogScanner {
-    /// Only assistant lines carry usage, so skip everything else before parsing JSON.
-    private static let assistantMarker = Array(#""type":"assistant""#.utf8)
-    private static let usageMarker = Array(#""usage""#.utf8)
-
     static func projectRoots(env: [String: String] = ProcessInfo.processInfo.environment) -> [URL] {
         if let configDir = env["CLAUDE_CONFIG_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines),
            !configDir.isEmpty {
@@ -48,10 +44,14 @@ enum ClaudeLogScanner {
             try cache.beginTransaction()
             do {
                 var parseError: Error?
-                let newOffset = try LogFileScanner.readLines(of: url, from: plan.cursor.offset) { buffer in
+                let newOffset = try LogFileScanner.readLines(
+                    of: url,
+                    from: plan.cursor.offset,
+                    upTo: plan.cursor.size
+                ) { buffer in
                     guard parseError == nil else { return }
-                    guard buffer.contains(ascii: Self.assistantMarker),
-                          buffer.contains(ascii: Self.usageMarker) else { return }
+                    let type = JSONLogClassifier.topLevelType(in: buffer)
+                    guard type == .assistant || type == .indeterminate else { return }
                     do {
                         try Self.ingest(line: buffer, path: url.path, cache: cache, overlay: overlay)
                     } catch {
@@ -128,12 +128,12 @@ enum ClaudeLogScanner {
 
         // The long-context tier and price are properties of the individual request, so they have
         // to be decided here; deciding them from a day's aggregate would rewrite history.
-        let longContext = CostPricing.isLongContext(
-            totals: totals,
-            model: model,
+        let pricing = CostPricing.pricing(
+            forNormalizedModel: model,
             provider: .claude,
             overlay: overlay
         )
+        let longContext = CostPricing.isLongContext(totals: totals, pricing: pricing)
         try cache.addClaudeMessage(
             key: key,
             path: path,
@@ -141,13 +141,7 @@ enum ClaudeLogScanner {
             model: model,
             longContext: longContext,
             totals: totals,
-            costUSD: CostPricing.cost(
-                totals: totals,
-                model: model,
-                provider: .claude,
-                longContext: longContext,
-                overlay: overlay
-            )
+            costUSD: pricing?.cost(for: totals, longContext: longContext)
         )
     }
 }
