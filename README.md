@@ -166,6 +166,7 @@ make run            # Build and run in the foreground
 make test           # Run assertions and animation verifiers
 make probe          # Check both provider integrations
 make probe-cost     # Rescan local logs; may refresh model prices
+make benchmark-startup # Measure status-item construction offline in a debug build
 make benchmark-cost # Measure Codex scans with offline pricing; reads local logs
 make logs           # Stream logs for com.quotabar.app
 make readme-assets  # Rebuild README images; requires ffmpeg
