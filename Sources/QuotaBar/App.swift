@@ -48,6 +48,7 @@ enum QuotaBarApp {
         // flags are checked in.
         let verifiers: [(flag: String, run: @MainActor () -> Never)] = [
             ("--verify-menu-lifecycle", MenuLifecycleVerifier.run),
+            ("--verify-pricing-refresh", PricingRefreshVerifier.run),
             ("--benchmark-menu-startup", MenuLifecycleVerifier.benchmark),
             ("--verify-cost-chart-highlighting", CostChartHighlightVerifier.run),
             ("--verify-breakdown-sweep", BreakdownSweepVerifier.run),

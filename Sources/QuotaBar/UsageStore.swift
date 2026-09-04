@@ -2,10 +2,9 @@ import QuotaBarCore
 import Combine
 import Foundation
 
-/// Owns provider state and the refresh schedule. Every path that asks for fresh numbers — the
-/// polling timer, opening the menu, the Refresh row, a pricing edit — refreshes the provider the
-/// status item is currently showing, and only that one. The other provider stays out of the loop
-/// entirely until the user switches to it, and that switch is the one event that refreshes it.
+/// Owns provider state and the refresh schedule. Polling, opening the menu, and the Refresh row
+/// refresh only the displayed provider. Switching providers refreshes the newly selected one.
+/// Price edits refresh local costs independently of quota requests.
 @MainActor
 final class UsageStore: ObservableObject {
     @Published private(set) var displays: [Provider: ProviderDisplay] = [:]
@@ -17,7 +16,7 @@ final class UsageStore: ObservableObject {
     private var timer: Timer?
     private var refreshTasks: [Provider: Task<Void, Never>] = [:]
     private var costTasks: [Provider: Task<Void, Never>] = [:]
-    private let costService: CostService
+    private var pendingCostRefreshes: Set<Provider> = []
     private let historyStore = UsageHistoryStore()
     private let recovery = QuotaRecoveryTracker()
     private let settings: SettingsStore
@@ -28,15 +27,20 @@ final class UsageStore: ObservableObject {
     /// each provider's own minute has to elapse before it is fetched again.
     private var cooldowns = ProviderRefreshCooldown()
     private let clock: () -> TimeInterval
+    private let fetchState: (Provider, ClaudeRefreshInteraction) async -> ProviderState
+    private let fetchCost: (Provider) async -> CostSnapshot?
 
     init(
         settings: SettingsStore,
         costService: CostService,
-        clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
+        clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+        fetchState: ((Provider, ClaudeRefreshInteraction) async -> ProviderState)? = nil,
+        fetchCost: ((Provider) async -> CostSnapshot?)? = nil
     ) {
         self.settings = settings
-        self.costService = costService
         self.clock = clock
+        self.fetchState = fetchState ?? { await Self.fetch($0, interaction: $1) }
+        self.fetchCost = fetchCost ?? { await costService.refresh($0) }
     }
 
     func start() {
@@ -83,6 +87,7 @@ final class UsageStore: ObservableObject {
         self.refreshTasks = [:]
         for task in self.costTasks.values { task.cancel() }
         self.costTasks = [:]
+        self.pendingCostRefreshes = []
         self.settingsObserver = nil
         self.providerObserver = nil
     }
@@ -118,8 +123,8 @@ final class UsageStore: ObservableObject {
 
         self.refreshingProviders.insert(provider)
 
-        self.refreshTasks[provider] = Task { [weak self, historyStore] in
-            let state = await Self.fetch(provider, interaction: interaction)
+        self.refreshTasks[provider] = Task { [weak self, historyStore, fetchState] in
+            let state = await fetchState(provider, interaction)
 
             // Sampling the weekly window builds the history the pace model regresses over.
             // CodexBar records only Codex here; the model is provider-agnostic, so both are.
@@ -165,19 +170,31 @@ final class UsageStore: ObservableObject {
 
     /// Log scanning runs on its own task: the first pass reads hundreds of megabytes and must not
     /// hold up the quota numbers, which are what the menu bar icon needs.
-    private func refreshCosts(for provider: Provider) {
-        guard self.costTasks[provider] == nil else { return }
+    private func refreshCosts(for provider: Provider, afterPricingChange: Bool = false) {
+        guard self.costTasks[provider] == nil else {
+            if afterPricingChange { self.pendingCostRefreshes.insert(provider) }
+            return
+        }
 
-        self.costTasks[provider] = Task { [weak self, costService] in
-            let scanned = await costService.refresh(provider)
+        self.costTasks[provider] = Task { [weak self, fetchCost] in
+            let scanned = await fetchCost(provider)
             await MainActor.run {
                 guard let self else { return }
                 if let scanned {
                     self.displays[provider, default: ProviderDisplay()].cost = scanned
                 }
                 self.costTasks[provider] = nil
+                if self.pendingCostRefreshes.remove(provider) != nil {
+                    self.refreshCosts(for: provider)
+                }
             }
         }
+    }
+
+    /// Price edits only affect local costs. Coalesce edits during a scan into one follow-up
+    /// so its earlier snapshot cannot hide the result of saving new rates.
+    func refreshCostsAfterPricingChange() {
+        self.refreshCosts(for: self.settings.menuBarProvider, afterPricingChange: true)
     }
 
     /// Seconds until the next refresh of the provider on screen would actually run. The Refresh

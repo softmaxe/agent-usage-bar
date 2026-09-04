@@ -9,6 +9,7 @@ LOG_SUBSYSTEM := com.quotabar.app
 ## UI checks use debug launch flags; core assertions run in QuotaBarTests.
 VERIFIERS := \
 	menu-lifecycle \
+	pricing-refresh \
 	cost-chart-highlighting \
 	breakdown-sweep \
 	usage-bar-fill \

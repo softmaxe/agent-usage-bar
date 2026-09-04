@@ -79,9 +79,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         self.refreshRowClockInterval = refreshRowClockInterval
         super.init()
 
-        // Saving pricing changes the numbers the card shows, so this one refresh forces past the
-        // cooldown: the user is looking at the edit they just made.
-        pricing.onSaved = { [weak store] in store?.refresh(force: true) }
+        pricing.onSaved = { [weak store] in store?.refreshCostsAfterPricingChange() }
 
         // SettingsStore is MainActor-isolated. Consume the emitted provider synchronously so
         // rapid switches cannot leave status-item work queued behind a newer selection.
