@@ -1,8 +1,9 @@
 import CryptoKit
+import Darwin
 import Foundation
 
 /// Streams the newline-delimited records of a JSONL file, resuming from a byte offset.
-enum LogFileScanner {
+package enum LogFileScanner {
     private static let prefixDigestBytes = 64 * 1024
     private static let chunkSize = 1 << 20
 
@@ -20,9 +21,8 @@ enum LogFileScanner {
               let inode = (attributes[.systemFileNumber] as? NSNumber)?.uint64Value else {
             return nil
         }
-        if size == 0 { return nil }
-
         guard let previous else {
+            if size == 0 { return nil }
             let digest = try self.prefixDigest(of: url, byteCount: min(Int64(Self.prefixDigestBytes), size))
             return ScanPlan(
                 cursor: FileCursor(inode: inode, size: size, offset: 0, prefixDigest: digest),
@@ -55,39 +55,75 @@ enum LogFileScanner {
     }
 
     /// Reads complete lines starting at `offset` and returns the offset just past the last
-    /// complete line, so a partially written trailing line is re-read next time.
-    static func readLines(
+    /// complete line, so a partially written trailing line is re-read next time. `limit` is an
+    /// absolute byte offset and is never read past, even when it lands inside a line. The buffer
+    /// passed to `handle` is valid only for that call and must not escape it.
+    package static func readLines(
         of url: URL,
         from offset: Int64,
         upTo limit: Int64? = nil,
         handle: (UnsafeRawBufferPointer) -> Void
     ) throws -> Int64 {
-        let file = try FileHandle(forReadingFrom: url)
-        defer { try? file.close() }
-        try file.seek(toOffset: UInt64(max(0, offset)))
+        let start = max(0, offset)
+        let descriptor = Darwin.open(url.path, O_RDONLY | O_CLOEXEC)
+        guard descriptor >= 0 else { throw Self.posixError() }
+        defer { _ = Darwin.close(descriptor) }
+        guard Darwin.lseek(descriptor, off_t(start), SEEK_SET) >= 0 else {
+            throw Self.posixError()
+        }
 
-        var consumed = max(0, offset)
-        var carry = Data()
+        var buffer = [UInt8](repeating: 0, count: Self.chunkSize)
+        var carry: [UInt8] = []
+        var readPosition = start
+        var consumed = start
 
-        while true {
-            guard let chunk = try file.read(upToCount: Self.chunkSize), !chunk.isEmpty else { break }
-            carry.append(chunk)
+        while limit.map({ readPosition < $0 }) ?? true {
+            let requested = limit.map { min(Int64(Self.chunkSize), max(0, $0 - readPosition)) }
+                ?? Int64(Self.chunkSize)
+            guard requested > 0 else { break }
 
-            var searchStart = carry.startIndex
-            while let newline = carry[searchStart...].firstIndex(of: UInt8(ascii: "\n")) {
-                let line = carry[searchStart..<newline]
-                if !line.isEmpty {
-                    line.withUnsafeBytes(handle)
-                }
-                consumed += Int64(carry.distance(from: searchStart, to: newline)) + 1
-                searchStart = carry.index(after: newline)
+            let count: Int = try buffer.withUnsafeMutableBytes { storage in
+                var result: Int
+                repeat {
+                    result = Darwin.read(descriptor, storage.baseAddress, Int(requested))
+                } while result < 0 && errno == EINTR
+                guard result >= 0 else { throw Self.posixError() }
+                return result
             }
-            carry = Data(carry[searchStart...])
-            // A caller replaying a prefix stops here; a full scan passes no limit.
-            if let limit, consumed >= limit { break }
+            guard count > 0 else { break }
+
+            let chunkStart = readPosition
+            buffer.withUnsafeBytes { storage in
+                guard let base = storage.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return }
+                var lineStart = 0
+                while lineStart < count,
+                      let found = memchr(base.advanced(by: lineStart), Int32(UInt8(ascii: "\n")), count - lineStart) {
+                    let newline = base.distance(to: found.assumingMemoryBound(to: UInt8.self))
+                    let length = newline - lineStart
+                    if carry.isEmpty {
+                        if length > 0 {
+                            handle(UnsafeRawBufferPointer(start: base.advanced(by: lineStart), count: length))
+                        }
+                    } else {
+                        carry.append(contentsOf: UnsafeBufferPointer(start: base.advanced(by: lineStart), count: length))
+                        carry.withUnsafeBytes(handle)
+                        carry.removeAll(keepingCapacity: true)
+                    }
+                    consumed = chunkStart + Int64(newline) + 1
+                    lineStart = newline + 1
+                }
+                if lineStart < count {
+                    carry.append(contentsOf: UnsafeBufferPointer(start: base.advanced(by: lineStart), count: count - lineStart))
+                }
+            }
+            readPosition += Int64(count)
         }
 
         return consumed
+    }
+
+    private static func posixError() -> POSIXError {
+        POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
     }
 
     private static func prefixDigest(of url: URL, byteCount: Int64) throws -> String {
@@ -113,27 +149,5 @@ enum LogFileScanner {
             }
         }
         return found
-    }
-}
-
-extension UnsafeRawBufferPointer {
-    /// Cheap substring test used to skip lines before paying for JSON parsing.
-    func contains(ascii needle: [UInt8]) -> Bool {
-        guard !needle.isEmpty, self.count >= needle.count else { return false }
-        let limit = self.count - needle.count
-        var index = 0
-        while index <= limit {
-            if self[index] == needle[0] {
-                var matched = true
-                var offset = 1
-                while offset < needle.count {
-                    if self[index + offset] != needle[offset] { matched = false; break }
-                    offset += 1
-                }
-                if matched { return true }
-            }
-            index += 1
-        }
-        return false
     }
 }

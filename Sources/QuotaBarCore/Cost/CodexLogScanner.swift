@@ -9,10 +9,6 @@
 import Foundation
 
 enum CodexLogScanner {
-    private static let tokenCountMarker = Array(#""token_count""#.utf8)
-    private static let turnContextMarker = Array(#""turn_context""#.utf8)
-    private static let threadSettingsMarker = Array(#""thread_settings_applied""#.utf8)
-
     static func sessionRoots(env: [String: String] = ProcessInfo.processInfo.environment) -> [URL] {
         let home = CodexHome.url(env: env)
         return [
@@ -47,12 +43,13 @@ enum CodexLogScanner {
             try cache.beginTransaction()
             do {
                 var parseError: Error?
-                let newOffset = try LogFileScanner.readLines(of: url, from: plan.cursor.offset) { buffer in
+                let newOffset = try LogFileScanner.readLines(
+                    of: url,
+                    from: plan.cursor.offset,
+                    upTo: plan.cursor.size
+                ) { buffer in
                     guard parseError == nil else { return }
-                    let isTurnContext = buffer.contains(ascii: Self.turnContextMarker)
-                    let isTokenCount = buffer.contains(ascii: Self.tokenCountMarker)
-                    let isThreadSettings = buffer.contains(ascii: Self.threadSettingsMarker)
-                    guard isTurnContext || isTokenCount || isThreadSettings else { return }
+                    guard Self.isRelevant(buffer) else { return }
                     do {
                         try Self.ingest(
                             line: buffer,
@@ -161,13 +158,13 @@ enum CodexLogScanner {
         // Older rollouts predate turn_context; count their tokens but leave them unpriced.
         let model = state.model ?? CostPricing.unknownModel
         // The long-context tier and price belong to the individual turn, not to the day's total.
-        let longContext = CostPricing.isLongContext(
-            totals: totals,
-            model: model,
+        let pricing = CostPricing.pricing(
+            forNormalizedModel: model,
             provider: .codex,
             overlay: overlay,
             codexServiceTier: state.serviceTier
         )
+        let longContext = CostPricing.isLongContext(totals: totals, pricing: pricing)
         try cache.addCodexTokens(
             path: path,
             day: DayKey.make(from: date),
@@ -175,15 +172,24 @@ enum CodexLogScanner {
             longContext: longContext,
             isFast: state.serviceTier.isFast,
             totals: totals,
-            costUSD: CostPricing.cost(
-                totals: totals,
-                model: model,
-                provider: .codex,
-                longContext: longContext,
-                overlay: overlay,
-                codexServiceTier: state.serviceTier
-            )
+            costUSD: pricing?.cost(for: totals, longContext: longContext)
         )
+    }
+
+    private static func isRelevant(_ buffer: UnsafeRawBufferPointer) -> Bool {
+        switch JSONLogClassifier.topLevelType(in: buffer) {
+        case .indeterminate:
+            return true
+        case .turnContext:
+            return true
+        case .eventMessage:
+            switch JSONLogClassifier.payloadType(in: buffer) {
+            case .indeterminate, .threadSettingsApplied, .tokenCount: return true
+            default: return false
+            }
+        default:
+            return false
+        }
     }
 
     /// Replays the bytes before `offset` to recover the state a resumed scan would otherwise
@@ -192,10 +198,7 @@ enum CodexLogScanner {
     private static func resumeState(in url: URL, before offset: Int64) -> ResumeState {
         var state = ResumeState()
         _ = try? LogFileScanner.readLines(of: url, from: 0, upTo: offset) { buffer in
-            let isTurnContext = buffer.contains(ascii: Self.turnContextMarker)
-            let isTokenCount = buffer.contains(ascii: Self.tokenCountMarker)
-            let isThreadSettings = buffer.contains(ascii: Self.threadSettingsMarker)
-            guard isTurnContext || isTokenCount || isThreadSettings else { return }
+            guard Self.isRelevant(buffer) else { return }
             guard let root = try? JSONSerialization.jsonObject(with: Data(buffer)) as? [String: Any],
                   let payload = root["payload"] as? [String: Any] else { return }
 
