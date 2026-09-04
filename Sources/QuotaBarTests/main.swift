@@ -204,6 +204,7 @@ await ScannerRegressionTests.run()
 await AstraPricingTests.run()
 await RateLimitTests.run()
 await ClaudeRefreshTests.run()
+await CodexRefreshTests.run()
 ProviderRefreshCooldownTests.run()
 RefreshRowPolicyTests.run()
 await MainActor.run { SettingsTests.run() }
