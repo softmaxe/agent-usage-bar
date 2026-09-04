@@ -10,12 +10,28 @@ import SQLite3
 private let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
 /// Where a file was left off. A file is resumable only if its identity still matches.
-struct FileCursor {
-    let inode: UInt64
-    let size: Int64
-    let offset: Int64
+package struct FileCursor {
+    package let inode: UInt64
+    package let size: Int64
+    package let offset: Int64
     /// Digest of the first 64KB, so a rewritten-in-place file is detected even at the same size.
-    let prefixDigest: String
+    package let prefixDigest: String
+    /// Opaque scanner state at `offset`. Only the scanner that wrote it may decode it.
+    let resumeStateJSON: String?
+
+    package init(
+        inode: UInt64,
+        size: Int64,
+        offset: Int64,
+        prefixDigest: String,
+        resumeStateJSON: String? = nil
+    ) {
+        self.inode = inode
+        self.size = size
+        self.offset = offset
+        self.prefixDigest = prefixDigest
+        self.resumeStateJSON = resumeStateJSON
+    }
 }
 
 final class CostCache {
@@ -62,9 +78,11 @@ final class CostCache {
             inode INTEGER NOT NULL,
             size INTEGER NOT NULL,
             offset INTEGER NOT NULL,
-            prefix_digest TEXT NOT NULL
+            prefix_digest TEXT NOT NULL,
+            resume_state TEXT
         )
         """)
+        try self.addColumnIfMissing(table: "file_cursor", name: "resume_state", definition: "TEXT")
         // Codex turns carry no message identity, but a turn appears in exactly one rollout file,
         // so per-file day/model rows are enough.
         try self.exec("""
@@ -192,7 +210,7 @@ final class CostCache {
         defer { sqlite3_finalize(stmt) }
         guard sqlite3_prepare_v2(
             self.db,
-            "SELECT inode, size, offset, prefix_digest FROM file_cursor WHERE path = ?",
+            "SELECT inode, size, offset, prefix_digest, resume_state FROM file_cursor WHERE path = ?",
             -1,
             &stmt,
             nil
@@ -203,7 +221,10 @@ final class CostCache {
             inode: UInt64(sqlite3_column_int64(stmt, 0)),
             size: sqlite3_column_int64(stmt, 1),
             offset: sqlite3_column_int64(stmt, 2),
-            prefixDigest: String(cString: sqlite3_column_text(stmt, 3))
+            prefixDigest: String(cString: sqlite3_column_text(stmt, 3)),
+            resumeStateJSON: sqlite3_column_type(stmt, 4) == SQLITE_NULL
+                ? nil
+                : String(cString: sqlite3_column_text(stmt, 4))
         )
     }
 
@@ -213,8 +234,9 @@ final class CostCache {
         guard sqlite3_prepare_v2(
             self.db,
             """
-            INSERT OR REPLACE INTO file_cursor (path, provider, inode, size, offset, prefix_digest)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT OR REPLACE INTO file_cursor
+                (path, provider, inode, size, offset, prefix_digest, resume_state)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             -1,
             &stmt,
@@ -226,6 +248,11 @@ final class CostCache {
         sqlite3_bind_int64(stmt, 4, cursor.size)
         sqlite3_bind_int64(stmt, 5, cursor.offset)
         sqlite3_bind_text(stmt, 6, cursor.prefixDigest, -1, sqliteTransient)
+        if let resumeStateJSON = cursor.resumeStateJSON {
+            sqlite3_bind_text(stmt, 7, resumeStateJSON, -1, sqliteTransient)
+        } else {
+            sqlite3_bind_null(stmt, 7)
+        }
         guard sqlite3_step(stmt) == SQLITE_DONE else {
             throw CostCacheError.statementFailed(self.lastErrorMessage)
         }

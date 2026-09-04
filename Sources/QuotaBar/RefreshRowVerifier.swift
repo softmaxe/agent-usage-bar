@@ -34,10 +34,9 @@ enum RefreshRowVerifier {
             refreshRowClockInterval: 0.01
         )
 
-        Self.requireRow(controller, "Refresh", trailing: nil, enabled: true, step: "before any refresh")
-
         // A refresh the user cannot see the result of yet: the row must say how long the wait is.
         store.debugRecordRefresh(at: now)
+        controller.menuWillOpen(NSMenu())
         controller.debugStartRefreshRowClock()
         Self.drainMainRunLoop()
         Self.requireRow(controller, "Refresh", trailing: "59s", enabled: false, step: "just after a refresh")

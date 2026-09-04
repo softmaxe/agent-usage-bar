@@ -108,7 +108,7 @@ public enum CostPricing {
     /// Codex / OpenAI rates, USD per million tokens, checked against
     /// https://developers.openai.com/api/docs/pricing on 2026-08-26.
     ///
-    /// OpenAI prices a separate cache write only for the gpt-5.6 family; for every other model
+    /// OpenAI prices a separate cache write for Astra and the gpt-5.6 family; for other models
     /// it publishes a cached-input rate alone, so those cache writes fall through to the input
     /// rate, which is how they are billed.
     ///
@@ -118,6 +118,13 @@ public enum CostPricing {
     /// went away.
     public static let codex: [String: ModelPricing] = [
         // -- Priced on the live page --------------------------------------------------------
+        // Checked against https://developers.openai.com/api/docs/models/gpt-6-astra on
+        // 2026-09-05. Fast costs 2x each applicable Standard or long-context rate.
+        "gpt-6-astra": ModelPricing(
+            input: 10, output: 50, cacheWrite: 12.5, cacheRead: 1,
+            thresholdTokens: 272_000,
+            inputAbove: 20, outputAbove: 75, cacheWriteAbove: 25, cacheReadAbove: 2
+        ),
         // Sol runs a promotion the page commits to "at least through November 21, 2026"; the
         // standard rates it replaces are $5 / $30 with a $6.25 cache write and $0.50 read.
         "gpt-5.6-sol": ModelPricing(
@@ -174,6 +181,11 @@ public enum CostPricing {
     /// Fast Codex rates, USD per million tokens. Fast pricing is intentionally separate from
     /// the standard overlay so an unknown Fast model stays unpriced.
     public static let fastCodex: [String: ModelPricing] = [
+        "gpt-6-astra": ModelPricing(
+            input: 20, output: 100, cacheWrite: 25, cacheRead: 2,
+            thresholdTokens: 272_000,
+            inputAbove: 40, outputAbove: 150, cacheWriteAbove: 50, cacheReadAbove: 4
+        ),
         "gpt-5.6-sol": ModelPricing(
             input: 8, output: 40, cacheWrite: 10, cacheRead: 0.8,
             thresholdTokens: 272_000,
@@ -297,8 +309,28 @@ public enum CostPricing {
     ) -> ModelPricing? {
         guard name != Self.unknownModel, !name.isEmpty else { return nil }
         if provider == .codex, codexServiceTier == .fast { return Self.fastCodex[name] }
-        if let override = overlay?.pricing(for: name) { return override }
-        return provider == .codex ? Self.codex[name] : Self.claude[name]
+        if let userOverride = overlay?.userOverrides[name] { return userOverride }
+
+        let builtIn = provider == .codex ? Self.codex[name] : Self.claude[name]
+        if let catalog = overlay?.modelsDev[name] {
+            // models.dev currently omits Astra's >272K tier. Falling back to the complete
+            // official row prevents the catalog from silently pricing long requests as Standard.
+            if provider == .codex, name == "gpt-6-astra", !Self.hasCompleteAstraRates(catalog) {
+                return builtIn
+            }
+            return catalog
+        }
+        return builtIn
+    }
+
+    private static func hasCompleteAstraRates(_ pricing: ModelPricing) -> Bool {
+        pricing.cacheWrite != nil
+            && pricing.cacheRead != nil
+            && pricing.thresholdTokens != nil
+            && pricing.inputAbove != nil
+            && pricing.outputAbove != nil
+            && pricing.cacheWriteAbove != nil
+            && pricing.cacheReadAbove != nil
     }
 
     static func isLongContext(totals: TokenTotals, pricing: ModelPricing?) -> Bool {

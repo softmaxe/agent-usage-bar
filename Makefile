@@ -6,9 +6,10 @@ BIN := $(BUILD_DIR)/$(CONFIG)/$(APP_NAME)
 DEBUG_BIN := $(BUILD_DIR)/debug/$(APP_NAME)
 LOG_SUBSYSTEM := com.quotabar.app
 
-## The assertion suite is a set of launch flags on the debug app rather than a product of its
-## own, so `test` builds that app and then runs it once per flag.
+## UI checks use debug launch flags; core assertions run in QuotaBarTests.
 VERIFIERS := \
+	menu-lifecycle \
+	pricing-refresh \
 	cost-chart-highlighting \
 	breakdown-sweep \
 	usage-bar-fill \
@@ -23,10 +24,10 @@ VERIFIERS := \
 	disclosure-motion \
 	tab-switch-motion
 
-.PHONY: build run probe probe-cost benchmark-cost logs kill test app readme-assets clean
+.PHONY: build run probe probe-cost benchmark-cost benchmark-startup logs kill test app readme-assets clean
 
 build:
-	swift build -c $(CONFIG)
+	swift build -c $(CONFIG) --product $(APP_NAME)
 
 ## Build and launch in the foreground. Logs land in this terminal; Ctrl-C stops the app.
 run: kill build
@@ -46,6 +47,11 @@ probe-cost:
 benchmark-cost:
 	swift build -c release --product $(APP_NAME)Probe
 	$(BUILD_DIR)/release/$(APP_NAME)Probe --benchmark-cost --provider $(PROVIDER)
+
+## Measure status-item construction without credentials, network requests, or log scans.
+benchmark-startup:
+	swift build -c debug --product $(APP_NAME)
+	$(DEBUG_BIN) --benchmark-menu-startup
 
 ## Stream os.Logger output. Use this when the app was not started from a terminal.
 logs:

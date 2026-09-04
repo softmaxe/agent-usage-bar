@@ -30,15 +30,16 @@ enum CodexLogScanner {
         for url in files {
             let previous = cache.cursor(forPath: url.path)
             guard let plan = try? LogFileScanner.plan(for: url, previous: previous) else { continue }
-            if !plan.requiresFullReparse, plan.cursor.offset >= plan.cursor.size { continue }
+            guard plan.requiresScan else { continue }
 
             if plan.requiresFullReparse { try cache.forget(path: url.path) }
 
-            // A resumed file starts after the turn_context that named the model and after the
-            // token_count that a re-emission would repeat, so replay the prefix to recover both.
-            var state = plan.cursor.offset > 0
-                ? Self.resumeState(in: url, before: plan.cursor.offset)
-                : ResumeState()
+            // New caches persist the state at the cursor. The replay fallback upgrades caches
+            // written by older app versions without forcing another full parse.
+            var state = Self.restoredState(from: plan.cursor.resumeStateJSON)
+                ?? (plan.cursor.offset > 0
+                    ? Self.resumeState(in: url, before: plan.cursor.offset)
+                    : ResumeState())
 
             try cache.beginTransaction()
             do {
@@ -68,7 +69,8 @@ enum CodexLogScanner {
                         inode: plan.cursor.inode,
                         size: plan.cursor.size,
                         offset: newOffset,
-                        prefixDigest: plan.cursor.prefixDigest
+                        prefixDigest: plan.cursor.prefixDigest,
+                        resumeStateJSON: try Self.encodedState(state)
                     ),
                     forPath: url.path,
                     provider: .codex
@@ -84,13 +86,30 @@ enum CodexLogScanner {
     }
 
     /// What a resumed scan has to know about the bytes it is skipping past.
-    struct ResumeState {
+    private struct ResumeState: Codable {
         /// Model announced by the most recent turn_context.
         var model: String?
         /// Service tier applied to subsequent turns.
-        var serviceTier: CostPricing.CodexServiceTier = .standard
+        var isFast = false
+        var serviceTier: CostPricing.CodexServiceTier {
+            get { self.isFast ? .fast : .standard }
+            set { self.isFast = newValue.isFast }
+        }
         /// The most recent `total_token_usage`, which is how a re-emitted event is recognised.
         var lastTotalUsage: [String: Int]?
+    }
+
+    private static func restoredState(from json: String?) -> ResumeState? {
+        guard let json else { return nil }
+        return try? JSONDecoder().decode(ResumeState.self, from: Data(json.utf8))
+    }
+
+    private static func encodedState(_ state: ResumeState) throws -> String {
+        let data = try JSONEncoder().encode(state)
+        guard let json = String(data: data, encoding: .utf8) else {
+            throw CocoaError(.fileWriteInapplicableStringEncoding)
+        }
+        return json
     }
 
     private static func ingest(

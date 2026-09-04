@@ -7,15 +7,17 @@ package enum LogFileScanner {
     private static let prefixDigestBytes = 64 * 1024
     private static let chunkSize = 1 << 20
 
-    struct ScanPlan {
-        let cursor: FileCursor
+    package struct ScanPlan {
+        package let cursor: FileCursor
         /// True when the file must be re-read from the start and its cached rows dropped.
-        let requiresFullReparse: Bool
+        package let requiresFullReparse: Bool
+        /// True when the scanner has new bytes to inspect or must rebuild a rewritten file.
+        package let requiresScan: Bool
     }
 
     /// Decides whether a file can be resumed. A changed inode, a shrunken file, or a different
     /// 64KB prefix all mean the file was rewritten rather than appended to.
-    static func plan(for url: URL, previous: FileCursor?) throws -> ScanPlan? {
+    package static func plan(for url: URL, previous: FileCursor?) throws -> ScanPlan? {
         let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
         guard let size = (attributes[.size] as? NSNumber)?.int64Value,
               let inode = (attributes[.systemFileNumber] as? NSNumber)?.uint64Value else {
@@ -26,7 +28,8 @@ package enum LogFileScanner {
             let digest = try self.prefixDigest(of: url, byteCount: min(Int64(Self.prefixDigestBytes), size))
             return ScanPlan(
                 cursor: FileCursor(inode: inode, size: size, offset: 0, prefixDigest: digest),
-                requiresFullReparse: true
+                requiresFullReparse: true,
+                requiresScan: true
             )
         }
 
@@ -43,14 +46,24 @@ package enum LogFileScanner {
               size >= previous.size else {
             return ScanPlan(
                 cursor: FileCursor(inode: inode, size: size, offset: 0, prefixDigest: currentPrefixDigest),
-                requiresFullReparse: true
+                requiresFullReparse: true,
+                requiresScan: true
             )
         }
 
         // Refresh the stored digest when a small file grows, especially when it crosses 64KB.
         return ScanPlan(
-            cursor: FileCursor(inode: inode, size: size, offset: previous.offset, prefixDigest: currentPrefixDigest),
-            requiresFullReparse: false
+            cursor: FileCursor(
+                inode: inode,
+                size: size,
+                offset: previous.offset,
+                prefixDigest: currentPrefixDigest,
+                resumeStateJSON: previous.resumeStateJSON
+            ),
+            requiresFullReparse: false,
+            // An incomplete trailing line leaves offset below size. If the size is unchanged,
+            // reading that same partial line again cannot produce a record.
+            requiresScan: size > previous.size
         )
     }
 

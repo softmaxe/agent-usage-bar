@@ -79,9 +79,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         self.refreshRowClockInterval = refreshRowClockInterval
         super.init()
 
-        // Saving pricing changes the numbers the card shows, so this one refresh forces past the
-        // cooldown: the user is looking at the edit they just made.
-        pricing.onSaved = { [weak store] in store?.refresh(force: true) }
+        pricing.onSaved = { [weak store] in store?.refreshCostsAfterPricingChange() }
 
         // SettingsStore is MainActor-isolated. Consume the emitted provider synchronously so
         // rapid switches cannot leave status-item work queued behind a newer selection.
@@ -128,15 +126,13 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             // switches providers would never reach the handler.
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
-        self.menu = self.makeMenu()
         self.statusItem = item
         return item
     }
 
 #if DEBUG
-    func debugRefreshOpenCard() {
-        self.refreshOpenCard()
-    }
+    var debugHasMenu: Bool { self.menu != nil }
+    private(set) var debugCardUpdateCount = 0
 
     func debugStartOpenMenuClock() {
         self.startOpenMenuClock()
@@ -212,13 +208,22 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     /// The menu lives off the item so the button keeps receiving clicks; attaching it for the
     /// duration of one click is how AppKit pops it up below the icon.
     private func presentMenu() {
-        guard let item = self.statusItem, let menu = self.menu else { return }
+        guard let item = self.statusItem else { return }
+        let menu = self.materializedMenu()
         item.menu = menu
         item.button?.performClick(nil)
         item.menu = nil
     }
 
     // MARK: - Menu
+
+    /// Keep SwiftUI view construction and layout out of status-item startup.
+    private func materializedMenu() -> NSMenu {
+        if let menu = self.menu { return menu }
+        let menu = self.makeMenu()
+        self.menu = menu
+        return menu
+    }
 
     private func makeMenu() -> NSMenu {
         let menu = NSMenu()
@@ -449,7 +454,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     private func updateCard(provider: Provider, display: ProviderDisplay) {
-        guard let hosting = self.hostingView else { return }
+        guard self.isMenuOpen, let hosting = self.hostingView else { return }
+#if DEBUG
+        self.debugCardUpdateCount += 1
+#endif
         // A window can come back while the menu is already open, so this is claimed on every
         // update rather than only when the menu is opened.
         self.claimCelebrations(for: provider)
@@ -512,6 +520,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     private func refreshOpenCard() {
+        guard self.isMenuOpen else { return }
         let provider = self.settings.menuBarProvider
         self.updateCard(provider: provider, display: self.store.displays[provider] ?? ProviderDisplay())
         self.updateRefreshRow()
@@ -546,6 +555,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     // MARK: - NSMenuDelegate
 
     func menuWillOpen(_: NSMenu) {
+        _ = self.materializedMenu()
         // Opening the menu asks for a refresh; the store's cooldown decides. Within a minute of
         // any earlier refresh, poll or click alike, the open reuses that result.
         self.store.refresh()

@@ -1,11 +1,14 @@
 import Foundation
 
+public typealias CodexCredentialLoader = @Sendable () throws -> CodexCredentials
+
 /// Loads credentials, refreshes when stale, and maps `wham/usage` onto a `UsageSnapshot`.
 public enum CodexProvider {
     public static func fetch(
         env: [String: String] = ProcessInfo.processInfo.environment,
         transport: any HTTPTransport = URLSessionTransport(),
-        gate: UsageRateLimitGate = .shared
+        gate: UsageRateLimitGate = .shared,
+        credentialLoader: CodexCredentialLoader? = nil
     ) async -> ProviderState {
         if let until = await gate.blocked(.codex) {
             return .failed("Codex usage API rate-limited. Try again after "
@@ -14,7 +17,7 @@ public enum CodexProvider {
 
         var credentials: CodexCredentials
         do {
-            credentials = try CodexCredentialsStore.load(env: env)
+            credentials = try credentialLoader?() ?? CodexCredentialsStore.load(env: env)
         } catch let error as CodexCredentialsError {
             switch error {
             case .notFound, .missingTokens:
@@ -59,7 +62,11 @@ public enum CodexProvider {
                     env: env,
                     transport: transport
                 )
+                await gate.recordSuccess(.codex)
                 return .loaded(Self.snapshot(from: response))
+            } catch CodexFetchError.serverError(429, _) {
+                await gate.recordRateLimit(.codex, retryAfter: nil)
+                return .failed("Codex usage API rate-limited. Try again in a few minutes.")
             } catch {
                 return .failed(error.localizedDescription)
             }

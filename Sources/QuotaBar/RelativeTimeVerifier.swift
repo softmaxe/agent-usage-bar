@@ -42,7 +42,8 @@ enum RelativeTimeVerifier {
             fetchedAt: base
         )
         store.debugSetDisplay(display, for: .codex)
-        controller.debugRefreshOpenCard()
+        store.debugRecordRefresh(at: ProcessInfo.processInfo.systemUptime)
+        controller.menuWillOpen(NSMenu())
 
         Self.require(
             controller.debugStatusLine() == "Updated just now",
