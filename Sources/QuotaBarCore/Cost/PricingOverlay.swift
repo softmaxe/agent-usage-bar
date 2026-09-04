@@ -15,10 +15,6 @@ public struct PricingOverlay: Sendable {
         self.userOverrides = userOverrides
         self.modelsDev = modelsDev
     }
-
-    func pricing(for normalizedModel: String) -> ModelPricing? {
-        self.userOverrides[normalizedModel] ?? self.modelsDev[normalizedModel]
-    }
 }
 
 /// Whether models.dev is worth asking again. Split out from the files it reads so the rule can

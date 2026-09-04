@@ -9,7 +9,9 @@ enum PricingModelFilterVerifier {
     static func run() -> Never {
         var failures: [String] = []
 
-        let codexWhitelist = ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "codex-mini-latest"]
+        let codexWhitelist = [
+            "gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "codex-mini-latest",
+        ]
         let claudeWhitelist = [
             "claude-fable-5-1", "claude-fable-5", "claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5",
             "claude-3-5-haiku",
@@ -22,6 +24,11 @@ enum PricingModelFilterVerifier {
         self.expect(
             PricingGroup.whitelist(for: .claude) == claudeWhitelist,
             "Claude whitelist changed",
+            failures: &failures
+        )
+        self.expect(
+            PricingGroup.classify(model: "gpt-6-astra") == .codex,
+            "Astra was not classified as Codex",
             failures: &failures
         )
         self.expect(

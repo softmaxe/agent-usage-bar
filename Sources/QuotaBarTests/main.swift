@@ -200,6 +200,7 @@ do {
 }
 
 await CostTests.run()
+await AstraPricingTests.run()
 await RateLimitTests.run()
 await ClaudeRefreshTests.run()
 ProviderRefreshCooldownTests.run()

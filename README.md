@@ -21,6 +21,7 @@ QuotaBar supports Codex and Claude in one menu bar item. It is a rebuild of [Cod
 
 - Shows remaining session and weekly quota, reset time, usage pace, and credits when available.
 - Charts local Codex and Claude token use and estimated cost by day and model.
+- Prices GPT-6 Astra Standard, Fast, and long-context usage, with editable Standard rates.
 - Includes matching OpenCode and Pi Agent OpenAI OAuth usage under Codex.
 - Switches providers from one menu bar icon and refreshes each provider independently.
 - Uses built-in pricing, the public [models.dev](https://models.dev) catalog, and optional manual rate overrides.
@@ -121,6 +122,8 @@ OpenCode data is included only when its `openai` provider uses OAuth and its acc
 Pi Agent data follows the same rule. Only `openai-codex` assistant usage from a matching OAuth account is included. Pi Agent totals do not affect quota bars, and their cost is estimated from QuotaBar's model prices rather than treated as an OpenAI billing statement.
 
 The first scan of a large history may take time. Scanned rows are cached in SQLite; Codex and Claude resume from the last byte read, while OpenCode and Pi Agent deduplicate records by stable IDs. The pricing catalog is cached for 24 hours. Manual rate changes apply to new usage only, so past totals keep the prices used when they were scanned.
+
+Astra uses its complete built-in rates when a catalog entry omits cache or long-context prices. Its built-in rates follow the [official Astra model pricing](https://developers.openai.com/api/docs/models/gpt-6-astra).
 
 <p align="center">
   <img src="docs/images/settings-pricing.png" width="620" alt="Pricing settings with editable model rates">
