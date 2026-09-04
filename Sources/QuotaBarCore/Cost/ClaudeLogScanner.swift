@@ -36,8 +36,7 @@ enum ClaudeLogScanner {
         for url in files {
             let previous = cache.cursor(forPath: url.path)
             guard let plan = try? LogFileScanner.plan(for: url, previous: previous) else { continue }
-            // Nothing appended since the last scan.
-            if !plan.requiresFullReparse, plan.cursor.offset >= plan.cursor.size { continue }
+            guard plan.requiresScan else { continue }
 
             if plan.requiresFullReparse { try cache.forget(path: url.path) }
 

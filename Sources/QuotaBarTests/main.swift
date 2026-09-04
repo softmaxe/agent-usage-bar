@@ -200,6 +200,7 @@ do {
 }
 
 await CostTests.run()
+await ScannerRegressionTests.run()
 await AstraPricingTests.run()
 await RateLimitTests.run()
 await ClaudeRefreshTests.run()
