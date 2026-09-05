@@ -55,12 +55,7 @@ enum OpenCodeLogScanner {
         let dataDirectory = self.dataDirectory(env: env)
         let databaseURL = dataDirectory.appendingPathComponent("opencode.db")
         guard FileManager.default.fileExists(atPath: databaseURL.path) else {
-            do {
-                try cache.clearOpenCodeParts()
-                return Result(touched: 0, status: .idle)
-            } catch {
-                return Result(touched: 0, status: .error("cache"))
-            }
+            return Result(touched: 0, status: .idle)
         }
 
         let eligibility = self.eligibility(dataDirectory: dataDirectory, env: env)
@@ -134,7 +129,6 @@ enum OpenCodeLogScanner {
                         costUSD: cost
                     )
                 }
-                try cache.pruneOpenCodeParts(keeping: Set(rows.map(\.key)))
                 if legacy { try cache.markOpenCodeBackfillComplete() }
                 try cache.commit()
             } catch {

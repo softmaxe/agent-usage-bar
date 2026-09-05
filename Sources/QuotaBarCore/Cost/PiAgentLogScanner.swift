@@ -45,12 +45,7 @@ enum PiAgentLogScanner {
         let agentDirectory = self.agentDirectory(env: env)
         let sessionsDirectory = self.sessionsDirectory(agentDirectory: agentDirectory, env: env)
         guard FileManager.default.fileExists(atPath: sessionsDirectory.path) else {
-            do {
-                try cache.clearPiMessages()
-                return Result(touched: 0, status: .idle)
-            } catch {
-                return Result(touched: 0, status: .error("cache"))
-            }
+            return Result(touched: 0, status: .idle)
         }
 
         let eligibility = self.eligibility(agentDirectory: agentDirectory, env: env)
@@ -102,7 +97,6 @@ enum PiAgentLogScanner {
                         costUSD: cost
                     )
                 }
-                try cache.prunePiMessages(keeping: Set(rows.map(\.key)))
                 try cache.commit()
             } catch {
                 cache.rollback()

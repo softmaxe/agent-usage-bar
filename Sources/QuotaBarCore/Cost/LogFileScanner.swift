@@ -17,7 +17,12 @@ package enum LogFileScanner {
 
     /// Decides whether a file can be resumed. A changed inode, a shrunken file, or a different
     /// 64KB prefix all mean the file was rewritten rather than appended to.
-    package static func plan(for url: URL, previous: FileCursor?) throws -> ScanPlan? {
+    /// A known copy of the same session may change inode; its size and prefix must still match.
+    package static func plan(
+        for url: URL,
+        previous: FileCursor?,
+        matchingSessionCopy: Bool = false
+    ) throws -> ScanPlan? {
         let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
         guard let size = (attributes[.size] as? NSNumber)?.int64Value,
               let inode = (attributes[.systemFileNumber] as? NSNumber)?.uint64Value else {
@@ -41,7 +46,7 @@ package enum LogFileScanner {
         let currentPrefixDigest = currentPrefixBytes == priorPrefixBytes
             ? priorPrefixDigest
             : try self.prefixDigest(of: url, byteCount: currentPrefixBytes)
-        guard previous.inode == inode,
+        guard (previous.inode == inode || matchingSessionCopy),
               previous.prefixDigest == priorPrefixDigest,
               size >= previous.size else {
             return ScanPlan(

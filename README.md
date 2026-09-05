@@ -121,7 +121,9 @@ OpenCode data is included only when its `openai` provider uses OAuth and its acc
 
 Pi Agent data follows the same rule. Only `openai-codex` assistant usage from a matching OAuth account is included. Pi Agent totals do not affect quota bars, and their cost is estimated from QuotaBar's model prices rather than treated as an OpenAI billing statement.
 
-The first scan of a large history may take time. Scanned rows are cached in SQLite; Codex and Claude resume from the last byte read, while OpenCode and Pi Agent deduplicate records by stable IDs. The pricing catalog is cached for 24 hours. Manual rate changes apply to new usage only, so past totals keep the prices used when they were scanned.
+The first scan of a large history may take time. QuotaBar keeps a compact SQLite usage history with the day, model, harness, token counts, and estimated cost, plus identifiers and scan positions for deduplication. Codex and Claude resume from the last byte read, while OpenCode and Pi Agent deduplicate records by stable IDs. Deleting source sessions does not delete recorded usage, even after restarting QuotaBar. Standard Codex rollout UUIDs prevent archive moves and copies from counting twice. The chart still shows the last 30 days; older records remain stored. The pricing catalog is cached for 24 hours. Manual rate changes apply to new usage only, so past totals keep the prices used when they were scanned.
+
+On first use, QuotaBar copies any existing cost database from `~/Library/Caches/QuotaBar/cost-usage/` to the persistent location below, including committed SQLite WAL data. The old cache remains intact. Only usage already scanned can survive source deletion; sessions deleted before QuotaBar scanned them cannot be recovered. Scanner upgrades preserve recorded history instead of rebuilding it from source logs.
 
 Codex also caches the active model, service tier, and last token totals, so appending to a long session does not replay its earlier records. Astra uses its complete built-in rates when a catalog entry omits cache or long-context prices. Its built-in rates follow the [official Astra model pricing](https://developers.openai.com/api/docs/models/gpt-6-astra).
 
@@ -133,14 +135,14 @@ Cost totals are estimates. Provider billing rules, cache accounting, and price c
 
 ## Privacy and network access
 
-QuotaBar reads CLI credentials and parses local session records, but it does not write to CLI credential stores. It uses timestamps, model names, token counts, stable record IDs, and the account IDs needed to match OAuth sessions. Prompt, response, and reasoning fields are discarded rather than stored in QuotaBar's cache or uploaded.
+QuotaBar reads CLI credentials and parses local session records, but it does not write to CLI credential stores. It uses timestamps, model names, token counts, stable record IDs, and the account IDs needed to match OAuth sessions. Prompt, response, and reasoning fields are discarded rather than stored in QuotaBar's usage history or uploaded.
 
 The app stores its own data here:
 
 ```text
 ~/Library/Application Support/QuotaBar/usage-history.json
 ~/Library/Application Support/QuotaBar/pricing-overrides.json
-~/Library/Caches/QuotaBar/cost-usage/cost-usage.sqlite
+~/Library/Application Support/QuotaBar/cost-usage/cost-usage.sqlite
 ~/Library/Caches/QuotaBar/model-pricing/
 ~/Library/Preferences/com.quotabar.app.plist
 ```

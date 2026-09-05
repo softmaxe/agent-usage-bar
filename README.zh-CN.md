@@ -137,7 +137,7 @@ QuotaBar 会读取 CLI 凭据并解析本地会话记录，但不会写入 CLI �
 ```text
 ~/Library/Application Support/QuotaBar/usage-history.json
 ~/Library/Application Support/QuotaBar/pricing-overrides.json
-~/Library/Caches/QuotaBar/cost-usage/cost-usage.sqlite
+~/Library/Application Support/QuotaBar/cost-usage/cost-usage.sqlite
 ~/Library/Caches/QuotaBar/model-pricing/
 ~/Library/Preferences/com.quotabar.app.plist
 ```
