@@ -117,11 +117,9 @@ struct CostSectionView: View {
             }
             .mouseLocation(onMoved: self.updateHover, onClicked: self.handleClick)
 
-            if let topModel = self.snapshot.topModel {
-                Text("Top model: \(topModel)")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-            }
+            Text("Top model: \(self.topModel ?? "—")")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
             Text(self.disclaimer)
                 .font(.system(size: 10))
                 .foregroundStyle(.tertiary)
@@ -245,6 +243,11 @@ struct CostSectionView: View {
     }
 
     // MARK: - Hover
+
+    private var topModel: String? {
+        let day = self.bars.first { $0.dayKey == self.selectedDayKey } ?? self.detailDay
+        return day?.rankedModels(by: self.selectedLabelMode).first?.model
+    }
 
     private var detailDay: CostDay? {
         let key = self.validExpandedBreakdownDayKey ?? CostChartHighlightPolicy.detailDayKey(
