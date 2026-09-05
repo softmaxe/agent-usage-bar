@@ -24,6 +24,16 @@ jobs:
       run:
         shell: bash
     steps:
+      - name: Validate tap publishing credentials
+        if: ${{ github.event_name == 'push' && github.ref_type == 'tag' }}
+        env:
+          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+        run: |
+          if [[ -z "${TAP_GITHUB_TOKEN:-}" ]]; then
+            echo "::error::TAP_GITHUB_TOKEN is required to publish the Homebrew cask."
+            exit 1
+          fi
+
       - name: Verify native runner architecture
         env:
           EXPECTED_ARCH: ${{ matrix.arch }}
@@ -255,21 +265,26 @@ jobs:
     name: Update Homebrew tap
     if: ${{ github.event_name == 'push' && github.ref_type == 'tag' }}
     needs: release
-    runs-on: ubuntu-latest
+    runs-on: macos-15
     permissions:
       contents: read
     steps:
+      - name: Update Homebrew
+        run: brew update
+
       - name: Update tap cask
         env:
           GH_TOKEN: ${{ github.token }}
           TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_DEVELOPER: "1"
         run: |
           set -euo pipefail
           if [[ -z "${TAP_GITHUB_TOKEN:-}" ]]; then
-            echo "TAP_GITHUB_TOKEN is not set, skip tap update." >&2
+            echo "::error::TAP_GITHUB_TOKEN is required to publish the Homebrew cask." >&2
             echo "Create a PAT with repo scope and add it as TAP_GITHUB_TOKEN in softmaxe/quota-bar settings." >&2
-            exit 0
+            exit 1
           fi
 
           version="${TAG#v}"
@@ -314,6 +329,7 @@ jobs:
               count=1,
           )
           text = text.replace('-macos-#{arch}.zip', '-macos-arm64.zip')
+          text = re.sub(r',\s*verified:\s*"[^"]+"', '', text)
           if 'depends_on arch: :arm64' not in text:
               text = text.replace(
                   '  depends_on macos:',
@@ -326,6 +342,10 @@ jobs:
 
           echo "--- updated cask ---"
           cat "$cask"
+
+          # Developer mode turns deprecated cask DSL calls into errors.
+          brew info --cask "$cask"
+          brew fetch --cask "$cask"
 
           git -C "$tmp_tap" config user.name "github-actions[bot]"
           git -C "$tmp_tap" config user.email "github-actions[bot]@users.noreply.github.com"
