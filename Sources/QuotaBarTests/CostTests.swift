@@ -17,7 +17,15 @@ enum CostTests {
         Self.catalogRefreshBackoff()
         Self.legacyReadOnlyCache()
         Self.logFileScanning()
+        do {
+            try CostDatabaseLocationTests.run()
+            try await CostDatabaseLocationTests.runSchemaMigration()
+        } catch {
+            Harness.expect(false, "cost database migration tests failed: \(error)")
+        }
         await Self.scanning()
+        await Self.deletedSessionsRetainUsage()
+        await Self.replacedCodexSessionIsReparsed()
         await Self.openCodeScanning()
         await Self.openCodeFastUsageIsSeparate()
         await Self.piAgentScanning()
@@ -25,6 +33,137 @@ enum CostTests {
     }
 
     // MARK: - Pricing
+
+    private static func replacedCodexSessionIsReparsed() async {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        do {
+            let file = root.appendingPathComponent("sessions/rollout-test-\(UUID().uuidString).jsonl")
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let timestamp = ISO8601DateFormatter().string(from: Date())
+            let context = #"{"type":"turn_context","payload":{"model":"replacement-model"}}"#
+            let padding = #"{"type":"response_item","padding":"\#(String(repeating: "x", count: 70_000))"}"#
+            func transcript(_ tokens: Int) -> String {
+                let usage = #"{"type":"event_msg","timestamp":"\#(timestamp)","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":\#(tokens),"output_tokens":0}}}}"#
+                return [context, padding, usage].joined(separator: "\n") + "\n"
+            }
+            try transcript(100).write(to: file, atomically: true, encoding: .utf8)
+            let originalInode = try FileManager.default.attributesOfItem(atPath: file.path)[.systemFileNumber] as? NSNumber
+            let service = CostService(
+                databaseURL: root.appendingPathComponent("usage.sqlite"),
+                env: ["CODEX_HOME": root.path, "OPENCODE_DATA_HOME": root.path, "PI_CODING_AGENT_DIR": root.path],
+                pricingOverlay: PricingOverlay(userOverrides: ["replacement-model": ModelPricing(input: 1, output: 2)])
+            )
+            Harness.expectEqual(await service.refresh(.codex)?.windowTokens, 100, "replacement fixture is scanned")
+            try transcript(200).write(to: file, atomically: true, encoding: .utf8)
+            let replacementInode = try FileManager.default.attributesOfItem(atPath: file.path)[.systemFileNumber] as? NSNumber
+            Harness.expect(originalInode != replacementInode, "atomic replacement changes the fixture inode")
+            Harness.expectEqual(await service.refresh(.codex)?.windowTokens, 200,
+                                "same-path replacement reparses changed usage beyond an unchanged 64KB prefix")
+        } catch {
+            Harness.expect(false, "replacement fixture failed: \(error)")
+        }
+    }
+
+    private static func deletedSessionsRetainUsage() async {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        do {
+            let home = root.appendingPathComponent("codex")
+            let name = "rollout-2026-09-05T10-00-00-\(UUID().uuidString.lowercased()).jsonl"
+            let file = home.appendingPathComponent("sessions/\(name)")
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let timestamp = ISO8601DateFormatter().string(from: Date())
+            let lines = [
+                #"{"type":"turn_context","payload":{"model":"retention-model"}}"#,
+                #"{"type":"event_msg","timestamp":"\#(timestamp)","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"output_tokens":20}}}}"#,
+            ].joined(separator: "\n") + "\n"
+            try lines.write(to: file, atomically: true, encoding: .utf8)
+            let database = root.appendingPathComponent("usage.sqlite")
+            let env = ["CODEX_HOME": home.path, "XDG_DATA_HOME": root.path, "PI_CODING_AGENT_DIR": root.path]
+            let overlay = PricingOverlay(userOverrides: ["retention-model": ModelPricing(input: 1, output: 2)])
+            let first = await CostService(databaseURL: database, env: env, pricingOverlay: overlay).refresh(.codex)
+            Harness.expectEqual(first?.windowTokens, 120, "retention fixture is scanned")
+            let archive = home.appendingPathComponent("archived_sessions/\(name)")
+            try FileManager.default.createDirectory(at: archive.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.moveItem(at: file, to: archive)
+            let changedPrices = PricingOverlay(userOverrides: ["retention-model": ModelPricing(input: 100, output: 200)])
+            let moved = await CostService(databaseURL: database, env: env, pricingOverlay: changedPrices).refresh(.codex)
+            Harness.expectEqual(moved?.windowTokens, 120, "archiving a Codex session does not double count")
+            Harness.expectClose(moved?.windowCostUSD, 0.00014, "archiving retains the original price")
+            try FileManager.default.copyItem(at: archive, to: file)
+            let copied = await CostService(databaseURL: database, env: env, pricingOverlay: changedPrices).refresh(.codex)
+            Harness.expectEqual(copied?.windowTokens, 120, "simultaneous archive copies are counted once")
+            Harness.expectClose(copied?.windowCostUSD, 0.00014, "a copied session retains the original price")
+            try FileManager.default.removeItem(at: home.appendingPathComponent("sessions"))
+            try FileManager.default.removeItem(at: home.appendingPathComponent("archived_sessions"))
+            let restarted = CostService(databaseURL: database, env: env, pricingOverlay: changedPrices)
+            let retained = await restarted.refresh(.codex)
+            Harness.expectEqual(retained?.windowTokens, 120, "deleted sessions retain tokens after restart")
+            Harness.expectClose(retained?.windowCostUSD, 0.00014, "deleted sessions retain their frozen cost")
+            Harness.expectEqual(await restarted.knownModelUsage(provider: .codex),
+                                [ModelUsageTotal(model: "retention-model", tokens: 120)],
+                                "deleted sessions remain in model usage")
+            Harness.expectEqual(retained?.days.first?.dayKey, DayKey.make(from: ISO8601.parse(timestamp)!),
+                                "retained usage keeps its original day")
+            Harness.expectEqual(retained?.days.first?.rankedModels.first?.key.source, .codex,
+                                "retained usage keeps its harness")
+
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try lines.write(to: file, atomically: true, encoding: .utf8)
+            let restored = await restarted.refresh(.codex)
+            Harness.expectEqual(restored?.windowTokens, 120, "restoring a deleted session does not duplicate usage")
+            Harness.expectClose(restored?.windowCostUSD, 0.00014, "restoring a session keeps its frozen price")
+            if let handle = try? FileHandle(forWritingTo: file) {
+                try handle.seekToEnd()
+                let turn = #"{"type":"event_msg","timestamp":"\#(timestamp)","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"output_tokens":20}}}}"#
+                try handle.write(contentsOf: Data((turn + "\n").utf8))
+                try handle.close()
+            }
+            let appended = await restarted.refresh(.codex)
+            Harness.expectEqual(appended?.windowTokens, 240, "restored sessions continue incremental scanning")
+            Harness.expectClose(appended?.windowCostUSD, 0.01414, "only appended usage receives the new price")
+            try FileManager.default.createDirectory(at: archive.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try lines.write(to: archive, atomically: true, encoding: .utf8)
+            try FileManager.default.removeItem(at: file)
+            let olderArchive = await restarted.refresh(.codex)
+            Harness.expectEqual(olderArchive?.windowTokens, 240, "deleting a live session preserves usage beyond an older archive copy")
+            Harness.expectClose(olderArchive?.windowCostUSD, 0.01414, "an older archive cannot replace recorded costs")
+
+            let claudeHome = root.appendingPathComponent("claude")
+            let claudeFile = claudeHome.appendingPathComponent("projects/demo/session.jsonl")
+            try FileManager.default.createDirectory(at: claudeFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let claudeLine = #"{"type":"assistant","timestamp":"\#(timestamp)","requestId":"retained-request","message":{"id":"retained-message","model":"retention-model","usage":{"input_tokens":100,"output_tokens":20},"content":"PRIVATE_TRANSCRIPT_SENTINEL"}}"# + "\n"
+            try claudeLine.write(to: claudeFile, atomically: true, encoding: .utf8)
+            let claudeEnv = ["CLAUDE_CONFIG_DIR": claudeHome.path]
+            let claude = await CostService(databaseURL: database, env: claudeEnv, pricingOverlay: overlay).refresh(.claude)
+            Harness.expectEqual(claude?.windowTokens, 120, "Claude retention fixture is scanned")
+            try FileManager.default.removeItem(at: claudeHome)
+            let claudeRetained = await CostService(databaseURL: database, env: claudeEnv, pricingOverlay: changedPrices).refresh(.claude)
+            Harness.expectEqual(claudeRetained?.windowTokens, 120, "Claude usage survives deleting its session directory and restart")
+            Harness.expectClose(claudeRetained?.windowCostUSD, 0.00014, "deleted Claude usage keeps its price")
+            Harness.expectEqual(claudeRetained?.days.first?.rankedModels.first?.key.source, .claude,
+                                "deleted Claude usage keeps its harness")
+            for suffix in ["", "-wal"] {
+                if let data = try? Data(contentsOf: URL(fileURLWithPath: database.path + suffix)) {
+                    Harness.expect(data.range(of: Data("PRIVATE_TRANSCRIPT_SENTINEL".utf8)) == nil,
+                                   "usage storage discards conversation content")
+                }
+            }
+
+            // A scanner-version marker from an older release must not erase durable history.
+            var db: OpaquePointer?
+            if sqlite3_open(database.path, &db) == SQLITE_OK {
+                sqlite3_exec(db, "PRAGMA user_version = 6", nil, nil, nil)
+            }
+            sqlite3_close(db)
+            let upgraded = await CostService(databaseURL: database, env: claudeEnv, pricingOverlay: changedPrices).refresh(.claude)
+            Harness.expectEqual(upgraded?.windowTokens, 120, "scanner version changes preserve deleted-source history")
+            Harness.expectClose(upgraded?.windowCostUSD, 0.00014, "scanner version changes preserve frozen prices")
+        } catch {
+            Harness.expect(false, "session retention fixture failed: \(error)")
+        }
+    }
 
     private static func iso8601Parsing() {
         let fractional = ISO8601DateFormatter()
@@ -681,11 +820,11 @@ enum CostTests {
 
         sqlite3_exec(db, "DELETE FROM part WHERE id = 'part-1'", nil, nil, nil)
         let pruned = await service.refresh(.codex)
-        Harness.expectEqual(pruned?.windowTokens, 150, "deleted OpenCode parts are pruned after a successful scan")
+        Harness.expectEqual(pruned?.windowTokens, 400, "deleted OpenCode parts retain their usage")
 
         insert("unknown", model: "future-openai-model")
         let unknown = await service.refresh(.codex)
-        Harness.expectEqual(unknown?.windowTokens, 300, "unknown OpenAI models still count tokens")
+        Harness.expectEqual(unknown?.windowTokens, 550, "unknown OpenAI models still count tokens")
         Harness.expectEqual(unknown?.hasUnpricedTokens, true, "unknown OpenAI models are unpriced")
 
         let formatter = ISO8601DateFormatter()
@@ -700,7 +839,7 @@ enum CostTests {
         try? codexLines.write(to: codexLog, atomically: true, encoding: .utf8)
         sqlite3_exec(db, "ALTER TABLE message RENAME TO broken_message", nil, nil, nil)
         let sourceFailure = await service.refresh(.codex)
-        Harness.expectEqual(sourceFailure?.windowTokens, 310, "OpenCode schema errors retain cache while Codex keeps scanning")
+        Harness.expectEqual(sourceFailure?.windowTokens, 560, "OpenCode schema errors retain history while Codex keeps scanning")
         let lunaSources = Set(sourceFailure?.days.first?.rankedModels
             .filter { $0.model == "gpt-5.6-luna" }
             .map { $0.key.source } ?? [])
@@ -717,7 +856,7 @@ enum CostTests {
 
         try? FileManager.default.removeItem(at: source)
         let removed = await service.refresh(.codex)
-        Harness.expectEqual(removed?.windowTokens, 10, "a removed OpenCode database clears its cached usage")
+        Harness.expectEqual(removed?.windowTokens, 560, "a removed OpenCode database retains its usage")
         Harness.expectEqual(await service.currentOpenCodeScanStatus(), .idle, "a removed OpenCode database is idle")
     }
 
@@ -821,13 +960,13 @@ enum CostTests {
         )
         write([message("two"), message("unknown", model: "future-codex-model")])
         let pruned = await service.refresh(.codex)
-        Harness.expectEqual(pruned?.windowTokens, 200, "Pi removes messages missing from the source")
+        Harness.expectEqual(pruned?.windowTokens, 400, "Pi retains messages missing from the source")
         Harness.expectEqual(pruned?.hasUnpricedTokens, true, "unknown Pi models keep unpriced tokens")
 
         try? "invalid".write(to: agentHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8)
         write([])
         let authFailure = await service.refresh(.codex)
-        Harness.expectEqual(authFailure?.windowTokens, 200, "Pi auth errors retain cached totals")
+        Harness.expectEqual(authFailure?.windowTokens, 400, "Pi auth errors retain recorded totals")
         if case .error = await service.currentPiAgentScanStatus() {
             Harness.expect(true, "Pi auth error status is exposed")
         } else {
@@ -836,7 +975,7 @@ enum CostTests {
 
         try? FileManager.default.removeItem(at: sessions)
         let removed = await service.refresh(.codex)
-        Harness.expectEqual(removed?.windowTokens, 0, "a missing Pi sessions directory clears cached usage")
+        Harness.expectEqual(removed?.windowTokens, 400, "a missing Pi sessions directory retains usage")
         Harness.expectEqual(await service.currentPiAgentScanStatus(), .idle, "missing Pi sessions are idle")
     }
 

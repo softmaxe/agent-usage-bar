@@ -10,7 +10,7 @@ public struct ModelUsageTotal: Sendable, Equatable {
     }
 }
 
-/// Owns the scan cache and produces cost snapshots. An actor because the SQLite connection is
+/// Owns the persistent usage store and produces cost snapshots. An actor because the SQLite connection is
 /// single-writer and scans run off the main thread.
 public actor CostService {
     private var cache: CostCache?
@@ -33,13 +33,9 @@ public actor CostService {
         self.overlay = pricingOverlay
     }
 
-    /// `~/Library/Caches/QuotaBar/cost-usage/cost-usage.sqlite`.
+    /// `~/Library/Application Support/QuotaBar/cost-usage/cost-usage.sqlite`.
     public static var defaultDatabaseURL: URL {
-        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSTemporaryDirectory())
-        return caches
-            .appendingPathComponent("QuotaBar/cost-usage", isDirectory: true)
-            .appendingPathComponent("cost-usage.sqlite")
+        CostDatabaseLocation.defaultURL
     }
 
     public func refresh(_ provider: Provider) async -> CostSnapshot? {
@@ -126,6 +122,9 @@ public actor CostService {
 
     private func openCache() throws -> CostCache {
         if let cache = self.cache { return cache }
+        if self.databaseURL == Self.defaultDatabaseURL {
+            try CostDatabaseLocation.migrateIfNeeded(from: CostDatabaseLocation.legacyURL, to: self.databaseURL)
+        }
         let cache = try CostCache(path: self.databaseURL)
         self.cache = cache
         return cache

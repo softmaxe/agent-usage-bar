@@ -30,7 +30,6 @@ enum ClaudeLogScanner {
         env: [String: String] = ProcessInfo.processInfo.environment
     ) throws -> Int {
         let files = LogFileScanner.jsonlFiles(under: self.projectRoots(env: env))
-        try cache.pruneMissingFiles(provider: .claude, keeping: Set(files.map(\.path)))
 
         var touched = 0
         for url in files {
@@ -38,10 +37,9 @@ enum ClaudeLogScanner {
             guard let plan = try? LogFileScanner.plan(for: url, previous: previous) else { continue }
             guard plan.requiresScan else { continue }
 
-            if plan.requiresFullReparse { try cache.forget(path: url.path) }
-
             try cache.beginTransaction()
             do {
+                if plan.requiresFullReparse { try cache.forget(path: url.path) }
                 var parseError: Error?
                 let newOffset = try LogFileScanner.readLines(
                     of: url,

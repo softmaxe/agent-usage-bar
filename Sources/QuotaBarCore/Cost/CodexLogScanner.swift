@@ -23,16 +23,21 @@ enum CodexLogScanner {
         overlay: PricingOverlay?,
         env: [String: String] = ProcessInfo.processInfo.environment
     ) throws -> Int {
-        let files = LogFileScanner.jsonlFiles(under: self.sessionRoots(env: env))
-        try cache.pruneMissingFiles(provider: .codex, keeping: Set(files.map(\.path)))
+        let files = Self.uniqueRollouts(LogFileScanner.jsonlFiles(under: self.sessionRoots(env: env)))
+        let storedPaths = try Self.retainedPaths(cache: cache)
 
         var touched = 0
         for url in files {
-            let previous = cache.cursor(forPath: url.path)
-            guard let plan = try? LogFileScanner.plan(for: url, previous: previous) else { continue }
+            let sessionID = Self.sessionID(url)
+            let path = sessionID.flatMap { storedPaths[$0] } ?? url.path
+            let previous = cache.cursor(forPath: path)
+            guard let plan = try? LogFileScanner.plan(
+                for: url, previous: previous,
+                matchingSessionCopy: sessionID != nil && (path != url.path || previous?.inode == 0)
+            ) else { continue }
+            // Deleting the live file may leave an older archive copy. It cannot roll history back.
+            if sessionID != nil, let previous, plan.cursor.size < previous.size { continue }
             guard plan.requiresScan else { continue }
-
-            if plan.requiresFullReparse { try cache.forget(path: url.path) }
 
             // New caches persist the state at the cursor. The replay fallback upgrades caches
             // written by older app versions without forcing another full parse.
@@ -43,6 +48,7 @@ enum CodexLogScanner {
 
             try cache.beginTransaction()
             do {
+                if plan.requiresFullReparse { try cache.forget(path: path) }
                 var parseError: Error?
                 let newOffset = try LogFileScanner.readLines(
                     of: url,
@@ -54,7 +60,7 @@ enum CodexLogScanner {
                     do {
                         try Self.ingest(
                             line: buffer,
-                            path: url.path,
+                            path: path,
                             cache: cache,
                             overlay: overlay,
                             state: &state
@@ -72,7 +78,7 @@ enum CodexLogScanner {
                         prefixDigest: plan.cursor.prefixDigest,
                         resumeStateJSON: try Self.encodedState(state)
                     ),
-                    forPath: url.path,
+                    forPath: path,
                     provider: .codex
                 )
                 try cache.commit()
@@ -83,6 +89,62 @@ enum CodexLogScanner {
             }
         }
         return touched
+    }
+
+    /// Standard rollout names end in the session UUID, which survives archive moves and copies.
+    /// Unrecognised names keep their path identity to avoid merging unrelated logs.
+    private static func sessionID(_ url: URL) -> UUID? {
+        let name = url.deletingPathExtension().lastPathComponent
+        guard name.hasPrefix("rollout-"), name.count >= 44 else { return nil }
+        return UUID(uuidString: String(name.suffix(36)))
+    }
+
+    private static func uniqueRollouts(_ files: [URL]) -> [URL] {
+        var byID: [UUID: URL] = [:]
+        var others: [URL] = []
+        for url in files.sorted(by: { $0.path < $1.path }) {
+            guard let id = Self.sessionID(url) else { others.append(url); continue }
+            if let previous = byID[id] {
+                // A live copy may have more turns than the archived one.
+                let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+                let previousSize = (try? previous.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+                if size > previousSize { byID[id] = url }
+            } else {
+                byID[id] = url
+            }
+        }
+        return (others + byID.values).sorted { $0.path < $1.path }
+    }
+
+    private static func retainedPaths(cache: CostCache) throws -> [UUID: String] {
+        var paths: [UUID: String] = [:]
+        let tracked = try cache.codexTrackedPaths()
+        try cache.beginTransaction()
+        do {
+            for path in tracked {
+                guard let id = Self.sessionID(URL(fileURLWithPath: path)) else { continue }
+                if paths[id] == nil {
+                    paths[id] = path
+                    if !FileManager.default.fileExists(atPath: path),
+                       let cursor = cache.cursor(forPath: path), cursor.inode != 0 {
+                        // Zero records observed deletion. A restored copy can resume, while an
+                        // atomic replacement of a file that stayed present still forces a reparse.
+                        try cache.setCursor(FileCursor(
+                            inode: 0, size: cursor.size, offset: cursor.offset,
+                            prefixDigest: cursor.prefixDigest, resumeStateJSON: cursor.resumeStateJSON
+                        ), forPath: path, provider: .codex)
+                    }
+                } else {
+                    // Older versions could count a rollout in both roots. Keep its longest scan.
+                    try cache.forget(path: path)
+                }
+            }
+            try cache.commit()
+        } catch {
+            cache.rollback()
+            throw error
+        }
+        return paths
     }
 
     /// What a resumed scan has to know about the bytes it is skipping past.

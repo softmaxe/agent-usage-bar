@@ -1,4 +1,4 @@
-// Incremental scan cache, modelled on CodexBar's opencodex-usage sqlite store
+// Persistent compact usage store, modelled on CodexBar's opencodex-usage sqlite store
 // (MIT, © 2026 Peter Steinberger).
 //
 // Rescanning ~750MB of JSONL on every refresh is not viable, so each file's parse position is
@@ -11,6 +11,7 @@ private let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self
 
 /// Where a file was left off. A file is resumable only if its identity still matches.
 package struct FileCursor {
+    /// Zero marks a Codex rollout whose deletion was observed, so a restored copy can resume.
     package let inode: UInt64
     package let size: Int64
     package let offset: Int64
@@ -39,7 +40,7 @@ final class CostCache {
 
     /// `readOnly` opens a second connection alongside the writer's. WAL lets it read while a
     /// scan is running, which is how a query can skip the queue behind `CostService`'s actor.
-    /// Such a connection creates nothing: no directory, no schema, no semantics rebuild.
+    /// Such a connection creates nothing: no directory or schema.
     init(path: URL, readOnly: Bool = false) throws {
         if readOnly {
             guard sqlite3_open_v2(path.path, &self.db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
@@ -57,14 +58,9 @@ final class CostCache {
         }
         try self.exec("PRAGMA journal_mode=WAL")
         try self.exec("PRAGMA synchronous=NORMAL")
-        try self.rebuildIfScanSemanticsChanged()
+        // Usage is durable history. Schema upgrades must preserve rows whose source is gone.
         try self.createSchema()
     }
-
-    /// Bumped whenever a scan would write different numbers for the same bytes — a parser change,
-    /// a different token split, a change in what a stored cost means. The rows are a derivative of
-    /// the scanner, and costs are frozen at scan time, so neither can be corrected in place.
-    private static let scanSemanticsVersion = 7
 
     deinit {
         if let db = self.db { sqlite3_close(db) }
@@ -83,22 +79,13 @@ final class CostCache {
         )
         """)
         try self.addColumnIfMissing(table: "file_cursor", name: "resume_state", definition: "TEXT")
-        // Codex turns carry no message identity, but a turn appears in exactly one rollout file,
-        // so per-file day/model rows are enough.
-        try self.exec("""
-        CREATE TABLE IF NOT EXISTS codex_day (
-            path TEXT NOT NULL,
-            day TEXT NOT NULL,
-            model TEXT NOT NULL,
-            long_context INTEGER NOT NULL,
-            is_fast INTEGER NOT NULL,
-            input INTEGER NOT NULL,
-            output INTEGER NOT NULL,
-            cache_write INTEGER NOT NULL,
-            cache_read INTEGER NOT NULL,
-            PRIMARY KEY (path, day, model, long_context, is_fast)
-        )
-        """)
+        try self.createCodexDayTable()
+        // Version 6 added these columns without rebuilding the table. Add them first so the
+        // primary-key migration below can copy every historical value with one fixed statement.
+        try self.addColumnIfMissing(table: "codex_day", name: "cost_usd", definition: "REAL")
+        try self.addColumnIfMissing(table: "codex_day", name: "unpriced_tokens", definition: "INTEGER")
+        try self.addColumnIfMissing(table: "codex_day", name: "cache_write_1h", definition: "INTEGER NOT NULL DEFAULT 0")
+        try self.migrateLegacyCodexDayIfNeeded()
         // Claude replays the same assistant message into several transcripts, so rows are keyed
         // by message identity; a replay updates the row rather than adding to it.
         try self.exec("""
@@ -135,6 +122,7 @@ final class CostCache {
             unpriced_tokens INTEGER NOT NULL
         )
         """)
+        try self.addColumnIfMissing(table: "opencode_part", name: "is_fast", definition: "INTEGER NOT NULL DEFAULT 0")
         try self.exec("CREATE INDEX IF NOT EXISTS opencode_part_day ON opencode_part(day)")
         try self.exec("""
         CREATE TABLE IF NOT EXISTS pi_message (
@@ -163,47 +151,79 @@ final class CostCache {
         // Older caches stored only token buckets, so every refresh re-priced history with the
         // newest override. Nullable columns let the service identify and freeze those legacy rows
         // once, without dropping or rebuilding the scan cache.
-        try self.addColumnIfMissing(table: "codex_day", name: "cost_usd", definition: "REAL")
-        try self.addColumnIfMissing(table: "codex_day", name: "unpriced_tokens", definition: "INTEGER")
         try self.addColumnIfMissing(table: "claude_message", name: "cost_usd", definition: "REAL")
         try self.addColumnIfMissing(table: "claude_message", name: "unpriced_tokens", definition: "INTEGER")
 
         // The one-hour cache-write subset, split out once Anthropic's higher rate for it was
         // applied. Zero for Codex, which offers no choice of cache lifetime.
-        try self.addColumnIfMissing(table: "codex_day", name: "cache_write_1h", definition: "INTEGER NOT NULL DEFAULT 0")
         try self.addColumnIfMissing(table: "claude_message", name: "cache_write_1h", definition: "INTEGER NOT NULL DEFAULT 0")
     }
 
-    /// Throws away the parsed rows and every cursor when the scanner's semantics have moved on,
-    /// so the next refresh re-reads the logs under the current rules. The logs are the source of
-    /// truth; this cache only ever holds a re-derivable view of them.
-    private func rebuildIfScanSemanticsChanged() throws {
-        guard try self.userVersion() != Self.scanSemanticsVersion else { return }
-        for table in [
-            "claude_message",
-            "codex_day",
-            "opencode_part",
-            "pi_message",
-            "opencode_state",
-            "file_cursor",
-        ] {
-            try self.exec("DROP TABLE IF EXISTS \(table)")
-        }
-        try self.exec("PRAGMA user_version = \(Self.scanSemanticsVersion)")
-        Log.ui.info("cost cache rebuilt for scan semantics v\(Self.scanSemanticsVersion, privacy: .public)")
+    /// Codex turns carry no message identity, but a turn appears in exactly one rollout file,
+    /// so per-file day/model/tier rows are enough.
+    private func createCodexDayTable() throws {
+        try self.exec("""
+        CREATE TABLE IF NOT EXISTS codex_day (
+            path TEXT NOT NULL,
+            day TEXT NOT NULL,
+            model TEXT NOT NULL,
+            long_context INTEGER NOT NULL,
+            is_fast INTEGER NOT NULL,
+            input INTEGER NOT NULL,
+            output INTEGER NOT NULL,
+            cache_write INTEGER NOT NULL,
+            cache_write_1h INTEGER NOT NULL DEFAULT 0,
+            cache_read INTEGER NOT NULL,
+            cost_usd REAL,
+            unpriced_tokens INTEGER,
+            PRIMARY KEY (path, day, model, long_context, is_fast)
+        )
+        """)
     }
 
-    private func userVersion() throws -> Int {
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(self.db, "PRAGMA user_version", -1, &stmt, nil) == SQLITE_OK else {
-            throw CostCacheError.statementFailed(self.lastErrorMessage)
+    private func migrateLegacyCodexDayIfNeeded() throws {
+        guard !(try self.columnExists(table: "codex_day", name: "is_fast")) else { return }
+
+        try self.exec("BEGIN IMMEDIATE")
+        do {
+            try self.exec("ALTER TABLE codex_day RENAME TO codex_day_legacy")
+            try self.createCodexDayTable()
+            try self.exec("""
+            INSERT INTO codex_day
+                (path, day, model, long_context, is_fast, input, output, cache_write,
+                 cache_write_1h, cache_read, cost_usd, unpriced_tokens)
+            SELECT path, day, model, long_context, 0, input, output, cache_write,
+                   cache_write_1h, cache_read, cost_usd, unpriced_tokens
+            FROM codex_day_legacy
+            """)
+            try self.exec("DROP TABLE codex_day_legacy")
+            try self.exec("COMMIT")
+        } catch {
+            try? self.exec("ROLLBACK")
+            throw error
         }
-        guard sqlite3_step(stmt) == SQLITE_ROW else { return 0 }
-        return Int(sqlite3_column_int64(stmt, 0))
     }
 
     // MARK: - Cursors
+
+    /// Largest completed scan first, for choosing one retained copy of a Codex rollout.
+    func codexTrackedPaths() throws -> [String] {
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(self.db,
+            "SELECT path FROM file_cursor WHERE provider = 'codex' ORDER BY offset DESC, size DESC, path",
+            -1, &stmt, nil) == SQLITE_OK else {
+            throw CostCacheError.statementFailed(self.lastErrorMessage)
+        }
+        var paths: [String] = []
+        var result = sqlite3_step(stmt)
+        while result == SQLITE_ROW {
+            paths.append(String(cString: sqlite3_column_text(stmt, 0)))
+            result = sqlite3_step(stmt)
+        }
+        guard result == SQLITE_DONE else { throw CostCacheError.statementFailed(self.lastErrorMessage) }
+        return paths
+    }
 
     func cursor(forPath path: String) -> FileCursor? {
         var stmt: OpaquePointer?
@@ -275,28 +295,6 @@ final class CostCache {
                 throw CostCacheError.statementFailed(self.lastErrorMessage)
             }
         }
-    }
-
-    /// Removes rows for files that no longer exist, so deleted transcripts stop counting.
-    /// Scoped to one provider: each scanner only knows its own roots, and an unscoped prune
-    /// would delete the other provider's rows every time.
-    func pruneMissingFiles(provider: Provider, keeping livePaths: Set<String>) throws {
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(
-            self.db,
-            "SELECT path FROM file_cursor WHERE provider = ?",
-            -1,
-            &stmt,
-            nil
-        ) == SQLITE_OK else { return }
-        sqlite3_bind_text(stmt, 1, provider.rawValue, -1, sqliteTransient)
-        var stale: [String] = []
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            let path = String(cString: sqlite3_column_text(stmt, 0))
-            if !livePaths.contains(path) { stale.append(path) }
-        }
-        for path in stale { try self.forget(path: path) }
     }
 
     // MARK: - Writes
@@ -482,15 +480,6 @@ final class CostCache {
         }
     }
 
-    func pruneOpenCodeParts(keeping keys: Set<String>) throws {
-        try self.pruneRows(table: "opencode_part", keeping: keys)
-    }
-
-    func clearOpenCodeParts() throws {
-        try self.exec("DELETE FROM opencode_part")
-        try self.exec("DELETE FROM opencode_state")
-    }
-
     func addPiMessage(
         key: String,
         included: Bool,
@@ -537,34 +526,6 @@ final class CostCache {
         sqlite3_bind_int64(stmt, 12, Int64(costUSD == nil ? totals.total : 0))
         guard sqlite3_step(stmt) == SQLITE_DONE else {
             throw CostCacheError.statementFailed(self.lastErrorMessage)
-        }
-    }
-
-    func prunePiMessages(keeping keys: Set<String>) throws {
-        try self.pruneRows(table: "pi_message", keeping: keys)
-    }
-
-    func clearPiMessages() throws { try self.exec("DELETE FROM pi_message") }
-
-    private func pruneRows(table: String, keeping keys: Set<String>) throws {
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(self.db, "SELECT key FROM \(table)", -1, &stmt, nil) == SQLITE_OK else {
-            throw CostCacheError.statementFailed(self.lastErrorMessage)
-        }
-        var stale: [String] = []
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            let key = String(cString: sqlite3_column_text(stmt, 0))
-            if !keys.contains(key) { stale.append(key) }
-        }
-        for key in stale {
-            var delete: OpaquePointer?
-            defer { sqlite3_finalize(delete) }
-            guard sqlite3_prepare_v2(self.db, "DELETE FROM \(table) WHERE key = ?", -1, &delete, nil) == SQLITE_OK else {
-                throw CostCacheError.statementFailed(self.lastErrorMessage)
-            }
-            sqlite3_bind_text(delete, 1, key, -1, sqliteTransient)
-            guard sqlite3_step(delete) == SQLITE_DONE else { throw CostCacheError.statementFailed(self.lastErrorMessage) }
         }
     }
 
@@ -822,15 +783,20 @@ final class CostCache {
     }
 
     private func addColumnIfMissing(table: String, name: String, definition: String) throws {
+        guard !(try self.columnExists(table: table, name: name)) else { return }
+        try self.exec("ALTER TABLE \(table) ADD COLUMN \(name) \(definition)")
+    }
+
+    private func columnExists(table: String, name: String) throws -> Bool {
         var stmt: OpaquePointer?
         defer { sqlite3_finalize(stmt) }
         guard sqlite3_prepare_v2(self.db, "PRAGMA table_info(\(table))", -1, &stmt, nil) == SQLITE_OK else {
             throw CostCacheError.statementFailed(self.lastErrorMessage)
         }
         while sqlite3_step(stmt) == SQLITE_ROW {
-            if String(cString: sqlite3_column_text(stmt, 1)) == name { return }
+            if String(cString: sqlite3_column_text(stmt, 1)) == name { return true }
         }
-        try self.exec("ALTER TABLE \(table) ADD COLUMN \(name) \(definition)")
+        return false
     }
 
     private func tableExists(_ table: String) throws -> Bool {
