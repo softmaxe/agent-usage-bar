@@ -19,11 +19,6 @@ enum UsageBarFillPolicy {
     static let rolloverDuration: TimeInterval = 0.95
     static let glideDuration: TimeInterval = 0.35
 
-    /// Presenting already-known data must not manufacture a quota animation.
-    static func onPresentation() -> Fill {
-        .snap
-    }
-
     /// The value changed while the card was already on screen.
     static func onValueChange(from oldPercent: Double, to newPercent: Double) -> Fill {
         newPercent - oldPercent >= Self.rolloverJumpPoints

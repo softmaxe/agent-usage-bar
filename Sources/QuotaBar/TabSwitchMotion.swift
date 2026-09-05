@@ -50,6 +50,7 @@ enum TabSwitchMotion {
         )
     }
 
+#if DEBUG
     /// Where the curve has got to `time` seconds in. The animation solves this itself; this
     /// exists so the verifier can sample the pill's shape over the whole travel rather than
     /// trusting that two durations imply it.
@@ -77,4 +78,5 @@ enum TabSwitchMotion {
         let inverse = 1 - t
         return 3 * inverse * inverse * t * p1 + 3 * inverse * t * t * p2 + t * t * t
     }
+#endif
 }

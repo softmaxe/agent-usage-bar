@@ -166,7 +166,7 @@ struct UsageProgressBar: View {
             // A card that opens with a celebration already queued starts on it, not on the static
             // presentation path.
             if self.startCelebrationIfWanted() { return }
-            self.apply(UsageBarFillPolicy.onPresentation())
+            self.apply(.snap)
         }
         .onDisappear {
             self.celebration.stop()
@@ -264,7 +264,7 @@ struct UsageProgressBar: View {
         // Reduce Motion turns the whole thing off: a bar springing and glowing in the menu bar is
         // exactly what that setting exists to stop.
         guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
-            self.apply(UsageBarFillPolicy.onPresentation())
+            self.apply(.snap)
             return true
         }
         self.replayStartPercent = nil

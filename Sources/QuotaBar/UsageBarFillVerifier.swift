@@ -7,15 +7,11 @@ import SwiftUI
 /// highlighting and the menu toggles are.
 enum UsageBarFillVerifier {
     private static let label = "usage bar fill verification"
-    private static let passed = "usage bar static presentation, rollover, and drift fill checks passed"
+    private static let passed = "usage bar rollover and drift fill checks passed"
 
     @MainActor
     static func run() -> Never {
         var failures: [String] = []
-
-        if UsageBarFillPolicy.onPresentation() != .snap {
-            failures.append("opening the card did not show the existing reading statically")
-        }
 
         // A window rollover: the provider hands back a full quota in one step.
         let rollover = UsageBarFillPolicy.onValueChange(from: 2, to: 100)
